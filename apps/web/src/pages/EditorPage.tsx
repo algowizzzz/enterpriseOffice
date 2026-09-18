@@ -34,6 +34,11 @@ export function EditorPage({ documentId, onBack }: EditorPageProps): JSX.Element
   const [shares, setShares] = useState<ShareEntry[] | null>(null);
   const [directory, setDirectory] = useState<User[]>([]);
   const revision = useRef(0);
+  // Bumped to remount the editing surface. The editor takes its content once,
+  // when it is created, so replacing the text wholesale means giving it a new
+  // instance. This used to reload the whole page, which threw away the scroll
+  // position and every other piece of page state along with it.
+  const [surface, setSurface] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -98,20 +103,30 @@ export function EditorPage({ documentId, onBack }: EditorPageProps): JSX.Element
       setVersions(null);
       return;
     }
-    const { versions: list } = await api.listVersions(documentId);
-    setVersions(list);
+    try {
+      const { versions: list } = await api.listVersions(documentId);
+      setVersions(list);
+    } catch (caught) {
+      setError(caught instanceof ApiError ? caught.message : 'Could not load the version history.');
+    }
   };
 
   const restore = async (target: number): Promise<void> => {
     if (!window.confirm(`Restore revision ${target}? The current text is kept as a new version.`)) {
       return;
     }
-    const { document: restored } = await api.restoreVersion(documentId, target);
-    revision.current = restored.revision;
-    setDocument(restored);
-    setTitle(restored.title);
-    setVersions(null);
-    window.location.reload();
+    try {
+      const { document: restored } = await api.restoreVersion(documentId, target);
+      revision.current = restored.revision;
+      setDocument(restored);
+      setTitle(restored.title);
+      setVersions(null);
+      setSaveState('saved');
+      setError(null);
+      setSurface((count) => count + 1);
+    } catch (caught) {
+      setError(caught instanceof ApiError ? caught.message : 'Could not restore that version.');
+    }
   };
 
   const openSharing = async (): Promise<void> => {
@@ -119,12 +134,16 @@ export function EditorPage({ documentId, onBack }: EditorPageProps): JSX.Element
       setShares(null);
       return;
     }
-    const [{ shares: list }, { users }] = await Promise.all([
-      api.listShares(documentId),
-      api.listUsers(),
-    ]);
-    setShares(list);
-    setDirectory(users.filter((candidate) => candidate.id !== user?.id));
+    try {
+      const [{ shares: list }, { users }] = await Promise.all([
+        api.listShares(documentId),
+        api.listUsers(),
+      ]);
+      setShares(list);
+      setDirectory(users.filter((candidate) => candidate.id !== user?.id));
+    } catch (caught) {
+      setError(caught instanceof ApiError ? caught.message : 'Could not load the sharing list.');
+    }
   };
 
   if (error && !document) {
@@ -267,6 +286,7 @@ export function EditorPage({ documentId, onBack }: EditorPageProps): JSX.Element
       ) : null}
 
       <DocumentEditor
+        key={surface}
         initialContent={document.content}
         readOnly={readOnly ?? false}
         onDirty={() => setSaveState((current) => (current === 'saving' ? current : 'dirty'))}

@@ -1,0 +1,64 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# The build must not need the network at run time. It still needs a registry to
+# install from, which is what a release build does once on a connected machine.
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test
+        run: npm test
+
+      - name: Build
+        run: npm run build
+
+      - name: Audit the browser bundle for remote URLs
+        run: npm run audit:airgap
+
+      # Starts the bundled server for real and walks the whole user journey,
+      # with a probe that fails the run if the process reaches past loopback.
+      - name: End-to-end smoke test
+        run: npm run test:e2e
+
+      - name: Check for known vulnerabilities
+        run: npm audit --audit-level=moderate
+
+  coverage:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Server coverage
+        run: npx vitest run --coverage --root apps/server
+
+      - name: Client coverage
+        run: npx vitest run --coverage --root apps/web

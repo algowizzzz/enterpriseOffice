@@ -76,6 +76,14 @@ const detail = (over: Partial<DocumentDetail> = {}): DocumentDetail => ({
   ...over,
 });
 
+/** The restore control belonging to one revision in the history list. */
+async function restoreButtonFor(revision: number): Promise<HTMLElement> {
+  const label = await screen.findByText(new RegExp(`Revision ${revision} by`, 'u'));
+  const row = label.closest('li');
+  if (!row) throw new Error(`No history row for revision ${revision}`);
+  return within(row).getByRole('button', { name: 'Restore' });
+}
+
 /** Render a page inside a session that is already signed in as `user`. */
 async function renderSignedIn(ui: React.ReactElement, user: User = EDITOR) {
   mocked['me'].mockResolvedValue({ user });
@@ -594,6 +602,119 @@ describe('editor page', () => {
 
     await user.click(screen.getByRole('button', { name: 'History' }));
     await waitFor(() => expect(screen.queryByText('Version history')).not.toBeInTheDocument());
+  });
+
+  it('restores an earlier version and shows its text without reloading the page', async () => {
+    mocked['getDocument'].mockResolvedValue({ document: detail() });
+    mocked['listVersions'].mockResolvedValue({
+      versions: [
+        { revision: 2, title: 'Quarterly Report', authorName: 'Eddie Editor', createdAt: '2026-01-02T10:30:00.000Z' },
+        { revision: 1, title: 'Quarterly Report', authorName: 'Eddie Editor', createdAt: '2026-01-02T09:30:00.000Z' },
+      ],
+    });
+    mocked['restoreVersion'].mockResolvedValue({
+      document: detail({
+        revision: 4,
+        content: {
+          type: 'doc',
+          content: [{ type: 'paragraph', content: [{ type: 'text', text: 'The older wording' }] }],
+        },
+      }),
+    });
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    const user = userEvent.setup();
+    await renderSignedIn(<EditorPage documentId="doc-1" onBack={() => {}} />);
+
+    await user.click(await screen.findByRole('button', { name: 'History' }));
+    await user.click(await restoreButtonFor(1));
+
+    await waitFor(() => expect(mocked['restoreVersion']).toHaveBeenCalledWith('doc-1', 1));
+    // The editing surface is remounted with the restored text, rather than the
+    // whole page being reloaded.
+    // The title field is also a textbox, so name the editing surface itself.
+    await waitFor(() =>
+      expect(screen.getByRole('textbox', { name: 'Document body' })).toHaveTextContent(
+        'The older wording',
+      ),
+    );
+    expect(screen.queryByText('Version history')).not.toBeInTheDocument();
+  });
+
+  it('does not restore when the question is dismissed', async () => {
+    mocked['getDocument'].mockResolvedValue({ document: detail() });
+    mocked['listVersions'].mockResolvedValue({
+      versions: [
+        { revision: 2, title: 'Q', authorName: 'E', createdAt: '2026-01-02T10:30:00.000Z' },
+        { revision: 1, title: 'Q', authorName: 'E', createdAt: '2026-01-02T09:30:00.000Z' },
+      ],
+    });
+    vi.spyOn(window, 'confirm').mockReturnValue(false);
+    const user = userEvent.setup();
+    await renderSignedIn(<EditorPage documentId="doc-1" onBack={() => {}} />);
+    await user.click(await screen.findByRole('button', { name: 'History' }));
+    await user.click(await restoreButtonFor(1));
+    expect(mocked['restoreVersion']).not.toHaveBeenCalled();
+  });
+
+  it('reports a restore that failed', async () => {
+    mocked['getDocument'].mockResolvedValue({ document: detail() });
+    mocked['listVersions'].mockResolvedValue({
+      versions: [
+        { revision: 2, title: 'Q', authorName: 'E', createdAt: '2026-01-02T10:30:00.000Z' },
+        { revision: 1, title: 'Q', authorName: 'E', createdAt: '2026-01-02T09:30:00.000Z' },
+      ],
+    });
+    mocked['restoreVersion'].mockRejectedValue(new ApiError(404, 'NOT_FOUND', 'Version not found'));
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    const user = userEvent.setup();
+    await renderSignedIn(<EditorPage documentId="doc-1" onBack={() => {}} />);
+    await user.click(await screen.findByRole('button', { name: 'History' }));
+    await user.click(await restoreButtonFor(1));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Version not found');
+  });
+
+  it('reports a version history that could not be loaded', async () => {
+    mocked['getDocument'].mockResolvedValue({ document: detail() });
+    mocked['listVersions'].mockRejectedValue(new ApiError(500, 'INTERNAL_ERROR', 'Something went wrong.'));
+    const user = userEvent.setup();
+    await renderSignedIn(<EditorPage documentId="doc-1" onBack={() => {}} />);
+    await user.click(await screen.findByRole('button', { name: 'History' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Something went wrong.');
+  });
+
+  it('reports a sharing list that could not be loaded', async () => {
+    mocked['getDocument'].mockResolvedValue({ document: detail() });
+    mocked['listShares'].mockRejectedValue(new ApiError(500, 'INTERNAL_ERROR', 'Something went wrong.'));
+    mocked['listUsers'].mockResolvedValue({ users: [] });
+    const user = userEvent.setup();
+    await renderSignedIn(<EditorPage documentId="doc-1" onBack={() => {}} />);
+    await user.click(await screen.findByRole('button', { name: 'Share' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Something went wrong.');
+  });
+
+  it('closes the sharing panel when the button is pressed again', async () => {
+    mocked['getDocument'].mockResolvedValue({ document: detail() });
+    mocked['listShares'].mockResolvedValue({ shares: [] });
+    mocked['listUsers'].mockResolvedValue({ users: [] });
+    const user = userEvent.setup();
+    await renderSignedIn(<EditorPage documentId="doc-1" onBack={() => {}} />);
+
+    await user.click(await screen.findByRole('button', { name: 'Share' }));
+    expect(await screen.findByText('Not shared with anyone yet.')).toBeInTheDocument();
+    await user.click(screen.getAllByRole('button', { name: 'Share' })[0] as HTMLElement);
+    await waitFor(() => expect(screen.queryByText('Sharing')).not.toBeInTheDocument());
+  });
+
+  it('ignores a share submitted with nobody chosen', async () => {
+    mocked['getDocument'].mockResolvedValue({ document: detail() });
+    mocked['listShares'].mockResolvedValue({ shares: [] });
+    mocked['listUsers'].mockResolvedValue({ users: [ADMIN] });
+    const user = userEvent.setup();
+    await renderSignedIn(<EditorPage documentId="doc-1" onBack={() => {}} />);
+    await user.click(await screen.findByRole('button', { name: 'Share' }));
+    const form = document.querySelector('form.share-form') as HTMLFormElement;
+    form.requestSubmit();
+    await waitFor(() => expect(mocked['share']).not.toHaveBeenCalled());
   });
 
   it('offers sharing to the owner and lists who has access', async () => {
