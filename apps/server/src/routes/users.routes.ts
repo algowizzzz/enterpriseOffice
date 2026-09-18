@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { badRequest, conflict } from '../errors.js';
 import { passwordProblems } from '../lib/password.js';
+import { emailSchema } from '../lib/validation.js';
 import { listAudit, recordAudit } from '../services/audit.js';
 import {
   countActiveAdmins,
@@ -33,7 +34,7 @@ export async function registerUserRoutes(app: FastifyInstance): Promise<void> {
     const actor = await app.requireAdmin(request);
     const body = z
       .object({
-        email: z.string().trim().email().max(254),
+        email: emailSchema,
         name: z.string().trim().min(1).max(120),
         password: z.string().min(1).max(200),
         role: roleSchema,

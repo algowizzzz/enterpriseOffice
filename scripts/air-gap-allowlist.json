@@ -1,0 +1,15 @@
+{
+  "comment": "Remote URLs that appear as literal strings inside bundled scripts but are never fetched at runtime. Every entry needs a reason. Verify a new entry by searching the source, not by assuming.",
+  "allowed": [
+    {
+      "url": "https://react.dev/errors/",
+      "reason": "React builds this address into the text of its minified error messages. It is concatenated into a thrown Error string and printed to the console. Nothing fetches it.",
+      "source": "react-dom, formatProdErrorMessage"
+    },
+    {
+      "url": "https://prosemirror.net/docs/guide/#generatable",
+      "reason": "ProseMirror puts this address in the message of the error it throws when a schema cannot generate a required node. It is developer guidance in a string, never requested.",
+      "source": "prosemirror-model, ContentMatch"
+    }
+  ]
+}

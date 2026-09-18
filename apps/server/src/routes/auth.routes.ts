@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { SESSION_COOKIE } from '../app.js';
 import { badRequest, unauthorized } from '../errors.js';
 import { verifyPassword, passwordProblems } from '../lib/password.js';
+import { emailSchema } from '../lib/validation.js';
 import { createSession, revokeSession } from '../services/sessions.js';
 import { recordAudit } from '../services/audit.js';
 import {
@@ -16,7 +17,7 @@ import {
 } from '../services/users.js';
 
 const credentials = z.object({
-  email: z.string().trim().min(3).max(254).email('Enter a valid email address'),
+  email: emailSchema,
   password: z.string().min(1).max(200),
 });
 

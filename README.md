@@ -2,48 +2,145 @@
 
 A collaborative, browser-based word processor for air-gapped deployment.
 
-- **Air-gapped.** No CDN, no telemetry, no outbound network calls at runtime.
-- **Two targets.** A Linux server for teams, and a single Windows laptop that
+- **Air gapped.** No CDN, no web fonts, no telemetry. Two checks enforce it: the
+  browser bundle is audited for remote URLs, and the end-to-end test runs the
+  server behind a probe that fails the run if it dials any address beyond the
+  loopback interface.
+- **Two targets.** A Linux server for a team, and a single Windows laptop that
   runs the same stack locally.
-- **Multi-user.** Real-time co-editing, presence, comments, track changes.
-- **Word-compatible.** OOXML-aligned document model with `.docx` import/export.
-- **Clean licensing.** MIT/BSD/Apache-2.0/OFL only. No GPL or AGPL in the bundle.
+- **Enterprise shaped.** Roles, per-document sharing, version history, an
+  append-only audit trail, session revocation and optimistic concurrency.
+- **Word compatible.** Upload a `.docx`, edit it, export it back.
+- **Clean licensing.** MIT, BSD, Apache-2.0 and SIL OFL only. No GPL or AGPL.
 
-## Documentation
+## What works today
 
-| Doc | What it covers |
+A complete portal. Sign in, manage accounts, start a document from scratch or
+upload a Word file, edit it with a formatting ribbon, and export it again.
+
+| Area | Included |
 |---|---|
-| [`docs/01-architecture.md`](docs/01-architecture.md) | Licensing analysis of existing editors, the two viable architectures, the full permissive stack, system diagram, phased plan |
-| [`docs/02-feature-matrix.md`](docs/02-feature-matrix.md) | Every Word and OnlyOffice ribbon tab, each feature tagged out-of-box / config / custom / server, with effort by workstream |
+| Accounts | Seed administrator on first start, sign in and out, change password, administrator-created accounts, password reset, disable and enable |
+| Roles | Administrator, editor, viewer |
+| Sharing | Per-document view or edit grants, owner-only control |
+| Documents | Create blank, upload `.docx`, autosave, rename, delete |
+| Editing | Headings, bold, italic, underline, strikethrough, superscript, subscript, highlight, colour, font family and size, alignment, lists, block quotes, links, images, tables, horizontal rules, undo and redo, live word count |
+| History | Every save kept as a version, with restore |
+| Export | `.docx` and plain text, as a browser download |
+| Safety | Optimistic concurrency, structural validation of every save, audit trail, rate-limited sign-in, content security policy |
+
+Real-time co-editing is designed but not built. The document model and the
+storage layer were chosen so that a CRDT layer drops in without reshaping them.
+See the architecture document.
+
+## Try it
+
+```
+npm ci
+npm run verify
+DOCFORGE_ADMIN_PASSWORD='Choose-A-Strong-One-1' npm start
+```
+
+Open `http://127.0.0.1:8080` and sign in as `admin@localhost`.
+
+For development with hot reload, run the two sides separately:
+
+```
+npm run dev:server     # http://127.0.0.1:8080
+npm run dev:web        # http://127.0.0.1:5173, proxies the API
+```
+
+## Commands
+
+| Command | What it does |
+|---|---|
+| `npm run verify` | Everything below, in order. Run this before shipping. |
+| `npm run typecheck` | TypeScript across the server and the client |
+| `npm test` | Unit and integration suites for both sides |
+| `npm run build` | Browser bundle, then the single-file server bundle |
+| `npm run audit:airgap` | Fails if the browser bundle references an unreviewed remote URL |
+| `npm run test:e2e` | Starts the built server and walks the whole user journey over HTTP |
+
+## Testing
+
+Three layers, all runnable offline.
+
+**Server suite.** Fastify in-process injection over a fresh in-memory database
+per test. Covers authentication, session revocation, role enforcement, the last
+administrator rule, document access control, optimistic concurrency, version
+history, the audit trail, and a full `.docx` export and import round trip.
+
+**Client suite.** The editor rendered in jsdom. Checks that the toolbar acts on
+the document and, importantly, that what the editor produces passes the same
+validator the server applies on save, so the two cannot drift apart.
+
+**End-to-end smoke test.** `scripts/smoke-test.mjs` starts the bundled server as
+a real process and drives it over HTTP with a cookie jar: seed the
+administrator, create an account, start a document, type, save, reject a stale
+save, export `.docx`, upload that file back, confirm the heading, bullet and
+bold survived, check access control, read the version history, load the client,
+and sign out. It also asserts the server opened no outbound connection.
 
 ## Layout
 
 ```
 packages/
-  model/    ProseMirror schema, styles, numbering, section properties (pure TS)
-  layout/   Pagination engine: (doc, fonts, pageSetup) -> pages
-  ooxml/    .docx codec (parser + serializer), runs in a Web Worker
-  editor/   ProseMirror plugins: commands, tables, comments, track changes, find
-  collab/   Yjs bindings, awareness, offline cache
-  ui/       React ribbon, dialogs, panes (shadcn/ui)
-  assets/   OFL fonts, Hunspell dictionaries, hyphenation patterns
+  model/    Node and mark vocabulary, validation, word count, outline (pure TS)
 apps/
-  web/      Vite app
-  server/   Node: Hocuspocus, REST, persistence, conversion worker
-  desktop/  Tauri launcher for Windows
-deploy/
-  docker/ systemd/ windows/
+  server/   Fastify API, SQLite storage, docx import and export
+  web/      React client, Tiptap editor, formatting ribbon
+scripts/    Build, air-gap audit, outbound probe, smoke test
+deploy/     Docker, systemd, Windows
+docs/       Architecture and the Word feature matrix
 ```
 
-Build order: `model` -> `editor` + `collab` -> `ooxml` + `layout` -> `ui`.
-`ooxml` and `layout` both depend on a stable schema and will push changes
-back into `model`, so stabilise that first.
+The model package is shared by both sides on purpose. The server validates every
+save against the same node and mark vocabulary the editor is configured with, so
+an extension cannot be added to the editor without the server learning about it.
 
-## Status
+## Documentation
 
-Design phase. No application code yet.
+| Doc | What it covers |
+|---|---|
+| [`docs/01-architecture.md`](docs/01-architecture.md) | Licence analysis of existing editors, the two viable architectures, the full permissive stack, system diagram, phased plan |
+| [`docs/02-feature-matrix.md`](docs/02-feature-matrix.md) | Every Word and OnlyOffice ribbon tab, each feature tagged out-of-box, config, custom or server, with effort by workstream |
+| [`deploy/README.md`](deploy/README.md) | Building release artifacts and installing on Linux, Docker and Windows |
+
+## Technology
+
+| Layer | Choice | Licence |
+|---|---|---|
+| Editor engine | ProseMirror through Tiptap, open-source extensions only | MIT |
+| Client | React, Vite, TypeScript | MIT, Apache-2.0 |
+| Server | Fastify on Node 22 | MIT |
+| Database | `node:sqlite`, built into Node | MIT |
+| Password hashing | scrypt from `node:crypto` | MIT |
+| docx import | mammoth | BSD-2 |
+| docx export | docx | MIT |
+| Validation | zod | MIT |
+
+Two deliberate choices are worth calling out. The database is Node's own SQLite,
+so there is no native module to compile on the target machine, which matters
+when the target has no compiler and no network. Passwords use scrypt from the
+standard library for the same reason: no native dependency, and a memory-hard
+function rather than a plain hash.
+
+## Known limits
+
+- `node:sqlite` is marked experimental in Node 22. The storage layer is narrow
+  and behind one module, so moving to PostgreSQL or `better-sqlite3` is a
+  contained change.
+- Import and export go through mammoth and docx, which handle text, headings,
+  lists, tables, images and the common character formatting. Styles, numbering
+  definitions, headers and footers, sections and unknown parts are not yet
+  preserved. The project's own OOXML codec, planned in the architecture
+  document, is what makes a round trip lossless.
+- Lists use the nested structure ProseMirror provides rather than Word's flat
+  paragraphs with numbering properties. That is the right model for fidelity and
+  is scheduled with the OOXML work.
+- There is no pagination yet, so the editor shows one continuous page. The
+  layout engine is the largest remaining workstream.
 
 ## Licence
 
-MIT. See [`LICENSE`](LICENSE) and [`docs/01-architecture.md`](docs/01-architecture.md)
-for the dependency licence audit.
+MIT. See [`LICENSE`](LICENSE).

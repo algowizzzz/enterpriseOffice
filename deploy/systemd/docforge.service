@@ -1,0 +1,34 @@
+[Unit]
+Description=DocForge document portal
+After=network.target
+
+[Service]
+Type=simple
+User=docforge
+Group=docforge
+WorkingDirectory=/opt/docforge
+EnvironmentFile=/etc/docforge/docforge.env
+ExecStart=/usr/bin/node --disable-warning=ExperimentalWarning /opt/docforge/server.mjs
+Restart=on-failure
+RestartSec=5
+
+# The service reads and writes only its own data directory.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/docforge
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictNamespaces=true
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+
+# The portal never makes outbound connections. Restricting it to the loopback
+# and local network families makes that a property of the system, not a promise.
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+
+[Install]
+WantedBy=multi-user.target

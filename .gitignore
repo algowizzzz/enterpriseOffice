@@ -16,3 +16,8 @@ vendor/offline-cache/
 packages/assets/fonts/*.ttf
 packages/assets/fonts/*.woff2
 packages/assets/dictionaries/
+
+# Build and test artifacts
+apps/server/dist/
+apps/web/dist/
+data/

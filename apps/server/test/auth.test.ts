@@ -169,6 +169,29 @@ describe('authentication', () => {
     expect(response.statusCode).toBe(401);
   });
 
+  it('accepts a body-less POST that declares a JSON content type', async () => {
+    // Regression: the browser client sets a JSON content type on every request.
+    // Sign out sends no body, and rejecting that broke sign out in the real app.
+    const admin = await registerFirstAdmin(app);
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/auth/logout',
+      headers: { ...authHeader(admin), 'content-type': 'application/json' },
+      payload: '',
+    });
+    expect(response.statusCode).toBe(200);
+  });
+
+  it('still rejects a body that is not valid JSON', async () => {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/auth/login',
+      headers: { 'content-type': 'application/json' },
+      payload: '{not json',
+    });
+    expect(response.statusCode).toBe(400);
+  });
+
   it('serves a health check without authentication', async () => {
     const response = await app.inject({ method: 'GET', url: '/api/health' });
     expect(response.statusCode).toBe(200);

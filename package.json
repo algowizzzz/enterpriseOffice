@@ -11,11 +11,17 @@
     "node": ">=20"
   },
   "scripts": {
-    "dev": "npm run dev --workspace apps/web",
-    "build": "npm run build --workspaces --if-present",
-    "typecheck": "tsc --build",
-    "lint": "eslint .",
-    "test": "npm run test --workspaces --if-present",
-    "audit:offline": "node scripts/check-no-remote-urls.mjs"
+    "dev": "npm run dev --workspace @docforge/server & npm run dev --workspace @docforge/web",
+    "dev:server": "npm run dev --workspace @docforge/server",
+    "dev:web": "npm run dev --workspace @docforge/web",
+    "build": "npm run build:web && npm run build:server",
+    "build:web": "npm run build --workspace @docforge/web",
+    "build:server": "node scripts/bundle-server.mjs",
+    "start": "node --disable-warning=ExperimentalWarning apps/server/dist/server.mjs",
+    "typecheck": "tsc --noEmit -p apps/server/tsconfig.json && tsc --noEmit -p apps/web/tsconfig.json",
+    "test": "npm run test --workspace @docforge/server && npm run test --workspace @docforge/web",
+    "test:e2e": "node scripts/smoke-test.mjs",
+    "audit:airgap": "node scripts/check-no-remote-urls.mjs",
+    "verify": "npm run typecheck && npm test && npm run build && npm run audit:airgap && npm run test:e2e"
   }
 }

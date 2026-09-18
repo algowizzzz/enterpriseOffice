@@ -13,9 +13,10 @@ import { existsSync } from 'node:fs';
 import { ZodError } from 'zod';
 import { loadConfig, type Config } from './config.js';
 import { openDatabase, type Database } from './db.js';
-import { HttpError, unauthorized, forbidden } from './errors.js';
+import { HttpError, unauthorized, forbidden, badRequest } from './errors.js';
 import { resolveSession } from './services/sessions.js';
 import { countUsers, createUser } from './services/users.js';
+import { isValidEmail } from './lib/validation.js';
 import type { Role } from './services/users.js';
 import { registerAuthRoutes } from './routes/auth.routes.js';
 import { registerUserRoutes } from './routes/users.routes.js';
@@ -71,6 +72,26 @@ export async function buildApp(options: BuildOptions = {}): Promise<FastifyInsta
     bodyLimit: 16 * 1024 * 1024,
     trustProxy: true,
   });
+
+  // Several endpoints take no body. A client that sets a JSON content type and
+  // sends nothing is a common mistake, and rejecting it produces a confusing
+  // error, so an empty JSON body is read as an empty object instead.
+  app.addContentTypeParser(
+    'application/json',
+    { parseAs: 'string' },
+    (_request, body: string | Buffer, done) => {
+      const text = typeof body === 'string' ? body.trim() : body.toString('utf8').trim();
+      if (text.length === 0) {
+        done(null, {});
+        return;
+      }
+      try {
+        done(null, JSON.parse(text));
+      } catch {
+        done(badRequest('The request body is not valid JSON'), undefined);
+      }
+    },
+  );
 
   app.decorate('db', db);
   app.decorate('config', config);
@@ -215,6 +236,12 @@ export async function buildApp(options: BuildOptions = {}): Promise<FastifyInsta
 async function ensureBootstrapAdmin(app: FastifyInstance): Promise<void> {
   const { db, config } = app;
   if (countUsers(db) > 0) return;
+  if (!isValidEmail(config.bootstrapAdminEmail)) {
+    // Fail loudly rather than creating an account nobody can sign in to.
+    throw new Error(
+      `DOCFORGE_ADMIN_EMAIL is not a valid email address: "${config.bootstrapAdminEmail}"`,
+    );
+  }
   if (config.bootstrapAdminPassword.length === 0) {
     app.log.warn(
       'No users exist and DOCFORGE_ADMIN_PASSWORD is not set. Set it and restart to create the first administrator.',
