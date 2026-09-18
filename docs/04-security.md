@@ -135,8 +135,10 @@ for it. That one is also checked against a page that deliberately loads a remote
 image.
 
 So there are three controls, at three different layers: what is written into the
-bundle, what the page asks for, and what the server dials. The systemd unit
-restricts the service further, and a firewall should do the rest. There is no telemetry, no update check and no font or script fetched at
+bundle, what the page asks for, and what the server dials.
+
+The systemd unit restricts the service further, and a firewall should do the
+rest. There is no telemetry, no update check, and no font or script fetched at
 run time.
 
 ## Auditing
