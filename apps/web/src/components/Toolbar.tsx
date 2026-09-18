@@ -107,6 +107,12 @@ export function Toolbar({ editor, disabled = false }: ToolbarProps): JSX.Element
       reader.onload = () => {
         // readAsDataURL always yields a string, but the type allows a buffer.
         if (typeof reader.result !== 'string') return;
+        // A file the system has no type for reads back as "data:;base64,…",
+        // which is not an image and cannot be stored.
+        if (!/^data:image\/[a-z0-9.+-]+;base64,/iu.test(reader.result)) {
+          window.alert('That file was not recognised as a PNG, JPEG or GIF image.');
+          return;
+        }
         editor.chain().focus().setImage({ src: reader.result }).run();
       };
       reader.readAsDataURL(file);

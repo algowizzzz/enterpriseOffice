@@ -734,6 +734,76 @@ describe('editor page', () => {
     expect(screen.getByLabelText('Document title')).toHaveValue('Restored');
   });
 
+  it('sends an edit made after a restore, rather than stranding it', async () => {
+    // Regression: the stale save's answer arrived after the restore, the loop
+    // returned on the generation mismatch, and anything queued in between was
+    // left sitting there with the badge claiming everything was saved.
+    mocked['getDocument'].mockResolvedValue({ document: detail() });
+    mocked['listVersions'].mockResolvedValue({
+      versions: [
+        { revision: 3, title: 'Q', authorName: 'E', createdAt: '2026-01-02T10:30:00.000Z' },
+        { revision: 1, title: 'Q', authorName: 'E', createdAt: '2026-01-02T09:30:00.000Z' },
+      ],
+    });
+    mocked['restoreVersion'].mockResolvedValue({ document: detail({ revision: 9, title: 'Restored' }) });
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+
+    const titles: (string | undefined)[] = [];
+    let release: () => void = () => {};
+    let first = true;
+    mocked['saveDocument'].mockImplementation(async (_id: string, payload: { title?: string }) => {
+      titles.push(payload.title);
+      if (first) {
+        first = false;
+        await new Promise<void>((resolve) => {
+          release = resolve;
+        });
+      }
+      return { document: detail({ revision: 10, title: payload.title ?? 'Restored' }) };
+    });
+
+    const user = userEvent.setup();
+    await renderSignedIn(<EditorPage documentId="doc-1" onBack={() => {}} />);
+
+    const title = await screen.findByLabelText('Document title');
+    await user.clear(title);
+    await user.type(title, 'Before restore');
+    await user.tab();
+    await screen.findByText('Saving…');
+
+    await user.click(await screen.findByRole('button', { name: 'History' }));
+    await user.click(await restoreButtonFor(1));
+    await waitFor(() => expect(screen.getByLabelText('Document title')).toHaveValue('Restored'));
+
+    // An edit made after the restore, while the first save is still out there.
+    const restored = screen.getByLabelText('Document title');
+    await user.clear(restored);
+    await user.type(restored, 'After restore');
+    await user.tab();
+
+    release();
+
+    await waitFor(() => expect(titles).toContain('After restore'));
+    await waitFor(() => expect(screen.getByText('All changes saved')).toBeInTheDocument());
+  });
+
+  it('keeps a save failure on screen while a download succeeds', async () => {
+    mocked['getDocument'].mockResolvedValue({ document: detail() });
+    mocked['saveDocument'].mockRejectedValue(new ApiError(500, 'INTERNAL_ERROR', 'Something went wrong.'));
+    const user = userEvent.setup();
+    await renderSignedIn(<EditorPage documentId="doc-1" onBack={() => {}} />);
+
+    const title = await screen.findByLabelText('Document title');
+    await user.clear(title);
+    await user.type(title, 'Renamed');
+    await user.tab();
+    expect(await screen.findByRole('alert')).toHaveTextContent('Something went wrong.');
+
+    await user.click(screen.getByRole('button', { name: 'Export .docx' }));
+    // The save still failed; downloading says nothing about that.
+    expect(screen.getByRole('alert')).toHaveTextContent('Something went wrong.');
+  });
+
   it('reports a download that failed rather than saying nothing', async () => {
     mocked['getDocument'].mockResolvedValue({ document: detail() });
     (downloadExport as unknown as ReturnType<typeof vi.fn>).mockRejectedValue(

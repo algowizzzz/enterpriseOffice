@@ -10,6 +10,29 @@ import type { Extensions } from '@tiptap/react';
 import { WordNavigation } from './wordNavigation';
 
 /**
+ * Pictures must be embedded in the document itself.
+ *
+ * A remote address would make the page fetch something, which the air gap
+ * forbids and the content security policy blocks, and the server refuses to
+ * store one. Rejecting it at the parse step means a pasted remote image is
+ * dropped as it arrives, rather than appearing in the editor and then quietly
+ * vanishing when the document is saved.
+ */
+const EmbeddedImage = Image.extend({
+  parseHTML() {
+    return [
+      {
+        tag: 'img[src]',
+        getAttrs: (element) => {
+          const src = (element).getAttribute('src') ?? '';
+          return /^data:image\/[a-z0-9.+-]+;base64,/iu.test(src) ? null : false;
+        },
+      },
+    ];
+  },
+});
+
+/**
  * The editor's extension set.
  *
  * It must stay in step with the node and mark vocabulary in `@docforge/model`,
@@ -39,7 +62,7 @@ export const editorExtensions: Extensions = [
   Superscript,
   Subscript,
   TextAlign.configure({ types: ['heading', 'paragraph'] }),
-  Image.configure({ inline: true, allowBase64: true }),
+  EmbeddedImage.configure({ inline: true, allowBase64: true }),
   Table.configure({ resizable: true }),
   TableRow,
   TableHeader,

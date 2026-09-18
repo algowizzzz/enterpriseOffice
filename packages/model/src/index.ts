@@ -348,3 +348,96 @@ export function validateDoc(value: unknown): ValidationResult {
   }
   return { ok: errors.length === 0, errors };
 }
+
+/**
+ * Make a document satisfy `validateDoc`.
+ *
+ * The editor accepts whatever pasted markup carries, and a document can also
+ * arrive from an uploaded file. Tightening a rule on the server without this
+ * meant one pasted image or hyperlink made a document impossible to save, for
+ * ever, with nothing on screen to say which element was at fault. That happened
+ * twice. So the rules live in one place and the client repairs against them
+ * rather than each rule being a new way to strand somebody's work.
+ *
+ * The repair is conservative:
+ *   an attribute a node cannot do without, such as an image's source, is not
+ *   repairable, so the node is dropped;
+ *   any other bad attribute is removed, leaving the node with its default;
+ *   a mark whose required attribute is bad is dropped, keeping the text.
+ */
+export function sanitizeDocument(doc: PMNode): PMNode {
+  return sanitizeNode(doc) ?? emptyDoc();
+}
+
+function sanitizeAttrs(
+  kind: string,
+  attrs: Record<string, unknown> | undefined,
+  exempt: ReadonlySet<string>,
+): { attrs?: Record<string, unknown>; drop: boolean } {
+  const required = new Set(REQUIRED_ATTRS[kind] ?? []);
+  if (!attrs || typeof attrs !== 'object' || Array.isArray(attrs)) {
+    // A node that cannot do without an attribute, and carries none at all, is
+    // not repairable. Skipping this check let the repair disagree with the
+    // rules, which is the whole way a document becomes impossible to save.
+    return { drop: required.size > 0 };
+  }
+
+  for (const name of required) {
+    if (!(name in attrs)) return { drop: true };
+  }
+
+  const kept: Record<string, unknown> = {};
+  for (const [name, value] of Object.entries(attrs).slice(0, 64)) {
+    const check = ATTR_CHECKS[name];
+    const valid = check && !exempt.has(name) ? check(value) : isPlainAttrValue(value);
+    if (valid) {
+      kept[name] = value;
+    } else if (required.has(name)) {
+      return { drop: true };
+    }
+  }
+  return { attrs: kept, drop: false };
+}
+
+function sanitizeNode(node: PMNode, depth = 0): PMNode | null {
+  if (depth > 100) return null;
+  if (typeof node?.type !== 'string' || !KNOWN_NODES.has(node.type)) return null;
+
+  const exempt = node.type === NODE.image ? NO_EXEMPTIONS : NOT_AN_IMAGE;
+  const attrs = sanitizeAttrs(node.type, node.attrs, exempt);
+  if (attrs.drop) return null;
+
+  const clean: PMNode = { type: node.type };
+  if (attrs.attrs && Object.keys(attrs.attrs).length > 0) clean.attrs = attrs.attrs;
+
+  if (node.type === NODE.text) {
+    if (typeof node.text !== 'string') return null;
+    clean.text = node.text;
+  }
+
+  if (node.marks) {
+    const marks: PMMark[] = [];
+    for (const mark of node.marks) {
+      if (typeof mark?.type !== 'string' || !KNOWN_MARKS.has(mark.type)) continue;
+      const markAttrs = sanitizeAttrs(`mark:${mark.type}`, mark.attrs, NOT_AN_IMAGE);
+      if (markAttrs.drop) continue;
+      marks.push(
+        markAttrs.attrs && Object.keys(markAttrs.attrs).length > 0
+          ? { type: mark.type, attrs: markAttrs.attrs }
+          : { type: mark.type },
+      );
+    }
+    if (marks.length > 0) clean.marks = marks;
+  }
+
+  if (node.content) {
+    const content: PMNode[] = [];
+    for (const child of node.content) {
+      const cleaned = sanitizeNode(child, depth + 1);
+      if (cleaned) content.push(cleaned);
+    }
+    if (content.length > 0) clean.content = content;
+  }
+
+  return clean;
+}

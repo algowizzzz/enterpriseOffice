@@ -93,7 +93,7 @@ export function EditorPage({ documentId, onBack }: EditorPageProps): JSX.Element
       if (inFlight.current) return;
 
       inFlight.current = true;
-      const startedAt = generation.current;
+      let startedAt = generation.current;
       try {
         while (queued.current) {
           const next = queued.current;
@@ -104,13 +104,25 @@ export function EditorPage({ documentId, onBack }: EditorPageProps): JSX.Element
               ...next,
               expectedRevision: revision.current,
             });
-            if (generation.current !== startedAt) return;
+            if (generation.current !== startedAt) {
+              // The document was replaced while this was on its way, so its
+              // answer says nothing about the document now open. Returning here
+              // left anything queued since the replacement stranded, with the
+              // badge claiming everything was saved.
+              startedAt = generation.current;
+              continue;
+            }
             revision.current = saved.revision;
             setDocument((current) => (current ? { ...current, ...saved } : saved));
             setError(null);
             if (!queued.current) setSaveState(typedSinceQueued.current ? 'dirty' : 'saved');
           } catch (caught) {
-            if (generation.current !== startedAt) return;
+            if (generation.current !== startedAt) {
+              // The failure belongs to a document that is no longer open, and
+              // so does the payload that caused it.
+              startedAt = generation.current;
+              continue;
+            }
             // Put the work back so it is not lost, whatever went wrong.
             queued.current = { ...next, ...(queued.current ?? {}) };
             if (caught instanceof ApiError && caught.status === 409) {
@@ -150,7 +162,6 @@ export function EditorPage({ documentId, onBack }: EditorPageProps): JSX.Element
   const download = async (format: 'docx' | 'txt'): Promise<void> => {
     try {
       await downloadExport(documentId, format);
-      setError(null);
     } catch (caught) {
       setError(caught instanceof ApiError ? caught.message : 'Could not download this document.');
     }

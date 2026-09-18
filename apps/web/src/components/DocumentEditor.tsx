@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type JSX } from 'react';
 import { EditorContent, useEditor } from '@tiptap/react';
-import type { PMNode } from '@docforge/model';
+import { sanitizeDocument, type PMNode } from '@docforge/model';
 import { editorExtensions } from './editorExtensions';
 import { Toolbar } from './Toolbar';
 
@@ -44,7 +44,9 @@ export function DocumentEditor({
   const editor = useEditor(
     {
       extensions: editorExtensions,
-      content: initialContent,
+      // Repaired on the way in as well, so a document written before a rule
+      // existed, or by something that is not this editor, can still be saved.
+      content: sanitizeDocument(initialContent),
       editable: !readOnly,
       editorProps: {
         attributes: {
@@ -60,7 +62,10 @@ export function DocumentEditor({
         onDirty();
         if (timer.current) clearTimeout(timer.current);
         timer.current = setTimeout(() => {
-          onChange(instance.getJSON() as PMNode);
+          // Repaired on the way out. Pasted markup can carry a remote image or
+          // an odd hyperlink, and tightening a server rule without this made a
+          // single paste enough to strand a document for ever.
+          onChange(sanitizeDocument(instance.getJSON() as PMNode));
         }, AUTOSAVE_DEBOUNCE_MS);
       },
     },
