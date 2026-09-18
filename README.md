@@ -82,14 +82,16 @@ Install it where you want it with `npm install --no-save playwright`.
 
 Three layers, all runnable offline.
 
-**Server suite.** Fastify in-process injection over a fresh in-memory database
-per test. Covers authentication, session revocation, role enforcement, the last
-administrator rule, document access control, optimistic concurrency, version
-history, the audit trail, and a full `.docx` export and import round trip.
+**Server suite.** 253 tests. Fastify in-process injection over a fresh in-memory
+database per test. Covers authentication, session revocation, role enforcement,
+the last administrator rule, document access control, optimistic concurrency,
+version history, the audit trail, migrations, configuration, and the `.docx`
+codec in both directions including hostile input.
 
-**Client suite.** The editor rendered in jsdom. Checks that the toolbar acts on
-the document and, importantly, that what the editor produces passes the same
-validator the server applies on save, so the two cannot drift apart.
+**Client suite.** 140 tests in jsdom, with the server module replaced. Covers the
+request wrapper, the session provider, the router, all four pages and every
+ribbon control. Several tests assert that what the editor produces passes the
+same validator the server applies on save, so the two cannot drift apart.
 
 **Browser walkthrough.** Sign in, type a document, apply a heading, insert a
 table, open the history, and visit administration, in Chromium, capturing each
@@ -126,7 +128,12 @@ an extension cannot be added to the editor without the server learning about it.
 |---|---|
 | [`docs/01-architecture.md`](docs/01-architecture.md) | Licence analysis of existing editors, the two viable architectures, the full permissive stack, system diagram, phased plan |
 | [`docs/02-feature-matrix.md`](docs/02-feature-matrix.md) | Every Word and OnlyOffice ribbon tab, each feature tagged out-of-box, config, custom or server, with effort by workstream |
+| [`docs/03-api-reference.md`](docs/03-api-reference.md) | Every endpoint, the error shape, roles and limits |
+| [`docs/04-security.md`](docs/04-security.md) | Trust boundaries, the controls, and what is deliberately out of scope |
+| [`docs/05-testing.md`](docs/05-testing.md) | The four test layers, how to run them, and what each has caught |
 | [`deploy/README.md`](deploy/README.md) | Building release artifacts and installing on Linux, Docker and Windows |
+| [`CONTRIBUTING.md`](CONTRIBUTING.md) | Setting up, the rules that are not negotiable, and where things live |
+| [`CHANGELOG.md`](CHANGELOG.md) | What has landed so far |
 
 ## Technology
 
