@@ -62,6 +62,63 @@ docker run -d --name docforge -p 8080:8080 \
 
 The runtime image carries no package manager and no dependency tree.
 
+## macOS laptop
+
+For one person, or for developing against the real build.
+
+```sh
+brew install node          # Node 22.5 or newer; `node -v` to check
+npm ci
+npm run verify
+DOCFORGE_ADMIN_PASSWORD='Choose-A-Strong-One-1' npm run build
+DOCFORGE_ADMIN_PASSWORD='Choose-A-Strong-One-1' npm start
+```
+
+Open `http://127.0.0.1:8080`. The database is `./data/docforge.db` unless
+`DOCFORGE_DB` says otherwise; back that file up and you have backed up
+everything.
+
+Node 22.5 is a hard floor: storage is Node's built-in SQLite, and there is no
+native module to fall back on. On an Apple Silicon Mac nothing needs compiling,
+which is the point of that choice.
+
+To keep it running in the background, put a launch agent at
+`~/Library/LaunchAgents/com.docforge.plist`:
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.docforge</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/opt/homebrew/bin/node</string>
+    <string>/Users/you/enterpriseOffice/apps/server/dist/server.mjs</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>NODE_ENV</key><string>production</string>
+    <key>DOCFORGE_HOST</key><string>127.0.0.1</string>
+    <key>DOCFORGE_PORT</key><string>8080</string>
+    <key>DOCFORGE_DB</key><string>/Users/you/Library/Application Support/DocForge/docforge.db</string>
+    <key>DOCFORGE_WEB_ROOT</key><string>/Users/you/enterpriseOffice/apps/web/dist</string>
+    <key>DOCFORGE_SECURE_COOKIES</key><string>0</string>
+  </dict>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+</dict>
+</plist>
+```
+
+Then `launchctl load ~/Library/LaunchAgents/com.docforge.plist`. Set
+`DOCFORGE_ADMIN_PASSWORD` for the first start only, and remove it afterwards.
+
+Bind to `127.0.0.1`, not `0.0.0.0`, unless you mean to serve the network from
+your laptop: without TLS in front, `DOCFORGE_SECURE_COOKIES=0` means the session
+cookie travels in the clear.
+
 ## Windows laptop
 
 Copy a folder containing `node/` (a portable Node 22 runtime), `server.mjs`,

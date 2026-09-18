@@ -48,6 +48,9 @@ real browser.
 
 ## Try it
 
+Node 22.5 or newer. Storage is Node's built-in SQLite, so there is no native
+module to compile and nothing to install on the target machine.
+
 ```
 npm ci
 npm run verify
@@ -55,6 +58,10 @@ DOCFORGE_ADMIN_PASSWORD='Choose-A-Strong-One-1' npm start
 ```
 
 Open `http://127.0.0.1:8080` and sign in as `admin@localhost`.
+
+Picking the work up from here: `HANDOVER.md` for the state of it and how to get
+running, `CLAUDE.md` for how to work in this repository, `docs/07-roadmap.md`
+for what to build next.
 
 For development with hot reload, run the two sides separately:
 

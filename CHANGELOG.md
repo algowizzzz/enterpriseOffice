@@ -6,6 +6,10 @@ Notable changes, newest first. Dates are when the work landed.
 
 ### Added
 
+- Handover material for picking the work up elsewhere: `HANDOVER.md`,
+  `CLAUDE.md` and `docs/07-roadmap.md`, plus a macOS section in the deployment
+  guide.
+
 - Round-trip fidelity: Word files are read as Word files. A fifty-document
   harness uploads, exports and compares the two as OOXML, and every measured
   item survives. See `docs/06-fidelity.md`.

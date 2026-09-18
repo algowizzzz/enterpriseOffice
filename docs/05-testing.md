@@ -273,6 +273,12 @@ a validation rule is only half a change. The other half is the thing that makes
 content satisfy it. A rule shipped without that half does not reject bad
 documents, it rejects people's work.
 
+## Picking this up
+
+`HANDOVER.md` at the root says where the project stands and how to get running.
+`CLAUDE.md` says how to work in the repository, including the invariants that
+cost this project three rounds of regressions to learn.
+
 ## Conventions
 
 **Name the behaviour, not the function.** `refuses to remove the last active
