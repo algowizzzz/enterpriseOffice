@@ -22,8 +22,10 @@ Notable changes, newest first. Dates are when the work landed.
   example and an install guide.
 - Documentation: architecture and licensing analysis, a tab-by-tab Word feature
   matrix, an API reference, a security model and a testing guide.
-- Tests: 253 server, 140 client, 29 end-to-end checks, and a browser walkthrough
-  that captures each screen.
+- Tests: 410 server, 178 client, 29 end-to-end checks, and a browser walkthrough
+  that captures each screen. The repair of a stored document is checked as a
+  property against generated documents: it never throws, its output always
+  satisfies the rules, and repairing twice changes nothing.
 
 ### Security
 
@@ -87,6 +89,23 @@ not in production.
 - Centred headings lost their centring, because only the paragraph branch of the
   importer read alignment.
 - The editor header and ribbon scrolled out of view as a document grew.
+- A document could be opened as a blank page and then have that blankness saved
+  over the stored work. Repairing a document whose only content had to be
+  removed, such as a single picture held outside the file, left it with no
+  content at all, which the editor builds without complaint. Anything that
+  cannot be empty now keeps a paragraph.
+- A stored document whose content or marks were not a list took the whole editor
+  page down, because the repair threw from inside the editor's start-up.
+- The repair could discard the one attribute a node cannot do without, leave a
+  root that is not a document, carry children onto a text node, and hand back a
+  document still larger than the limit. All four produced a document that could
+  not be saved and gave no hint why.
+- Content removed by the repair is now reported on screen, on the way in and on
+  the way out. Removing what somebody can see, and saying nothing, is worse than
+  the refusal it replaced.
+- Two documents created in the same millisecond shared a timestamp, so the
+  document list ordered them arbitrarily and editing one did not reliably move
+  it to the top.
 
 ### Known limits
 
