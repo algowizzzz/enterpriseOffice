@@ -4,6 +4,149 @@ import { emptyDoc, sanitizeDocument, validateDoc, toPlainText, type PMNode } fro
 const repaired = (doc: unknown): PMNode => sanitizeDocument(doc as PMNode);
 const valid = (doc: unknown): boolean => validateDoc(repaired(doc)).ok;
 
+/**
+ * Documents that are already valid. The repair runs on every document as it is
+ * opened, so anything it changes here would be content quietly lost from
+ * somebody's file.
+ */
+const UNTOUCHED: Record<string, PMNode> = {
+  'an empty document': emptyDoc(),
+  'headings at every level': {
+    type: 'doc',
+    content: [1, 2, 3, 4, 5, 6].map((level) => ({
+      type: 'heading',
+      attrs: { level },
+      content: [{ type: 'text', text: `Level ${level}` }],
+    })),
+  },
+  'every character mark': {
+    type: 'doc',
+    content: [
+      {
+        type: 'paragraph',
+        content: [
+          { type: 'text', text: 'a', marks: [{ type: 'bold' }] },
+          { type: 'text', text: 'b', marks: [{ type: 'italic' }] },
+          { type: 'text', text: 'c', marks: [{ type: 'underline' }] },
+          { type: 'text', text: 'd', marks: [{ type: 'strike' }] },
+          { type: 'text', text: 'e', marks: [{ type: 'superscript' }] },
+          { type: 'text', text: 'f', marks: [{ type: 'subscript' }] },
+          { type: 'text', text: 'g', marks: [{ type: 'highlight' }] },
+          {
+            type: 'text',
+            text: 'h',
+            marks: [
+              { type: 'textStyle', attrs: { fontFamily: 'Carlito', fontSize: '14pt', color: '#123456' } },
+            ],
+          },
+          {
+            type: 'text',
+            text: 'i',
+            marks: [
+              { type: 'link', attrs: { href: 'https://intranet/page', target: '_blank', rel: 'noopener' } },
+            ],
+          },
+        ],
+      },
+    ],
+  },
+  'lists, quotes and rules': {
+    type: 'doc',
+    content: [
+      {
+        type: 'bulletList',
+        content: [
+          { type: 'listItem', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'one' }] }] },
+        ],
+      },
+      {
+        type: 'orderedList',
+        content: [
+          { type: 'listItem', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'two' }] }] },
+        ],
+      },
+      { type: 'blockquote', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'quoted' }] }] },
+      { type: 'horizontalRule' },
+      { type: 'pageBreak' },
+      { type: 'paragraph', content: [{ type: 'text', text: 'a' }, { type: 'hardBreak' }, { type: 'text', text: 'b' }] },
+    ],
+  },
+  'a table with spans and widths': {
+    type: 'doc',
+    content: [
+      {
+        type: 'table',
+        content: [
+          {
+            type: 'tableRow',
+            content: [
+              {
+                type: 'tableHeader',
+                attrs: { colspan: 2, rowspan: 1, colwidth: [180, 240] },
+                content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Region' }] }],
+              },
+            ],
+          },
+          {
+            type: 'tableRow',
+            content: [
+              {
+                type: 'tableCell',
+                attrs: { colspan: 1, rowspan: 1, colwidth: null },
+                content: [{ type: 'paragraph', content: [{ type: 'text', text: 'North' }] }],
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  },
+  'an embedded image with its size': {
+    type: 'doc',
+    content: [
+      {
+        type: 'paragraph',
+        attrs: { textAlign: 'center' },
+        content: [
+          {
+            type: 'image',
+            attrs: { src: 'data:image/png;base64,AAAA', alt: 'A dot', title: null, width: 2, height: 2 },
+          },
+        ],
+      },
+    ],
+  },
+  'alignment on everything that takes it': {
+    type: 'doc',
+    content: [
+      { type: 'paragraph', attrs: { textAlign: 'justify' }, content: [{ type: 'text', text: 'j' }] },
+      { type: 'heading', attrs: { level: 3, textAlign: 'right' }, content: [{ type: 'text', text: 'r' }] },
+    ],
+  },
+  'attributes the rules do not know': {
+    type: 'doc',
+    content: [{ type: 'paragraph', attrs: { indent: 2, custom: 'note', flag: true }, content: [{ type: 'text', text: 'x' }] }],
+  },
+};
+
+describe('a document that is already valid', () => {
+  for (const [name, doc] of Object.entries(UNTOUCHED)) {
+    it(`is returned unchanged: ${name}`, () => {
+      expect(validateDoc(doc), name).toEqual({ ok: true, errors: [] });
+      // Deep equality, not merely "still valid": the repair runs on open, so
+      // anything it drops here is content lost from somebody's document.
+      expect(sanitizeDocument(doc), name).toEqual(doc);
+    });
+  }
+
+  it('changes nothing about a document that has been through it once', () => {
+    for (const doc of Object.values(UNTOUCHED)) {
+      const once = sanitizeDocument(doc);
+      expect(sanitizeDocument(once)).toEqual(once);
+    }
+  });
+});
+
 describe('repairing a document', () => {
   it('leaves a document that is already valid alone', () => {
     const doc: PMNode = {
