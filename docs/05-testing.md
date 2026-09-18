@@ -19,8 +19,8 @@ Current state:
 
 | Suite | Tests | Statements | Branches |
 |---|---|---|---|
-| Server | 374 | 97% | 89% |
-| Client | 153 | 96% | 83% |
+| Server | 385 | 97% | 89% |
+| Client | 175 | 96% | 84% |
 | End to end | 29 checks | n/a | n/a |
 
 Coverage numbers come from `npx vitest run --coverage` in either workspace.
@@ -53,6 +53,7 @@ database per test, so tests share no state and run in any order.
 | `docx-fidelity.test.ts` | Nested tables, blocks inside quotes, image sizing, spans |
 | `zip-guard.test.ts` | What an uploaded archive declares it expands to |
 | `second-review.test.ts` | The defects a second review found, including one the first round introduced |
+| `sanitize.test.ts` | That the repair fixes everything the rules refuse |
 
 ### Robustness
 
@@ -77,6 +78,7 @@ so the pages are exercised without a network.
 | `session.test.tsx` | The session provider and the router |
 | `pages.test.tsx` | Sign in, documents, editor and administration pages |
 | `toolbar.test.tsx` | Every ribbon control |
+| `paste-safety.test.tsx` | That nothing pasted can produce a document which cannot be saved |
 | `editor.test.tsx` | The editing surface, autosave, counts, shortcuts |
 
 One rule is worth keeping: several client tests assert that what the editor
@@ -131,7 +133,7 @@ before any claim about it is made.
 
 | Run | Result | Time |
 |---|---|---|
-| 1 to 5 | 374 server, 153 client, 29 end-to-end, no unhandled errors, no lint findings | 39 to 41 seconds each |
+| 1 to 5 | 385 server, 175 client, 29 end-to-end, no unhandled errors, no lint findings | about 40 seconds each |
 
 Two things keep it that way. Each server test gets its own in-memory database,
 so no test can depend on another having run first. And an unhandled promise
@@ -160,6 +162,8 @@ Worth recording, because it says what these layers are for.
 | Exporting was unlimited although it costs as much as importing, which is limited | Second review |
 | Two administrators adding the same address got a server error rather than a conflict | Second review |
 | Changing your own password signed you out as well as your other devices | Second review |
+| The fix for that then rejected pasted remote images, stranding documents the same way again | Third review |
+| An edit made after restoring a version could be left unsent while the badge claimed it was saved | Third review |
 | The seed administrator could never sign in, because the email rule rejected a single-label domain | End-to-end smoke test |
 | Sign out was broken: the client declared a JSON body on a request that had none | End-to-end smoke test |
 | Opening a document marked it dirty and saved a phantom revision | Client suite |
@@ -192,6 +196,19 @@ pasted one. That is the ordinary cost of a change made under a security
 argument, and the reason for looking again rather than assuming a fix is free.
 The same pass also found that a comment written in the first round claimed a
 save-state problem was fixed when it was not.
+
+A third pass found the second round had done it again, for the same reason: a
+rule was tightened on the server with nothing on the client able to satisfy it.
+Checking properly showed six of seven ordinary paste cases produced a document
+that could never be saved. Patching each would only have set up the next one, so
+the rules and the repair now live together and the editor repairs what it is
+given and what it hands over. One test asserts the two agree, and found a place
+where they did not the moment it was written.
+
+The lesson is worth stating plainly, because it took three rounds to learn:
+a validation rule is only half a change. The other half is the thing that makes
+content satisfy it. A rule shipped without that half does not reject bad
+documents, it rejects people's work.
 
 ## Conventions
 
