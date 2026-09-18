@@ -39,6 +39,18 @@ function allowed(expression) {
   if (/\sAND\s/u.test(clean)) return clean.split(/\sAND\s/u).every((side) => allowed(side));
   return ALLOWED.has(clean);
 }
+/** The licence a text is, when it is unmistakably one of the common permissive ones. */
+function recogniseLicence(text) {
+  const flat = text.replace(/\s+/gu, ' ');
+  if (/Permission is hereby granted, free of charge, to any person obtaining a copy/u.test(flat) && /THE SOFTWARE IS PROVIDED "AS IS"/u.test(flat)) return 'MIT';
+  if (/Permission to use, copy, modify, and\/or distribute this software for any purpose with or without fee/u.test(flat)) return 'ISC';
+  if (/Apache License,? Version 2\.0/u.test(flat)) return 'Apache-2.0';
+  if (/Redistribution and use in source and binary forms/u.test(flat)) {
+    return /Neither the name of/u.test(flat) ? 'BSD-3-Clause' : 'BSD-2-Clause';
+  }
+  return null;
+}
+
 const electedFrom = (expression) =>
   expression.replace(/[()]/gu, '').split(/\sOR\s/u).map((side) => side.trim()).find((side) => allowed(side));
 
@@ -46,23 +58,39 @@ const entries = [];
 const problems = [];
 for (const [path, meta] of Object.entries(lock.packages)) {
   if (!path.includes('node_modules/') || meta.dev || meta.link) continue;
+  // An optional dependency is one the bundle is built without. The only one
+  // here is a native canvas that a PDF library would use to draw pages, which
+  // this project never does, and native code does not ship: see CLAUDE.md.
+  if (meta.optional) continue;
   const dir = join(ROOT, path);
   if (!existsSync(join(dir, 'package.json'))) continue; // an optional package for another platform
   const manifest = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'));
   const name = path.replace(/^.*node_modules\//u, '');
   if (name.startsWith('@docforge/')) continue;
-  const licence =
+  let licence =
     typeof manifest.license === 'string'
       ? manifest.license
       : (manifest.license?.type ?? manifest.licenses?.map((item) => item.type).join(' OR ') ?? 'UNKNOWN');
+  const file = readdirSync(dir).find((item) => /^(?:licen[cs]e|copying)(?:[.-].*)?$/iu.test(item));
+  // A manifest that says nothing is not the same as no licence: some packages
+  // ship the text and never filled in the field. The text is what binds, so it
+  // is read, and the notice says that is where the answer came from.
+  let fromFile = false;
+  if (licence === 'UNKNOWN' && file) {
+    const recognised = recogniseLicence(readFileSync(join(dir, file), 'utf8'));
+    if (recognised) {
+      licence = recognised;
+      fromFile = true;
+    }
+  }
   if (!allowed(licence)) problems.push(`${name}@${manifest.version}: ${licence}`);
 
-  const file = readdirSync(dir).find((item) => /^(?:licen[cs]e|copying)(?:[.-].*)?$/iu.test(item));
   const notice = readdirSync(dir).find((item) => /^notice(?:\..*)?$/iu.test(item));
   entries.push({
     name,
     version: manifest.version,
     licence,
+    fromFile,
     elected: /\sOR\s/u.test(licence) ? electedFrom(licence) : null,
     homepage: typeof manifest.repository === 'string' ? manifest.repository : (manifest.repository?.url ?? manifest.homepage ?? ''),
     text: file ? readFileSync(join(dir, file), 'utf8').trim() : null,
@@ -94,6 +122,7 @@ const lines = [
 ];
 for (const entry of entries) {
   lines.push('='.repeat(78), `${entry.name} ${entry.version}`, `Licence: ${entry.licence}`);
+  if (entry.fromFile) lines.push('The package manifest declares no licence. This is the licence of the text it ships, below.');
   if (entry.elected) lines.push(`Offered under a choice of licences. DocForge uses it under: ${entry.elected}`);
   if (entry.homepage) lines.push(`Source: ${entry.homepage.replace(/^git\+/u, '').replace(/\.git$/u, '')}`);
   lines.push('');
