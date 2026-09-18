@@ -10,6 +10,17 @@ import {
 import { buildExtensions, editorExtensions, type SharedEditing } from './editorExtensions';
 import { Toolbar } from './Toolbar';
 import { FindBar } from './FindBar';
+import { api } from '../lib/api';
+import {
+  correctSpelling,
+  loadSpeller,
+  misspellingAt,
+  recheckSpelling,
+  setSpeller,
+  type Misspelling,
+  type SpellLanguage,
+  type Speller,
+} from './spellcheck';
 
 /**
  * A document without the attributes the editor left at their default.
@@ -111,6 +122,12 @@ export function DocumentEditor({
   const flush = useRef<(() => void) | null>(null);
   const [stats, setStats] = useState<DocumentStats>({ words: 0, characters: 0 });
   const [finding, setFinding] = useState(false);
+  const [spelling, setSpelling] = useState<SpellLanguage | null>(() => {
+    const kept = window.localStorage.getItem('docforge-spelling');
+    return kept === 'en-GB' || kept === 'en-US' ? kept : null;
+  });
+  const speller = useRef<Speller | null>(null);
+  const [menu, setMenu] = useState<{ x: number; y: number; target: Misspelling; suggestions: string[] } | null>(null);
   const [notes, setNotes] = useState<{ kind: string; number: string; words: string }[]>([]);
 
   // Held in a ref so reporting a repair cannot restart the editor, which would
@@ -216,6 +233,59 @@ export function DocumentEditor({
     editor.setEditable(editable, false);
   }, [editor, readOnly]);
 
+  // Spelling: the dictionary, then this person's own words on top of it.
+  useEffect(() => {
+    if (!editor) return undefined;
+    let cancelled = false;
+    window.localStorage.setItem('docforge-spelling', spelling ?? '');
+    if (!spelling) {
+      speller.current = null;
+      setSpeller(editor, null);
+      return undefined;
+    }
+    void (async () => {
+      try {
+        const [dictionary, own] = await Promise.all([
+          loadSpeller(spelling),
+          api.listWords().catch(() => ({ words: [] as string[] })),
+        ]);
+        if (cancelled) return;
+        for (const word of own.words) dictionary.add(word);
+        speller.current = dictionary;
+        setSpeller(editor, dictionary);
+      } catch {
+        // No dictionary, no underlines: the browser's own check is left on.
+        if (!cancelled) setSpelling(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [editor, spelling]);
+
+  // Right-click on an underlined word: what it might have been, and "it is right".
+  useEffect(() => {
+    if (!editor) return undefined;
+    const dom = editor.view.dom;
+    const onContext = (event: MouseEvent): void => {
+      if (!speller.current || !(event.target as HTMLElement | null)?.closest?.('.spell-error')) return;
+      const at = editor.view.posAtCoords({ left: event.clientX, top: event.clientY });
+      const target = at ? misspellingAt(editor, at.pos) : null;
+      if (!target) return;
+      event.preventDefault();
+      setMenu({ x: event.clientX, y: event.clientY, target, suggestions: speller.current.suggest(target.word).slice(0, 6) });
+    };
+    const close = (): void => setMenu(null);
+    dom.addEventListener('contextmenu', onContext);
+    window.addEventListener('click', close);
+    window.addEventListener('scroll', close, true);
+    return () => {
+      dom.removeEventListener('contextmenu', onContext);
+      window.removeEventListener('click', close);
+      window.removeEventListener('scroll', close, true);
+    };
+  }, [editor]);
+
   // Ctrl+F and Ctrl+H open the find bar, as they do in Word, instead of the
   // browser's own search, which cannot see past what is on screen or replace.
   useEffect(() => {
@@ -236,7 +306,44 @@ export function DocumentEditor({
     <div className="editor">
       {/* Built from numbers and checked words only: see styleSheetFor. */}
       {styles ? <style>{styleSheetFor(styles, '.page')}</style> : null}
-      <Toolbar editor={editor} disabled={readOnly} styles={styles} onFind={() => setFinding((open) => !open)} />
+      <Toolbar
+        editor={editor}
+        disabled={readOnly}
+        styles={styles}
+        onFind={() => setFinding((open) => !open)}
+        spelling={spelling}
+        onSpelling={setSpelling}
+      />
+      {menu ? (
+        <div className="spell-menu" role="menu" style={{ left: menu.x, top: menu.y }}>
+          {menu.suggestions.length === 0 ? <span className="muted">No suggestions</span> : null}
+          {readOnly
+            ? null
+            : menu.suggestions.map((suggestion) => (
+                <button
+                  key={suggestion}
+                  type="button"
+                  role="menuitem"
+                  onClick={() => correctSpelling(editor, menu.target, suggestion)}
+                >
+                  {suggestion}
+                </button>
+              ))}
+          <button
+            type="button"
+            role="menuitem"
+            className="spell-menu-add"
+            title="Remembered for you, wherever you sign in"
+            onClick={() => {
+              speller.current?.add(menu.target.word);
+              recheckSpelling(editor);
+              void api.addWord(menu.target.word).catch(() => undefined);
+            }}
+          >
+            Add “{menu.target.word}” to my dictionary
+          </button>
+        </div>
+      ) : null}
       {finding ? <FindBar editor={editor} readOnly={readOnly} onClose={() => setFinding(false)} /> : null}
       <div className="page-surface">
         <div className="page-frame">

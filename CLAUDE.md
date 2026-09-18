@@ -44,7 +44,10 @@ Break any of these and something real breaks with it.
    remote URL in the browser bundle, and the end-to-end run fails if the server
    opens a socket beyond loopback. If you need an asset, vendor it.
 2. **Licences stay clean.** MIT, BSD, Apache-2.0, ISC, MPL-2.0 and SIL OFL only.
-   No GPL or AGPL, at any depth. That rules out OnlyOffice, CKEditor 5 and
+   No GPL or AGPL, at any depth. `npm run notices` enforces it. The two spelling
+   dictionaries are under the SCOWL word-list terms, which are permissive but not
+   an SPDX identifier; they are allowed by name in that script, with what the
+   text says. Nothing else may be added there without reading what it ships. That rules out OnlyOffice, CKEditor 5 and
    TinyMCE's collaboration features, which is why this exists at all.
 3. **A validation rule is only half a change.** The other half is whatever makes
    real content satisfy it. Three separate rounds of this project shipped a

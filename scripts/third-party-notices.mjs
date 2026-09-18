@@ -39,6 +39,17 @@ function allowed(expression) {
   if (/\sAND\s/u.test(clean)) return clean.split(/\sAND\s/u).every((side) => allowed(side));
   return ALLOWED.has(clean);
 }
+/**
+ * Licences read by a person, with what they found. Add to this only after
+ * reading the text the package ships, and say what it says.
+ */
+const REVIEWED = {
+  'dictionary-en':
+    'The SCOWL word lists (Kevin Atkinson and contributors). Permission to use, copy, modify, distribute and sell for any purpose without fee, with the notices kept; parts are public domain; the WordNet notice is the same kind of grant. No copyleft. The same lists ship in Firefox and LibreOffice.',
+  'dictionary-en-gb':
+    'The SCOWL word lists, British spelling, on the same terms as dictionary-en, plus the UKACD list, which may be redistributed freely with its notice.',
+};
+
 /** The licence a text is, when it is unmistakably one of the common permissive ones. */
 function recogniseLicence(text) {
   const flat = text.replace(/\s+/gu, ' ');
@@ -83,7 +94,11 @@ for (const [path, meta] of Object.entries(lock.packages)) {
       fromFile = true;
     }
   }
-  if (!allowed(licence)) problems.push(`${name}@${manifest.version}: ${licence}`);
+  // A package whose licence is not an identifier the gate can read, and which
+  // somebody has read instead. By name, never by label: "BSD" on its own says
+  // nothing about which text a package ships.
+  const reviewed = REVIEWED[name];
+  if (!allowed(licence) && !reviewed) problems.push(`${name}@${manifest.version}: ${licence}`);
 
   const notice = readdirSync(dir).find((item) => /^notice(?:\..*)?$/iu.test(item));
   entries.push({
@@ -122,6 +137,7 @@ const lines = [
 ];
 for (const entry of entries) {
   lines.push('='.repeat(78), `${entry.name} ${entry.version}`, `Licence: ${entry.licence}`);
+  if (REVIEWED[entry.name]) lines.push(`Reviewed by hand: ${REVIEWED[entry.name]}`);
   if (entry.fromFile) lines.push('The package manifest declares no licence. This is the licence of the text it ships, below.');
   if (entry.elected) lines.push(`Offered under a choice of licences. DocForge uses it under: ${entry.elected}`);
   if (entry.homepage) lines.push(`Source: ${entry.homepage.replace(/^git\+/u, '').replace(/\.git$/u, '')}`);

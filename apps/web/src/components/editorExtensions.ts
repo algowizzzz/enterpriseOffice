@@ -15,6 +15,7 @@ import { CommentHighlights } from './commentHighlights';
 import { Deletion, Insertion, TrackChanges } from './trackChanges';
 import { SearchReplace } from './searchReplace';
 import { HeadingNumbers } from './headingNumbers';
+import { Spellcheck } from './spellcheck';
 import Collaboration from '@tiptap/extension-collaboration';
 import CollaborationCaret from '@tiptap/extension-collaboration-caret';
 import type { Doc as YDoc } from 'yjs';
@@ -505,6 +506,7 @@ export function buildExtensions(shared?: SharedEditing): Extensions {
     TrackChanges,
     SearchReplace,
     HeadingNumbers,
+    Spellcheck,
   ];
 }
 

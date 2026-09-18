@@ -206,6 +206,19 @@ const MIGRATIONS: { id: string; sql: string }[] = [
       CREATE INDEX idx_access_requests_open ON access_requests(status, document_id);
     `,
   },
+  {
+    // Words somebody has told the spell check are right: a surname, a product,
+    // a term of art. Theirs, and with them wherever they sign in.
+    id: '0009_user_words',
+    sql: `
+      CREATE TABLE user_words (
+        user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        word       TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        PRIMARY KEY (user_id, word)
+      );
+    `,
+  },
 ];
 
 export function openDatabase(file: string): Database {

@@ -1064,3 +1064,41 @@ main {
   user-select: none;
   color: inherit;
 }
+
+/* Spelling. */
+.spell-error {
+  text-decoration: underline wavy #d93025;
+  text-decoration-skip-ink: none;
+  text-underline-offset: 2px;
+}
+.spell-menu {
+  position: fixed;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  min-width: 200px;
+  padding: 4px;
+  background: #fff;
+  border: 1px solid #c5ccd6;
+  border-radius: 6px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.15);
+}
+.spell-menu button {
+  border: none;
+  background: none;
+  text-align: left;
+  padding: 6px 10px;
+  border-radius: 4px;
+}
+.spell-menu button:hover {
+  background: #eef2f7;
+}
+.spell-menu-add {
+  border-top: 1px solid #e3e7ec !important;
+  color: #3b4757;
+}
+@media print {
+  .spell-error {
+    text-decoration: none;
+  }
+}

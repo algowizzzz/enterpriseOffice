@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type JSX } from 'react';
 import type { PMNode, StyleTable } from '@docforge/model';
+import type { SpellLanguage } from './spellcheck';
 import { useEditorState, type Editor } from '@tiptap/react';
 import { FONT_FAMILIES, FONT_SIZES } from './editorExtensions';
 
@@ -9,6 +10,9 @@ interface ToolbarProps {
   /** The document's own paragraph styles, offered in the styles list. */
   styles?: StyleTable | null;
   onFind?: () => void;
+  /** Spelling: off, or the dictionary in use. */
+  spelling?: SpellLanguage | null;
+  onSpelling?: (language: SpellLanguage | null) => void;
 }
 
 interface ButtonProps {
@@ -118,7 +122,14 @@ const HEADING_LEVELS = [1, 2, 3, 4, 5, 6] as const;
  * bold and plain text did not update the buttons, and the table controls stayed
  * disabled after a table was inserted until something else forced a render.
  */
-export function Toolbar({ editor, disabled = false, styles = null, onFind }: ToolbarProps): JSX.Element {
+export function Toolbar({
+  editor,
+  disabled = false,
+  styles = null,
+  onFind,
+  spelling = null,
+  onSpelling,
+}: ToolbarProps): JSX.Element {
   const state = useEditorState({
     editor,
     selector: ({ editor: instance }) => {
@@ -691,6 +702,24 @@ export function Toolbar({ editor, disabled = false, styles = null, onFind }: Too
 
       <div className="tool-group">
         {onFind ? <ToolButton label="Find" title="Find and replace (Ctrl+F)" onClick={onFind} /> : null}
+        {onSpelling ? (
+          <>
+            <label className="visually-hidden" htmlFor="tb-spelling">
+              Spelling
+            </label>
+            <select
+              id="tb-spelling"
+              className="tool-select"
+              title="Check spelling with the dictionary that comes with the application. Right-click an underlined word for suggestions"
+              value={spelling ?? ''}
+              onChange={(event) => onSpelling((event.target.value || null) as SpellLanguage | null)}
+            >
+              <option value="">Spelling off</option>
+              <option value="en-GB">Spelling: British</option>
+              <option value="en-US">Spelling: American</option>
+            </select>
+          </>
+        ) : null}
         <ToolButton label="Print" title="Print, or save as PDF from the print dialog" onClick={() => window.print()} />
       </div>
     </div>

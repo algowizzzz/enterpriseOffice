@@ -247,6 +247,10 @@ export const api = {
   getVersion: (id: string, revision: number) =>
     request<{ content: PMNode }>(`/documents/${id}/versions/${revision}`),
 
+  /** The signed-in person's own additions to the spelling dictionary. */
+  listWords: () => request<{ words: string[] }>('/me/words'),
+  addWord: (word: string) => request<{ ok: true }>('/me/words', { method: 'POST', ...json({ word }) }),
+
   requestAccount: (input: { name: string; email: string; note: string }) =>
     request<{ ok: true }>('/access-requests/account', { method: 'POST', ...json(input) }),
 
