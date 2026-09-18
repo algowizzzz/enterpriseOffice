@@ -472,3 +472,43 @@ describe('docx import, rejection', () => {
     await expect(importDocx(notWord)).rejects.toThrow(/Could not read that \.docx file/u);
   });
 });
+
+describe('docx round trip, links', () => {
+  const linked = (href: string): PMNode =>
+    doc({
+      type: 'paragraph',
+      content: [
+        { type: 'text', text: 'See ' },
+        { type: 'text', text: 'the standard', marks: [{ type: 'link', attrs: { href } }] },
+        { type: 'text', text: ' for detail.' },
+      ],
+    });
+
+  const hrefsIn = (node: PMNode, found: string[] = []): string[] => {
+    for (const mark of node.marks ?? []) {
+      if (mark.type === 'link') found.push(String(mark.attrs?.['href']));
+    }
+    for (const child of node.content ?? []) hrefsIn(child, found);
+    return found;
+  };
+
+  it('keeps where a link goes, not only how it looks', async () => {
+    // The writer underlined a link and dropped its address. The exported file
+    // looked right in Word and every reference in it went nowhere; an uploaded
+    // policy lost all of its links on the first export.
+    const back = await roundTrip(linked('https://policies.example.invalid/standards/access'));
+    expect(hrefsIn(back)).toEqual(['https://policies.example.invalid/standards/access']);
+    expect(toPlainText(back)).toContain('See the standard for detail.');
+  });
+
+  it('keeps a mail link', async () => {
+    const back = await roundTrip(linked('mailto:owner@example.invalid'));
+    expect(hrefsIn(back)).toEqual(['mailto:owner@example.invalid']);
+  });
+
+  it('keeps the words of a link Word could not follow', async () => {
+    // "/documents/12" means something in a browser and nothing inside a file.
+    const back = await roundTrip(linked('/documents/12'));
+    expect(toPlainText(back)).toContain('See the standard for detail.');
+  });
+});

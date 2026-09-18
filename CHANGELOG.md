@@ -6,6 +6,30 @@ Notable changes, newest first. Dates are when the work landed.
 
 ### Added
 
+- An air-gapped deployment kit. `npm run release` runs the gate, then writes one
+  archive holding the server, the client, a sandboxed systemd unit, an
+  installer, a preflight check, a post-install check, third-party notices and
+  checksums. `docs/08-enterprise-deployment.md` is the guide.
+- `npm run try`: round trip your own Word documents through a private copy of
+  the server and see, per feature, what survived and what the document held that
+  the model has no place for.
+- `npm run notices`: every package that ships, with its licence text. Fails on a
+  licence outside the accepted set.
+- `docs/09-requirements-fit.md`: where the build stands against an enterprise
+  policy-document workflow, and what to build next.
+
+### Fixed
+
+- A link survived upload and editing and was lost on export to Word: it was
+  written as underlined text with no address.
+- `npm start` from the repository root, as documented, served a 404 for the
+  page because the client was looked for outside the repository.
+- The server listened on every interface unless told otherwise. It now listens
+  on loopback unless told otherwise; the container and the settings template
+  still say 0.0.0.0, behind a proxy.
+- The systemd unit set `MemoryDenyWriteExecute`, which systemd documents as
+  incompatible with JIT runtimes such as Node.
+
 - Handover material for picking the work up elsewhere: `HANDOVER.md`,
   `CLAUDE.md` and `docs/07-roadmap.md`, plus a macOS section in the deployment
   guide.

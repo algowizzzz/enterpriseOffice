@@ -8,6 +8,7 @@ User=docforge
 Group=docforge
 WorkingDirectory=/opt/docforge
 EnvironmentFile=/etc/docforge/docforge.env
+# install.sh rewrites the path to node when the runtime is not in /usr/bin.
 ExecStart=/usr/bin/node --disable-warning=ExperimentalWarning /opt/docforge/server.mjs
 Restart=on-failure
 RestartSec=5
@@ -24,7 +25,12 @@ ProtectControlGroups=true
 RestrictNamespaces=true
 RestrictSUIDSGID=true
 LockPersonality=true
-MemoryDenyWriteExecute=true
+# MemoryDenyWriteExecute is deliberately absent. It forbids memory that is
+# writable and then executable, which is exactly what a just-in-time compiler
+# produces; systemd's own manual says the setting is incompatible with JIT
+# engines, and Node is one. With it on, the service can fail at start or under
+# load in ways that look nothing like a sandboxing problem. The only way to keep
+# it is `node --jitless`, at several times the CPU cost for Word conversion.
 
 # The portal never makes outbound connections. Restricting it to the loopback
 # and local network families makes that a property of the system, not a promise.

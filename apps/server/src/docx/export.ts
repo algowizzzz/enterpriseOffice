@@ -1,6 +1,7 @@
 import {
   AlignmentType,
   Document,
+  ExternalHyperlink,
   HeadingLevel,
   Footer,
   Header,
@@ -21,6 +22,7 @@ import {
   NODE,
   MARK,
   defaultPageSetup,
+  isSafeHref,
   type PageSetup,
   type PMMark,
   type PMNode,
@@ -113,8 +115,7 @@ function runsOf(node: PMNode): ParagraphChild[] {
     const fontSizePt = Number(textAttr(style['fontSize']).replace(/[^\d.]/gu, ''));
     const color = textAttr(style['color']).replace('#', '');
     const isLink = marks.has(MARK.link);
-    children.push(
-      new TextRun({
+    const run = new TextRun({
         text,
         bold: marks.has(MARK.bold),
         italics: marks.has(MARK.italic),
@@ -128,8 +129,15 @@ function runsOf(node: PMNode): ParagraphChild[] {
           : {}),
         ...(/^[0-9a-f]{6}$/iu.test(color) ? { color } : {}),
         ...(textAttr(style['fontFamily']) ? { font: textAttr(style['fontFamily']) } : {}),
-      }),
-    );
+      });
+    // A link used to be written as underlined text and nothing else: it looked
+    // like a link in Word and went nowhere, so every reference in a policy was
+    // silently broken by one round trip. Only an address Word can follow is
+    // wrapped; "#anchor" and "/path" mean something in a browser and nothing in
+    // a file, and stay as underlined text.
+    const href = textAttr(marks.get(MARK.link)?.['href']);
+    const external = isLink && isSafeHref(href) && /^(?:https?:|mailto:)/iu.test(href);
+    children.push(external ? new ExternalHyperlink({ link: href, children: [run] }) : run);
   }
   return children;
 }

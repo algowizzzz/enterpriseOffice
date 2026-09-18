@@ -21,3 +21,5 @@ packages/assets/dictionaries/
 apps/server/dist/
 apps/web/dist/
 data/
+release/
+THIRD-PARTY-NOTICES.txt

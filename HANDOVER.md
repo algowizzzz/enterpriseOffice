@@ -79,6 +79,9 @@ refuse it, which is worse: a refusal is visible, silent loss is not. Hence the
 5. `docs/04-security.md` before touching authentication, sessions or uploads.
 6. `docs/03-api-reference.md` when adding or changing an endpoint.
 7. `docs/07-roadmap.md` for the open work, ranked, with the reasoning.
+8. `docs/08-enterprise-deployment.md` for installing on an air-gapped Linux server.
+9. `docs/09-requirements-fit.md` for where the build stands against an enterprise
+   policy workflow. Its build order replaces the roadmap's where they differ.
 
 ## What to do next
 
