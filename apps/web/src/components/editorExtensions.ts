@@ -12,6 +12,7 @@ import { Table, TableCell, TableHeader, TableRow } from '@tiptap/extension-table
 import type { Extensions } from '@tiptap/react';
 import { WordNavigation } from './wordNavigation';
 import { CommentHighlights } from './commentHighlights';
+import { Deletion, Insertion, TrackChanges } from './trackChanges';
 
 /**
  * Pictures must be embedded in the document itself.
@@ -404,6 +405,9 @@ export const editorExtensions: Extensions = [
   ShadedTableCell,
   WordNavigation,
   CommentHighlights,
+  Insertion,
+  Deletion,
+  TrackChanges,
 ];
 
 /** Font families bundled with the application. No web fonts are fetched. */

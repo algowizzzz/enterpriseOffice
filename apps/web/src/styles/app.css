@@ -877,3 +877,66 @@ main {
     border: none;
   }
 }
+
+/* Tracked changes, drawn as Word draws them. */
+.tracked-insertion {
+  color: #b3261e;
+  text-decoration: underline;
+  text-decoration-color: #b3261e;
+  background: none;
+}
+.tracked-deletion {
+  color: #b3261e;
+  text-decoration: line-through;
+}
+/* The redline view: what is unchanged steps back so the changes stand out. */
+.view-redline .page {
+  color: #7a8490;
+}
+.view-redline .page .tracked {
+  color: #b3261e;
+}
+.view-tabs {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  padding: 6px 16px 0;
+  border-bottom: 1px solid #d9dee5;
+}
+.view-tab {
+  border: 1px solid transparent;
+  border-bottom: none;
+  border-radius: 6px 6px 0 0;
+  background: none;
+  padding: 6px 14px;
+  margin-bottom: -1px;
+}
+.view-tab.is-active {
+  border-color: #d9dee5;
+  background: #fff;
+  font-weight: 600;
+}
+.view-tabs .link {
+  margin-left: 12px;
+}
+.track-toggle {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-weight: 600;
+}
+.change-kind {
+  font-size: 0.75em;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 1px 5px;
+  border-radius: 3px;
+}
+.change-kind-insertion {
+  background: #e6f4ea;
+  color: #1e6b34;
+}
+.change-kind-deletion {
+  background: #fce8e6;
+  color: #b3261e;
+}

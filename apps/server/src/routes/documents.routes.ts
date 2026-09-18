@@ -1,6 +1,12 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { toPlainText } from '@docforge/model';
+import {
+  acceptAllChanges,
+  compareDocuments,
+  rejectAllChanges,
+  toPlainText,
+  type PMNode,
+} from '@docforge/model';
 import { badRequest, notFound, payloadTooLarge, unsupportedMedia } from '../errors.js';
 import { exportDocx, safeFileName } from '../docx/export.js';
 import { importDocx, titleFromFileName } from '../docx/import.js';
@@ -25,6 +31,26 @@ import {
 const idParam = z.object({ id: z.string().uuid() });
 
 const DOCX_MIME = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+
+/**
+ * What changed between two revisions, written as tracked changes signed by the
+ * person asking. Changes already tracked in either revision are settled first:
+ * a comparison is between what each version says, not between their markup.
+ */
+function redline(
+  db: FastifyInstance['db'],
+  user: { id: string; role: 'admin' | 'editor' | 'viewer'; name: string },
+  id: string,
+  from: number,
+  to: number | undefined,
+  current: { content: PMNode; revision: number },
+): PMNode {
+  const before = acceptAllChanges(getVersionContent(db, user, id, from));
+  const after = acceptAllChanges(
+    to === undefined || to === current.revision ? current.content : getVersionContent(db, user, id, to),
+  );
+  return compareDocuments(before, after, { author: user.name, date: new Date().toISOString() });
+}
 
 export async function registerDocumentRoutes(app: FastifyInstance): Promise<void> {
   app.get('/documents', async (request) => {
@@ -190,17 +216,34 @@ export async function registerDocumentRoutes(app: FastifyInstance): Promise<void
     async (request, reply) => {
       const user = await app.authenticate(request);
       const { id } = idParam.parse(request.params);
-      const { format } = z
-        .object({ format: z.enum(['docx', 'txt', 'original']).default('docx') })
+      const { format, changes, compare } = z
+        .object({
+          format: z.enum(['docx', 'txt', 'original']).default('docx'),
+          // Tracked changes as they stand, or the document with all of them
+          // accepted (the "final") or all of them rejected.
+          changes: z.enum(['markup', 'accepted', 'rejected']).default('markup'),
+          // A redline against an earlier revision, as "3" or "3:7".
+          compare: z
+            .string()
+            .regex(/^\d{1,9}(?::\d{1,9})?$/u)
+            .optional(),
+        })
         .parse(request.query ?? {});
-      const document = getDocument(app.db, user, id);
+      const stored = getDocument(app.db, user, id);
+      let content: PMNode = stored.content;
+      if (compare) {
+        const [from, to] = compare.split(':').map(Number) as [number, number | undefined];
+        content = redline(app.db, user, id, from, to, stored);
+      } else if (changes === 'accepted') content = acceptAllChanges(content);
+      else if (changes === 'rejected') content = rejectAllChanges(content);
+      const document = { ...stored, content };
 
       recordAudit(app.db, {
         actorId: user.id,
         action: 'document.exported',
         targetType: 'document',
         targetId: id,
-        detail: { format },
+        detail: { format, ...(compare ? { compare } : {}), ...(changes !== 'markup' ? { changes } : {}) },
         ip: request.ip,
       });
 
@@ -249,6 +292,24 @@ export async function registerDocumentRoutes(app: FastifyInstance): Promise<void
         .header('Content-Disposition', contentDisposition(fileName))
         .header('Content-Length', String(buffer.length))
         .send(buffer);
+    },
+  );
+
+  /** A redline: what changed between two revisions, as tracked changes. */
+  app.get(
+    '/documents/:id/compare',
+    { config: { rateLimit: { max: app.config.exportRateLimit, timeWindow: '1 minute' } } },
+    async (request) => {
+      const user = await app.authenticate(request);
+      const { id } = idParam.parse(request.params);
+      const { from, to } = z
+        .object({
+          from: z.coerce.number().int().positive().default(1),
+          to: z.coerce.number().int().positive().optional(),
+        })
+        .parse(request.query ?? {});
+      const stored = getDocument(app.db, user, id);
+      return { from, to: to ?? stored.revision, content: redline(app.db, user, id, from, to, stored) };
     },
   );
 

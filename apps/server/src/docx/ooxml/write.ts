@@ -147,6 +147,7 @@ interface Context {
   listStyle: string | null;
   needsStyles: Set<string>;
   drawingId: number;
+  changeId: number;
   parsedFragments: Map<string, XmlElement[]>;
 }
 
@@ -211,6 +212,7 @@ export function writeDocx(doc: PMNode, options: WriteOptions): Buffer {
     listStyle: null,
     needsStyles: new Set(),
     drawingId: 60000,
+    changeId: 90000,
     parsedFragments: new Map(),
   };
   readStyles(ctx, styles);
@@ -695,22 +697,73 @@ const hrefOf = (node: PMNode): string | null => {
   return typeof href === 'string' && isSafeHref(href) ? href : null;
 };
 
+const changeOf = (node: PMNode): PMMark | undefined =>
+  node.marks?.find((mark) => mark.type === MARK.insertion || mark.type === MARK.deletion);
+
+const changeKey = (node: PMNode): string => {
+  const change = changeOf(node);
+  return change ? `${change.type}|${String(change.attrs?.['author'])}|${String(change.attrs?.['date'])}` : '';
+};
+
+/**
+ * A stretch of inline content, with tracked changes written as Word writes
+ * them: neighbouring runs of one change inside one `w:ins` or `w:del`, and the
+ * text of a deletion as `w:delText`, which is what makes Word strike it out
+ * rather than show it.
+ */
+function writeRuns(ctx: Context, nodes: PMNode[]): string {
+  let out = '';
+  for (let index = 0; index < nodes.length; index += 1) {
+    const node = nodes[index] as PMNode;
+    const change = changeOf(node);
+    // The comment markers sit between runs, never inside a change.
+    if (!change || node.type === COMMENT_START || node.type === COMMENT_END) {
+      out += writeInlineNode(ctx, node);
+      continue;
+    }
+    const key = changeKey(node);
+    let inner = '';
+    let cursor = index;
+    while (cursor < nodes.length && changeKey(nodes[cursor] as PMNode) === key) {
+      inner += writeInlineNode(ctx, nodes[cursor] as PMNode);
+      cursor += 1;
+    }
+    index = cursor - 1;
+    const deleted = change.type === MARK.deletion;
+    if (deleted) inner = inner.replace(/<w:t( [^>]*)?>/gu, '<w:delText$1>').replace(/<\/w:t>/gu, '</w:delText>');
+    ctx.changeId += 1;
+    const author = typeof change.attrs?.['author'] === 'string' ? change.attrs['author'] : 'Unknown';
+    const date = typeof change.attrs?.['date'] === 'string' && change.attrs['date'] ? change.attrs['date'] : '';
+    const tag = deleted ? 'w:del' : 'w:ins';
+    out += `<${tag} w:id="${ctx.changeId}" w:author="${escapeXmlAttr(author)}"${
+      date ? ` w:date="${escapeXmlAttr(date.replace(/\.\d+Z$/u, 'Z'))}"` : ''
+    }>${inner}</${tag}>`;
+  }
+  return out;
+}
+
 function writeInline(ctx: Context, nodes: PMNode[]): string {
   let out = '';
   for (let index = 0; index < nodes.length; index += 1) {
     const node = nodes[index] as PMNode;
     const href = hrefOf(node);
     if (href === null || (!/^(?:https?:|mailto:)/iu.test(href) && !href.startsWith('#'))) {
-      out += writeInlineNode(ctx, node);
+      // Everything up to the next link goes out together, so that a change
+      // running over several runs is one change.
+      let cursor = index;
+      while (cursor < nodes.length) {
+        const next = hrefOf(nodes[cursor] as PMNode);
+        if (next !== null && (/^(?:https?:|mailto:)/iu.test(next) || next.startsWith('#'))) break;
+        cursor += 1;
+      }
+      out += writeRuns(ctx, nodes.slice(index, cursor));
+      index = cursor - 1;
       continue;
     }
     // Every neighbouring run with the same target is one link, as Word has it.
-    let inner = '';
     let cursor = index;
-    while (cursor < nodes.length && hrefOf(nodes[cursor] as PMNode) === href) {
-      inner += writeInlineNode(ctx, nodes[cursor] as PMNode);
-      cursor += 1;
-    }
+    while (cursor < nodes.length && hrefOf(nodes[cursor] as PMNode) === href) cursor += 1;
+    const inner = writeRuns(ctx, nodes.slice(index, cursor));
     index = cursor - 1;
     out += href.startsWith('#')
       ? `<w:hyperlink w:anchor="${escapeXmlAttr(href.slice(1))}" w:history="1">${inner}</w:hyperlink>`

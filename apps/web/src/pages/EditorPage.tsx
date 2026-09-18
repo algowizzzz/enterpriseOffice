@@ -6,6 +6,7 @@ import {
   downloadExport,
   type DocumentDetail,
   type ExportFormat,
+  type ExportOptions,
   type ShareEntry,
   type User,
   type VersionSummary,
@@ -13,6 +14,8 @@ import {
 import type { Editor } from '@tiptap/react';
 import { DocumentEditor, type SaveState } from '../components/DocumentEditor';
 import { CommentsPanel } from '../components/CommentsPanel';
+import { ReviewPanel } from '../components/ReviewPanel';
+import { setTracking } from '../components/trackChanges';
 import { useSession } from '../lib/session';
 import { textField } from '../lib/forms';
 
@@ -39,7 +42,20 @@ export function EditorPage({ documentId, onBack }: EditorPageProps): JSX.Element
   const [versions, setVersions] = useState<VersionSummary[] | null>(null);
   const [shares, setShares] = useState<ShareEntry[] | null>(null);
   const [setupOpen, setSetupOpen] = useState(false);
-  const [commentsOpen, setCommentsOpen] = useState(false);
+  const [side, setSide] = useState<'comments' | 'review' | null>(null);
+  const commentsOpen = side === 'comments';
+  const setCommentsOpen = (next: boolean | ((open: boolean) => boolean)): void =>
+    setSide((current) => {
+      const open = typeof next === 'function' ? next(current === 'comments') : next;
+      return open ? 'comments' : current === 'comments' ? null : current;
+    });
+  // Which text is on the page: the document, the file as it was first
+  // uploaded, or what has changed between the two.
+  const [view, setView] = useState<'document' | 'original' | 'redline'>('document');
+  const [shown, setShown] = useState<PMNode | null>(null);
+  const [tracking, setTrackingOn] = useState(
+    () => window.localStorage.getItem(`docforge-track-${documentId}`) === '1',
+  );
   const [openComments, setOpenComments] = useState<number | null>(null);
   const [editor, setEditor] = useState<Editor | null>(null);
   const [directory, setDirectory] = useState<User[]>([]);
@@ -167,9 +183,9 @@ export function EditorPage({ documentId, onBack }: EditorPageProps): JSX.Element
   }, [saveState]);
 
   /** A failed download used to be an unhandled rejection with nothing on screen. */
-  const download = async (format: ExportFormat): Promise<void> => {
+  const download = async (format: ExportFormat, options?: ExportOptions): Promise<void> => {
     try {
-      await downloadExport(documentId, format);
+      await (options ? downloadExport(documentId, format, options) : downloadExport(documentId, format));
     } catch (caught) {
       setError(caught instanceof ApiError ? caught.message : 'Could not download this document.');
     }
@@ -251,6 +267,38 @@ export function EditorPage({ documentId, onBack }: EditorPageProps): JSX.Element
     }
   };
 
+  // Tracking is a property of how this person is working on this document, so
+  // it is remembered here and handed to the editor whenever there is one.
+  useEffect(() => {
+    if (!editor || editor.isDestroyed || view !== 'document') return;
+    setTracking(editor, tracking && !readOnly, user?.name ?? 'Unknown');
+  }, [editor, tracking, readOnly, user?.name, view]);
+
+  const changeTracking = (enabled: boolean): void => {
+    setTrackingOn(enabled);
+    window.localStorage.setItem(`docforge-track-${documentId}`, enabled ? '1' : '0');
+  };
+
+  const show = async (next: 'document' | 'original' | 'redline'): Promise<void> => {
+    if (next === 'document') {
+      setShown(null);
+      setView('document');
+      setSurface((count) => count + 1);
+      return;
+    }
+    try {
+      const content =
+        next === 'original'
+          ? (await api.getVersion(documentId, 1)).content
+          : (await api.compare(documentId, 1)).content;
+      setShown(content);
+      setView(next);
+      setSurface((count) => count + 1);
+    } catch (caught) {
+      setError(caught instanceof ApiError ? caught.message : 'Could not load that view.');
+    }
+  };
+
   if (error && !document) {
     return (
       <div className="page-wrap">
@@ -311,6 +359,14 @@ export function EditorPage({ documentId, onBack }: EditorPageProps): JSX.Element
               Original
             </button>
           ) : null}
+          <button
+            type="button"
+            title="Track changes as you type, and accept or reject them"
+            aria-pressed={side === 'review'}
+            onClick={() => setSide((current) => (current === 'review' ? null : 'review'))}
+          >
+            Review{tracking ? ' (tracking)' : ''}
+          </button>
           <button
             type="button"
             title="Comment on the selected words, reply, and resolve"
@@ -490,15 +546,55 @@ export function EditorPage({ documentId, onBack }: EditorPageProps): JSX.Element
         </aside>
       ) : null}
 
-      <div className={`editor-with-side${commentsOpen ? ' has-side' : ''}`}>
+      <nav className="view-tabs" aria-label="What is shown">
+        {(
+          [
+            ['document', 'Document', 'The document as it stands, for editing'],
+            ['original', 'Original', 'The document as it was first created or uploaded'],
+            ['redline', 'Redline', 'Everything that has changed since the original: removed text struck out, new text underlined'],
+          ] as const
+        ).map(([name, label, hint]) => (
+          <button
+            key={name}
+            type="button"
+            title={hint}
+            className={`view-tab${view === name ? ' is-active' : ''}`}
+            aria-pressed={view === name}
+            onClick={() => void show(name)}
+          >
+            {label}
+          </button>
+        ))}
+        {view === 'redline' ? (
+          <button
+            type="button"
+            className="link"
+            title="Download this comparison as a Word file with revision marks that can be accepted or rejected in Word"
+            onClick={() => void download('docx', { compare: '1' })}
+          >
+            Export redline to Word
+          </button>
+        ) : null}
+        {view === 'document' ? (
+          <button
+            type="button"
+            className="link"
+            title="Download the document with every tracked change accepted"
+            onClick={() => void download('docx', { changes: 'accepted' })}
+          >
+            Export with changes accepted
+          </button>
+        ) : null}
+      </nav>
+      <div className={`editor-with-side${side ? ' has-side' : ''} view-${view}`}>
       <DocumentEditor
         key={surface}
         onReady={setEditor}
-        initialContent={document.content}
+        initialContent={view === 'document' || !shown ? document.content : shown}
         header={document.pageSetup?.header ?? ''}
         footer={document.pageSetup?.footer ?? ''}
         styles={document.styles ?? null}
-        readOnly={readOnly ?? false}
+        readOnly={(readOnly ?? false) || view !== 'document'}
         onDirty={() => {
           typedSinceQueued.current = true;
           setSaveState((current) => (current === 'conflict' ? current : 'dirty'));
@@ -515,6 +611,15 @@ export function EditorPage({ documentId, onBack }: EditorPageProps): JSX.Element
           setNotice((current) => (current === message ? current : message));
         }}
       />
+      {side === 'review' ? (
+        <ReviewPanel
+          editor={editor}
+          readOnly={(readOnly ?? false) || view !== 'document'}
+          tracking={tracking}
+          onTracking={changeTracking}
+          onClose={() => setSide(null)}
+        />
+      ) : null}
       {commentsOpen ? (
         <CommentsPanel
           documentId={documentId}

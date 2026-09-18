@@ -210,6 +210,15 @@ export const api = {
   unshare: (id: string, userId: string) =>
     request<{ shares: ShareEntry[] }>(`/documents/${id}/shares/${userId}`, { method: 'DELETE' }),
 
+  /** What changed between two revisions, as a document with tracked changes. */
+  compare: (id: string, from: number, to?: number) =>
+    request<{ from: number; to: number; content: PMNode }>(
+      `/documents/${id}/compare?from=${from}${to === undefined ? '' : `&to=${to}`}`,
+    ),
+
+  getVersion: (id: string, revision: number) =>
+    request<{ content: PMNode }>(`/documents/${id}/versions/${revision}`),
+
   listComments: (id: string) => request<{ threads: CommentThread[] }>(`/documents/${id}/comments`),
 
   addComment: (id: string, input: { body: string; parentId?: string; anchor?: CommentAnchor }) =>
@@ -225,15 +234,28 @@ export const api = {
     request<{ ok: true }>(`/documents/${id}/comments/${commentId}`, { method: 'DELETE' }),
 
   /** The export endpoint returns a file, so it is fetched directly rather than as JSON. */
-  exportUrl: (id: string, format: ExportFormat) =>
-    `/api/documents/${id}/export?format=${format}`,
+  exportUrl: (id: string, format: ExportFormat, options: ExportOptions = {}) =>
+    `/api/documents/${id}/export?format=${format}${options.changes ? `&changes=${options.changes}` : ''}${
+      options.compare ? `&compare=${options.compare}` : ''
+    }`,
 };
 
 /** Trigger a browser download without leaving the page. */
 export type ExportFormat = 'docx' | 'txt' | 'original';
 
-export async function downloadExport(id: string, format: ExportFormat): Promise<void> {
-  const response = await fetch(api.exportUrl(id, format), { credentials: 'same-origin' });
+export interface ExportOptions {
+  /** Tracked changes as they stand, all accepted, or all rejected. */
+  changes?: 'accepted' | 'rejected';
+  /** A redline against an earlier revision: "1" or "1:7". */
+  compare?: string;
+}
+
+export async function downloadExport(
+  id: string,
+  format: ExportFormat,
+  options: ExportOptions = {},
+): Promise<void> {
+  const response = await fetch(api.exportUrl(id, format, options), { credentials: 'same-origin' });
   if (!response.ok) throw new ApiError(response.status, 'EXPORT_FAILED', 'The export failed.');
   const disposition = response.headers.get('content-disposition') ?? '';
   const blob = await response.blob();

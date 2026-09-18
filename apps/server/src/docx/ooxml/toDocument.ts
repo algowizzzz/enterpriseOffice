@@ -644,10 +644,27 @@ function inlineOf(container: XmlElement, state: State, marks: PMMark[]): PMNode[
       case 'w:smartTag':
       case 'w:customXml':
       case 'w:sdtContent':
-      case 'w:ins':
-      case 'w:moveTo':
         nodes.push(...inlineOf(element, state, marks));
         break;
+      case 'w:ins':
+      case 'w:moveTo':
+      case 'w:del':
+      case 'w:moveFrom': {
+        // A tracked change stays a tracked change. Insertions used to be read
+        // as accepted and deletions dropped, so a document sent out for review
+        // came back with every reviewer's decision made for them.
+        const type = element.name === 'w:ins' || element.name === 'w:moveTo' ? MARK.insertion : MARK.deletion;
+        const date = element.attrs['w:date'] ?? '';
+        const change: PMMark = {
+          type,
+          attrs: {
+            author: (element.attrs['w:author'] ?? 'Unknown').slice(0, 200),
+            date: /^\d{4}-\d{2}-\d{2}T/u.test(date) ? date : '',
+          },
+        };
+        nodes.push(...inlineOf(element, state, [...marks, change]));
+        break;
+      }
       case 'w:sdt':
         nodes.push(...inlineOf(child(element, 'w:sdtContent') ?? element, state, marks));
         break;
@@ -784,7 +801,8 @@ function runOf(run: XmlElement, state: State, inherited: PMMark[]): PMNode[] {
 
   for (const element of elements) {
     switch (element.name) {
-      case 'w:t': {
+      case 'w:t':
+      case 'w:delText': {
         const text = textOf(element);
         if (text.length > 0) nodes.push(withMarks({ type: NODE.text, text }));
         break;

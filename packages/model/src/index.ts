@@ -49,7 +49,12 @@ export const MARK = {
   link: 'link',
   /** The run properties Word wrote that no other mark stands for. */
   wordRun: 'wordRun',
+  /** Tracked changes: text put in, and text taken out but not yet gone. */
+  insertion: 'insertion',
+  deletion: 'deletion',
 } as const;
+
+export * from './changes.js';
 
 export type NodeName = (typeof NODE)[keyof typeof NODE];
 export type MarkName = (typeof MARK)[keyof typeof MARK];

@@ -100,6 +100,7 @@ export function DocumentEditor({
   styles = null,
 }: DocumentEditorProps): JSX.Element {
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const flush = useRef<(() => void) | null>(null);
   const [stats, setStats] = useState<DocumentStats>({ words: 0, characters: 0 });
 
   // Held in a ref so reporting a repair cannot restart the editor, which would
@@ -130,14 +131,18 @@ export function DocumentEditor({
         if (readOnly) return;
         onDirty();
         if (timer.current) clearTimeout(timer.current);
-        timer.current = setTimeout(() => {
+        const handOver = (): void => {
+          timer.current = null;
+          flush.current = null;
           // Repaired on the way out. Pasted markup can carry a remote image or
           // an odd hyperlink, and tightening a server rule without this made a
           // single paste enough to strand a document for ever.
           const result = repairDocument(withoutDefaults(instance.getJSON() as PMNode));
           if (result.removed) report.current?.('save');
           onChange(result.doc);
-        }, AUTOSAVE_DEBOUNCE_MS);
+        };
+        flush.current = handOver;
+        timer.current = setTimeout(handOver, AUTOSAVE_DEBOUNCE_MS);
       },
     },
     [],
@@ -169,7 +174,11 @@ export function DocumentEditor({
 
   useEffect(() => {
     return () => {
+      // Whatever was typed in the last moment is handed over before the editor
+      // goes. Switching to the redline and back within the debounce used to
+      // throw those keystrokes away, because the timer was simply cancelled.
       if (timer.current) clearTimeout(timer.current);
+      flush.current?.();
     };
   }, []);
 
