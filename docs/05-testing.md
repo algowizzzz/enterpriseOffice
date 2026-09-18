@@ -19,7 +19,7 @@ Current state:
 
 | Suite | Tests | Statements | Branches |
 |---|---|---|---|
-| Server | 272 | 96% | 87% |
+| Server | 285 | 97% | 88% |
 | Client | 147 | 96% | 83% |
 | End to end | 29 checks | n/a | n/a |
 
@@ -46,6 +46,7 @@ database per test, so tests share no state and run in any order.
 | `model.test.ts` | Document model helpers and password hashing |
 | `validation.test.ts` | Email rules and the seed administrator |
 | `robustness.test.ts` | Large documents, non-Latin scripts, deep nesting, two people editing at once |
+| `failure-paths.test.ts` | Internal errors, upload limits, re-enabling an account, service edge cases |
 
 ### Robustness
 
@@ -124,7 +125,7 @@ before any claim about it is made.
 
 | Run | Result | Time |
 |---|---|---|
-| 1 to 5 | 272 server, 147 client, 29 end-to-end, no unhandled errors | about 28 seconds each |
+| 1 to 5 | 285 server, 147 client, 29 end-to-end, no unhandled errors | about 28 seconds each |
 
 Two things keep it that way. Each server test gets its own in-memory database,
 so no test can depend on another having run first. And an unhandled promise

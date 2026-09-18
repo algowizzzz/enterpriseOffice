@@ -83,7 +83,7 @@ Install it where you want it with `npm install --no-save playwright`.
 
 Three layers, all runnable offline.
 
-**Server suite.** 272 tests. Fastify in-process injection over a fresh in-memory
+**Server suite.** 285 tests. Fastify in-process injection over a fresh in-memory
 database per test. Covers authentication, session revocation, role enforcement,
 the last administrator rule, document access control, optimistic concurrency,
 version history, the audit trail, migrations, configuration, and the `.docx`
