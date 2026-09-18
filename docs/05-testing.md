@@ -19,8 +19,8 @@ Current state:
 
 | Suite | Tests | Statements | Branches |
 |---|---|---|---|
-| Server | 355 | 97% | 89% |
-| Client | 150 | 96% | 83% |
+| Server | 374 | 97% | 89% |
+| Client | 153 | 96% | 83% |
 | End to end | 29 checks | n/a | n/a |
 
 Coverage numbers come from `npx vitest run --coverage` in either workspace.
@@ -52,6 +52,7 @@ database per test, so tests share no state and run in any order.
 | `hardening.test.ts` | The registration race, nesting depth, upload and password limits |
 | `docx-fidelity.test.ts` | Nested tables, blocks inside quotes, image sizing, spans |
 | `zip-guard.test.ts` | What an uploaded archive declares it expands to |
+| `second-review.test.ts` | The defects a second review found, including one the first round introduced |
 
 ### Robustness
 
@@ -130,7 +131,7 @@ before any claim about it is made.
 
 | Run | Result | Time |
 |---|---|---|
-| 1 to 5 | 355 server, 150 client, 29 end-to-end, no unhandled errors, no lint findings | 39 to 41 seconds each |
+| 1 to 5 | 374 server, 153 client, 29 end-to-end, no unhandled errors, no lint findings | 39 to 41 seconds each |
 
 Two things keep it that way. Each server test gets its own in-memory database,
 so no test can depend on another having run first. And an unhandled promise
@@ -153,6 +154,12 @@ Worth recording, because it says what these layers are for.
 | Every image was written back at a fixed size, resizing and distorting all of them | Adversarial review |
 | Two registrations arriving together could both become administrators | Adversarial review |
 | Attribute values were never checked, so anything could reach the Word serializer | Adversarial review |
+| The fix for that then rejected images pasted from a web page, making a document permanently unsavable | Second review |
+| The editor still claimed everything was saved while keystrokes were pending, and the unload warning was keyed on the same state | Second review |
+| Restoring a version while a save was in flight let the stale answer undo the restore | Second review |
+| Exporting was unlimited although it costs as much as importing, which is limited | Second review |
+| Two administrators adding the same address got a server error rather than a conflict | Second review |
+| Changing your own password signed you out as well as your other devices | Second review |
 | The seed administrator could never sign in, because the email rule rejected a single-label domain | End-to-end smoke test |
 | Sign out was broken: the client declared a JSON body on a request that had none | End-to-end smoke test |
 | Opening a document marked it dirty and saved a phantom revision | Client suite |
@@ -177,6 +184,14 @@ of testing. The rate-limit bypass needed somebody to ask what happens when the
 header the limiter keys on is supplied by the attacker. The stuck editor needed
 somebody to trace what the revision does after a save fails, which no test
 exercised because no test made two saves overlap.
+
+A second pass was run afterwards, asked specifically whether the fixes had
+introduced anything. It had: the new attribute rules rejected images pasted from
+a web page, which made a document permanently unsavable from the moment somebody
+pasted one. That is the ordinary cost of a change made under a security
+argument, and the reason for looking again rather than assuming a fix is free.
+The same pass also found that a comment written in the first round claimed a
+save-state problem was fixed when it was not.
 
 ## Conventions
 
