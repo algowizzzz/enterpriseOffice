@@ -6,6 +6,23 @@ Notable changes, newest first. Dates are when the work landed.
 
 ### Added
 
+- Word export patches the uploaded file, so styles, numbering, sections, rich
+  headers and footers, fields, footnotes, text boxes, charts and form controls
+  survive. The document's own styles are drawn in the editor. The untouched
+  original can be downloaded at any time.
+- Comments with threads and resolve, open to people with view access, read from
+  and written to Word.
+- Track changes with accept and reject, Original and Redline tabs, redline and
+  accepted-changes export, Word revision marks both ways.
+- Several people editing one document at once, with presence and cursors, and
+  a fallback where a network forbids WebSockets.
+- PDF upload and PDF export, both in pure JavaScript.
+- Find and replace, document styles, indent, line spacing, table tools, a
+  contents table, standard tables, document type, ownership transfer, a lock for
+  approval, uploads to 50 MB.
+- A wide corpus of 35 documents from three other producers.
+- `docs/10-product-requirements.md` and `docs/11-status.md`.
+
 - An air-gapped deployment kit. `npm run release` runs the gate, then writes one
   archive holding the server, the client, a sandboxed systemd unit, an
   installer, a preflight check, a post-install check, third-party notices and

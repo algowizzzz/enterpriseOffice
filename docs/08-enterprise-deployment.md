@@ -20,7 +20,7 @@ sudo sh install.sh --node-archive ../node-v22.*-linux-x64.tar.xz
 
 | Piece | Size | What it is |
 |---|---|---|
-| `server.mjs` | about 3 MB | The whole server in one file. Every dependency is compiled in. |
+| `server.mjs` | about 9 MB | The whole server in one file. Every dependency is compiled in. |
 | `web/` | under 1 MB | The browser client: one page, one script, one stylesheet. |
 | Node 22 | about 30 MB packed | The runtime. Not in the archive: bring your own approved copy. |
 
@@ -177,6 +177,18 @@ server {
     ssl_certificate_key /etc/pki/tls/private/docs.key;
     client_max_body_size 60m;            # above DOCFORGE_MAX_UPLOAD_BYTES
 
+    # Live co-editing is a WebSocket. Without these three lines the proxy
+    # answers the upgrade as an ordinary request and it never opens.
+    location /api/collab/ {
+        proxy_pass http://127.0.0.1:8080;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $remote_addr;
+        proxy_read_timeout 3600s;        # an open document is a long-lived connection
+    }
+
     location / {
         proxy_pass http://127.0.0.1:8080;
         proxy_set_header Host $host;
@@ -197,11 +209,22 @@ Apache httpd, with `mod_proxy` and `mod_proxy_http`:
     SSLCertificateKeyFile /etc/pki/tls/private/docs.key
     LimitRequestBody 62914560
     ProxyPreserveHost On
+    # Live co-editing is a WebSocket: needs mod_proxy_wstunnel, and must come
+    # before the general rule below.
+    ProxyPass        /api/collab/ ws://127.0.0.1:8080/api/collab/
     ProxyPass        / http://127.0.0.1:8080/
     ProxyPassReverse / http://127.0.0.1:8080/
     RequestHeader set X-Forwarded-Proto "https"
 </VirtualHost>
 ```
+
+### If WebSockets are not allowed
+
+Some networks do not carry them at all. Nothing breaks: after eight seconds the
+editor says that live co-editing is not available and saves the ordinary way,
+where the second of two people to save is refused rather than merged. To find
+out which you have, open a document and watch for that message, or look for a
+request to `/api/collab/` with status 101 in the browser's network panel.
 
 Set `DOCFORGE_TRUST_PROXY=1` only when the proxy sets `X-Forwarded-For` itself,
 as the nginx block above does. It makes the rate limits and the audit trail use
@@ -324,6 +347,8 @@ is retained otherwise and nothing leaves the machine.
 | `status=226/NAMESPACE` | An older systemd that does not know one of the sandboxing settings | Comment that setting out in the unit and tell us which |
 | `attempt to write a readonly database` | The data directory is not owned by `docforge`, or is outside `ReadWritePaths` | `chown -R docforge: /var/lib/docforge`; keep `DOCFORGE_DB` under that directory |
 | 502 from the proxy, service is healthy | SELinux is stopping the proxy connecting | `setsebool -P httpd_can_network_connect 1` |
+| "Live co-editing is not available on this connection" | The proxy does not pass WebSocket upgrades, or the network blocks them | Add the `/api/collab/` rule from section 7; if the network forbids WebSockets, the fallback is working as designed |
+| Arabic, Chinese or Hindi text is "?" in an exported PDF | No font on the server covers it | Put a `.ttf` or `.otf` (DejaVu, Noto) in a folder and name it in `DOCFORGE_FONT_DIRS`. Word export is not affected |
 | 413 on a large upload | The proxy's body limit is below the application's | Raise `client_max_body_size` or `LimitRequestBody` |
 | Everybody shares one rate limit, audit shows the proxy's address | `DOCFORGE_TRUST_PROXY` is 0 behind a proxy | Set it to 1, once the proxy sets `X-Forwarded-For` |
 
@@ -360,6 +385,12 @@ all the same: the journal records the email addresses of people who sign in.
   entity declarations. Pictures over 2 MB each, or 8 MB in total, are left out
   of the imported document and the import says so. Links are limited
   to http, https and mailto; pictures to embedded data.
+- **The WebSocket.** One, to this origin only, signed in by the same session
+  cookie, refused for anybody the document is not shared with. Somebody with
+  view access receives the document and what they send to change it is dropped
+  on the server.
+- **PDF handling.** Both directions are JavaScript inside `server.mjs`: no
+  LibreOffice, no Ghostscript, no external process, nothing native.
 - **Known limits to raise in review, not discover later.** `node:sqlite` is
   marked experimental in Node 22, stable enough to pass this project's tests
   but a label a change board may ask about. Storage is one file, so one
