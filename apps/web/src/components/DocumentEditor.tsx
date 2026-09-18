@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type JSX } from 'react';
 import { EditorContent, useEditor } from '@tiptap/react';
-import { sanitizeDocument, type PMNode } from '@docforge/model';
+import { repairDocument, type PMNode, type RepairResult } from '@docforge/model';
 import { editorExtensions } from './editorExtensions';
 import { Toolbar } from './Toolbar';
 
@@ -13,6 +13,13 @@ interface DocumentEditorProps {
   onChange: (content: PMNode) => void;
   /** Called on every keystroke so the caller can mark the document dirty. */
   onDirty: () => void;
+  /**
+   * Called when the repair had to remove something, so the caller can say so.
+   *
+   * Removing content somebody can see, with no message, is worse than the
+   * refusal it replaced: a refusal is visible, this is not.
+   */
+  onRepair?: (when: 'open' | 'save') => void;
 }
 
 /** How long the editor waits after the last keystroke before reporting a change. */
@@ -37,16 +44,25 @@ export function DocumentEditor({
   readOnly,
   onChange,
   onDirty,
+  onRepair,
 }: DocumentEditorProps): JSX.Element {
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [stats, setStats] = useState<DocumentStats>({ words: 0, characters: 0 });
 
+  // Held in a ref so reporting a repair cannot restart the editor, which would
+  // throw away the cursor and the undo history.
+  const report = useRef(onRepair);
+  report.current = onRepair;
+
+  // Repaired on the way in, once. A document written before a rule existed, or
+  // by something that is not this editor, must still open and still save.
+  const opened = useRef<RepairResult | null>(null);
+  opened.current ??= repairDocument(initialContent);
+
   const editor = useEditor(
     {
       extensions: editorExtensions,
-      // Repaired on the way in as well, so a document written before a rule
-      // existed, or by something that is not this editor, can still be saved.
-      content: sanitizeDocument(initialContent),
+      content: opened.current.doc,
       editable: !readOnly,
       editorProps: {
         attributes: {
@@ -65,7 +81,9 @@ export function DocumentEditor({
           // Repaired on the way out. Pasted markup can carry a remote image or
           // an odd hyperlink, and tightening a server rule without this made a
           // single paste enough to strand a document for ever.
-          onChange(sanitizeDocument(instance.getJSON() as PMNode));
+          const result = repairDocument(instance.getJSON() as PMNode);
+          if (result.changed) report.current?.('save');
+          onChange(result.doc);
         }, AUTOSAVE_DEBOUNCE_MS);
       },
     },
@@ -84,6 +102,10 @@ export function DocumentEditor({
       editor.off('update', recount);
     };
   }, [editor]);
+
+  useEffect(() => {
+    if (opened.current?.changed) report.current?.('open');
+  }, []);
 
   useEffect(() => {
     return () => {

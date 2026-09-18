@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { emptyDoc, sanitizeDocument, validateDoc, toPlainText, type PMNode } from '@docforge/model';
 
-const repaired = (doc: unknown): PMNode => sanitizeDocument(doc as PMNode);
+const repaired = (doc: unknown): PMNode => sanitizeDocument(doc);
 const valid = (doc: unknown): boolean => validateDoc(repaired(doc)).ok;
 
 /**
@@ -276,7 +276,7 @@ describe('repairing a document', () => {
 
   it('gives back an empty document when there is nothing usable left', () => {
     expect(sanitizeDocument({ type: 'iframe' })).toEqual(emptyDoc());
-    expect(sanitizeDocument(null as unknown as PMNode)).toEqual(emptyDoc());
+    expect(sanitizeDocument(null)).toEqual(emptyDoc());
   });
 
   it('stops at a depth no real document reaches', () => {
@@ -306,7 +306,7 @@ describe('repairing a document', () => {
     ];
     for (const doc of hostile) {
       expect(validateDoc(doc).ok, JSON.stringify(doc).slice(0, 60)).toBe(false);
-      const result = validateDoc(sanitizeDocument(doc as PMNode));
+      const result = validateDoc(sanitizeDocument(doc));
       expect(result.errors, JSON.stringify(doc).slice(0, 60)).toEqual([]);
     }
   });

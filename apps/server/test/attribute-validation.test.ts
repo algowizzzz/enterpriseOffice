@@ -36,7 +36,12 @@ describe('node attributes', () => {
     // value goes straight into the serializer.
     const cell = (attrs: Record<string, unknown>): PMNode => ({
       type: 'table',
-      content: [{ type: 'tableRow', content: [{ type: 'tableCell', attrs }] }],
+      content: [
+        {
+          type: 'tableRow',
+          content: [{ type: 'tableCell', attrs, content: [{ type: 'paragraph' }] }],
+        },
+      ],
     });
     expect(ok(cell({ colspan: 1, rowspan: 1 }))).toBe(true);
     expect(ok(cell({ colspan: 1000, rowspan: 1000 }))).toBe(true);
@@ -49,7 +54,14 @@ describe('node attributes', () => {
   it('accepts the column widths the editor stores', () => {
     const cell = (colwidth: unknown): PMNode => ({
       type: 'table',
-      content: [{ type: 'tableRow', content: [{ type: 'tableCell', attrs: { colwidth } }] }],
+      content: [
+        {
+          type: 'tableRow',
+          content: [
+            { type: 'tableCell', attrs: { colwidth }, content: [{ type: 'paragraph' }] },
+          ],
+        },
+      ],
     });
     expect(ok(cell(null))).toBe(true);
     expect(ok(cell([120, 240]))).toBe(true);

@@ -330,3 +330,75 @@ describe('word and character counts', () => {
     expect(statsFor('یہ ایک جملہ ہے')).toMatchObject({ words: 4 });
   });
 });
+
+describe('a document the editor has to repair before it can show it', () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('opens with a place to type rather than with nothing at all', async () => {
+    // Regression: the only thing in the document was a picture held outside the
+    // file. Removing it left a document with no content, which opened as a
+    // blank page with nowhere to put the cursor, and the first save wrote that
+    // blankness over the stored work.
+    const stranded = {
+      type: 'doc',
+      content: [{ type: 'image', attrs: { src: 'https://example.com/a.png' } }],
+    } as PMNode;
+    const repairs: string[] = [];
+    render(
+      <DocumentEditor
+        initialContent={stranded}
+        readOnly={false}
+        onChange={() => {}}
+        onDirty={() => {}}
+        onRepair={(when) => repairs.push(when)}
+      />,
+    );
+    const body = await screen.findByRole('textbox');
+    expect(body.querySelectorAll('p')).toHaveLength(1);
+    await waitFor(() => expect(repairs).toEqual(['open']));
+  });
+
+  it('does not take the page down when the stored shape is wrong', async () => {
+    const malformed = { type: 'doc', content: { not: 'a list' } } as unknown as PMNode;
+    expect(() =>
+      render(
+        <DocumentEditor
+          initialContent={malformed}
+          readOnly={false}
+          onChange={() => {}}
+          onDirty={() => {}}
+        />,
+      ),
+    ).not.toThrow();
+    await waitFor(() => expect(screen.getByRole('textbox')).toBeInTheDocument());
+  });
+
+  it('says so when a save had to remove something', async () => {
+    const repairs: string[] = [];
+    const saved: PMNode[] = [];
+    render(
+      <DocumentEditor
+        initialContent={startingDoc}
+        readOnly={false}
+        onChange={(content) => saved.push(content)}
+        onDirty={() => {}}
+        onRepair={(when) => repairs.push(when)}
+      />,
+    );
+    const body = await screen.findByRole('textbox');
+    await userEvent.type(body, ' more');
+    await act(async () => {
+      vi.advanceTimersByTime(AUTOSAVE_DEBOUNCE_MS + 50);
+    });
+    // Ordinary typing removes nothing, so it must not claim otherwise.
+    expect(repairs).toEqual([]);
+    expect(saved).toHaveLength(1);
+    expect(validateDoc(saved[0] as PMNode).ok).toBe(true);
+  });
+});

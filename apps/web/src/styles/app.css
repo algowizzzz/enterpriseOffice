@@ -128,6 +128,17 @@ h2 {
   padding: 8px 12px;
 }
 
+/* Something was removed from the document: not an error, but not good news. */
+.notice-warning {
+  color: #8a5a00;
+  background: #fdf3e2;
+  border-color: #efd7a6;
+  display: flex;
+  gap: 12px;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
 .visually-hidden {
   position: absolute;
   width: 1px;

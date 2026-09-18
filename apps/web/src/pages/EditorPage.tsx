@@ -32,6 +32,7 @@ export function EditorPage({ documentId, onBack }: EditorPageProps): JSX.Element
   const [title, setTitle] = useState('');
   const [saveState, setSaveState] = useState<SaveState>('saved');
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [versions, setVersions] = useState<VersionSummary[] | null>(null);
   const [shares, setShares] = useState<ShareEntry[] | null>(null);
   const [directory, setDirectory] = useState<User[]>([]);
@@ -294,6 +295,15 @@ export function EditorPage({ documentId, onBack }: EditorPageProps): JSX.Element
         </p>
       ) : null}
 
+      {notice ? (
+        <p className="notice notice-warning" role="status">
+          {notice}
+          <button type="button" className="link" onClick={() => setNotice(null)}>
+            Dismiss
+          </button>
+        </p>
+      ) : null}
+
       {versions ? (
         <aside className="panel">
           <h2>Version history</h2>
@@ -401,6 +411,13 @@ export function EditorPage({ documentId, onBack }: EditorPageProps): JSX.Element
           setSaveState((current) => (current === 'conflict' ? current : 'dirty'));
         }}
         onChange={(content) => void persist({ content })}
+        onRepair={(when) =>
+          setNotice(
+            when === 'open'
+              ? 'Something in this document could not be opened and has been left out, most often a picture held outside the file. Everything else is here, and saving stores what you can see.'
+              : 'Something that was pasted could not be kept and has been removed, most often a picture held outside the file or a link this editor will not store.',
+          )
+        }
       />
     </div>
   );

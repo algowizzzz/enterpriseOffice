@@ -19,8 +19,8 @@ Current state:
 
 | Suite | Tests | Statements | Branches |
 |---|---|---|---|
-| Server | 385 | 97% | 89% |
-| Client | 175 | 96% | 84% |
+| Server | 410 | 97% | 89% |
+| Client | 178 | 96% | 84% |
 | End to end | 29 checks | n/a | n/a |
 
 Coverage numbers come from `npx vitest run --coverage` in either workspace.
@@ -133,7 +133,7 @@ before any claim about it is made.
 
 | Run | Result | Time |
 |---|---|---|
-| 1 to 5 | 385 server, 175 client, 29 end-to-end, no unhandled errors, no lint findings | about 40 seconds each |
+| 1 to 5 | 410 server, 178 client, 29 end-to-end, no unhandled errors, no lint findings | about 40 seconds each |
 
 Two things keep it that way. Each server test gets its own in-memory database,
 so no test can depend on another having run first. And an unhandled promise
@@ -174,6 +174,13 @@ Worth recording, because it says what these layers are for.
 | Underline and alignment were lost on every round trip | Server suite |
 | Centred headings lost their centring | Server suite |
 | The editor header scrolled out of view; `Ctrl+End` did nothing | Browser walkthrough |
+| The repair for that emptied a document whose only content it had to remove, so it opened blank and the first save wrote the blankness back | Fourth review |
+| A stored document whose content or marks were not a list threw out of the editor's start-up and took the whole page down | Fourth review |
+| The repair could discard the very attribute a node cannot do without, making it unrepairable | Fourth review |
+| The repair left a non-document root and a text node's children in place, both of which the rules refuse | Fourth review |
+| A document past the node limit was repaired into an identical one, still too large to save | Fourth review |
+| Content was removed on the way in and out with nothing said about it | Fourth review |
+| Two documents created in the same millisecond shared a timestamp, so the list ordered them arbitrarily | Server suite |
 
 ## Review
 
@@ -204,6 +211,20 @@ that could never be saved. Patching each would only have set up the next one, so
 the rules and the repair now live together and the editor repairs what it is
 given and what it hands over. One test asserts the two agree, and found a place
 where they did not the moment it was written.
+
+A fourth pass read the repair itself, and found five ways it could produce a
+document the rules still refuse or the editor shows as blank. The worst was the
+plainest: a document whose only content had to be removed came back with no
+content at all, which ProseMirror builds without complaint, so the person saw an
+empty page and the first autosave stored it. The repair now fills anything that
+cannot be empty, drops containers that mean nothing when empty, forces a
+document root, keeps required attributes first, holds to the same node budget as
+the checker, and recovers the words when a value is too malformed to walk. Two
+properties are asserted against five hundred generated documents rather than
+case by case: whatever goes in, the repair returns without throwing and its
+output satisfies the rules, and a second repair changes nothing. The same pass
+noted that removing content silently is worse than the refusal it replaced, so
+the editor now says when something was left out.
 
 The lesson is worth stating plainly, because it took three rounds to learn:
 a validation rule is only half a change. The other half is the thing that makes

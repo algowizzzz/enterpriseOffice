@@ -162,3 +162,15 @@ describe('database', () => {
     db.close();
   });
 });
+
+describe('the clock the records are stamped with', () => {
+  it('never hands out the same moment twice', async () => {
+    // Regression: two documents created in the same millisecond carried the
+    // same time, so the list put them in whichever order the identifiers
+    // happened to fall in, and editing one did not reliably move it to the top.
+    const { now } = await import('../src/lib/ids.js');
+    const stamps = Array.from({ length: 200 }, () => now());
+    expect(new Set(stamps).size).toBe(stamps.length);
+    expect([...stamps].sort()).toEqual(stamps);
+  });
+});

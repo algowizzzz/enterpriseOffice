@@ -271,9 +271,62 @@ function checkRequired(kind: string, attrs: unknown, path: string, errors: strin
 const NO_EXEMPTIONS: ReadonlySet<string> = new Set();
 const NOT_AN_IMAGE: ReadonlySet<string> = new Set(['src']);
 
+/** How much of a document the model will look at, shared by the checker and the repair. */
+const MAX_NODES = 500_000;
+const MAX_DEPTH = 100;
+
+/** Nodes that sit inside a paragraph rather than beside one. */
+const INLINE_NODES: ReadonlySet<string> = new Set([NODE.text, NODE.hardBreak, NODE.image]);
+
+/**
+ * Nodes the editor's schema requires at least one block inside.
+ *
+ * ProseMirror does not throw when one arrives empty: it builds the node
+ * anyway, so the person sees a document with nothing in it and nowhere to put
+ * the cursor, and the first save writes that emptiness back over their work.
+ * Both the check and the repair below know about this list, so a document
+ * cannot be repaired into something the editor will hollow out.
+ */
+const NEEDS_BLOCK: ReadonlySet<string> = new Set([
+  NODE.doc,
+  NODE.blockquote,
+  NODE.listItem,
+  NODE.tableCell,
+  NODE.tableHeader,
+]);
+
+/** Containers that mean nothing once everything inside them has gone. */
+const DROP_IF_EMPTY: ReadonlySet<string> = new Set([
+  NODE.bulletList,
+  NODE.orderedList,
+  NODE.table,
+  NODE.tableRow,
+]);
+
 export interface ValidationResult {
   ok: boolean;
   errors: string[];
+}
+
+/**
+ * A node that must hold blocks, and holds them.
+ *
+ * A stored document that fails this opens as an empty editor rather than as an
+ * error, which is the one failure the person cannot see happening, so it is
+ * checked on the way in and repaired on the way out.
+ */
+function checkBlockContent(type: string, content: unknown, path: string, errors: string[]): void {
+  if (!Array.isArray(content) || content.length === 0) {
+    errors.push(`${path}: "${type}" must contain at least one block`);
+    return;
+  }
+  const inline = content.some(
+    (child) =>
+      typeof child === 'object' &&
+      child !== null &&
+      INLINE_NODES.has((child as { type?: unknown }).type as string),
+  );
+  if (inline) errors.push(`${path}: "${type}" cannot hold inline content directly`);
 }
 
 /**
@@ -285,8 +338,6 @@ export interface ValidationResult {
 export function validateDoc(value: unknown): ValidationResult {
   const errors: string[] = [];
   const seen = { nodes: 0 };
-  const MAX_NODES = 500_000;
-  const MAX_DEPTH = 100;
 
   const check = (node: unknown, path: string, depth: number): void => {
     if (errors.length > 50) return;
@@ -339,6 +390,7 @@ export function validateDoc(value: unknown): ValidationResult {
       }
       n['content'].forEach((child, i) => check(child, `${path}.content[${i}]`, depth + 1));
     }
+    if (NEEDS_BLOCK.has(type)) checkBlockContent(type, n['content'], path, errors);
   };
 
   check(value, 'doc', 0);
@@ -353,90 +405,262 @@ export function validateDoc(value: unknown): ValidationResult {
  * Make a document satisfy `validateDoc`.
  *
  * The editor accepts whatever pasted markup carries, and a document can also
- * arrive from an uploaded file. Tightening a rule on the server without this
- * meant one pasted image or hyperlink made a document impossible to save, for
- * ever, with nothing on screen to say which element was at fault. That happened
- * twice. So the rules live in one place and the client repairs against them
- * rather than each rule being a new way to strand somebody's work.
+ * arrive from an uploaded file or from a build that predates a rule. Tightening
+ * a rule on the server without this meant one pasted image or hyperlink made a
+ * document impossible to save, for ever, with nothing on screen to say which
+ * element was at fault. That happened twice. So the rules live in one place and
+ * the client repairs against them rather than each rule being a new way to
+ * strand somebody's work.
  *
- * The repair is conservative:
+ * The repair is conservative, and above all it never produces something the
+ * editor would show as blank:
  *   an attribute a node cannot do without, such as an image's source, is not
  *   repairable, so the node is dropped;
  *   any other bad attribute is removed, leaving the node with its default;
- *   a mark whose required attribute is bad is dropped, keeping the text.
+ *   a mark whose required attribute is bad is dropped, keeping the text;
+ *   a node that must hold blocks and has lost them gets an empty paragraph,
+ *   and a container that means nothing when empty is dropped;
+ *   if nothing survives, the words are recovered into plain paragraphs rather
+ *   than the document being replaced with a blank one.
+ *
+ * It reports whether it changed anything, so the editor can say so instead of
+ * removing what somebody can see with no message at all.
  */
-export function sanitizeDocument(doc: PMNode): PMNode {
-  return sanitizeNode(doc) ?? emptyDoc();
+export interface RepairResult {
+  doc: PMNode;
+  /** True when anything at all was removed, replaced or restructured. */
+  changed: boolean;
+}
+
+interface RepairContext {
+  /** Nodes still within the budget, mirroring the checker's node limit. */
+  left: number;
+  changed: boolean;
+}
+
+export function sanitizeDocument(value: unknown): PMNode {
+  return repairDocument(value).doc;
+}
+
+export function repairDocument(value: unknown): RepairResult {
+  const ctx: RepairContext = { left: MAX_NODES, changed: false };
+  const root = sanitizeNode(value, 0, ctx);
+
+  if (root && root.type === NODE.doc) return { doc: root, changed: ctx.changed };
+
+  // A root that is not a document at all still holds the person's words.
+  if (root) {
+    const content = asBlocks([root], ctx);
+    return {
+      doc: { type: NODE.doc, content: content.length > 0 ? content : [{ type: NODE.paragraph }] },
+      changed: true,
+    };
+  }
+
+  const lines = salvageText(value);
+  return { doc: lines.length > 0 ? docFromParagraphs(lines) : emptyDoc(), changed: true };
+}
+
+/**
+ * The text of a document too malformed to repair node by node.
+ *
+ * Returning an empty document here would throw away work that is plainly still
+ * there, so the words are read out of whatever shape the value has and put back
+ * as paragraphs. Formatting is lost; the writing is not.
+ */
+function salvageText(value: unknown, out: string[] = [], depth = 0): string[] {
+  if (out.length >= 10000 || depth > MAX_DEPTH) return out;
+  if (Array.isArray(value)) {
+    for (const entry of value) salvageText(entry, out, depth + 1);
+    return out;
+  }
+  if (typeof value !== 'object' || value === null) return out;
+  const node = value as Record<string, unknown>;
+  const text = node['text'];
+  if (typeof text === 'string' && text.length > 0) out.push(text);
+  salvageText(node['content'], out, depth + 1);
+  return out;
 }
 
 function sanitizeAttrs(
   kind: string,
-  attrs: Record<string, unknown> | undefined,
+  attrs: unknown,
   exempt: ReadonlySet<string>,
+  ctx: RepairContext,
 ): { attrs?: Record<string, unknown>; drop: boolean } {
-  const required = new Set(REQUIRED_ATTRS[kind] ?? []);
-  if (!attrs || typeof attrs !== 'object' || Array.isArray(attrs)) {
+  const required = REQUIRED_ATTRS[kind] ?? [];
+  if (typeof attrs !== 'object' || attrs === null || Array.isArray(attrs)) {
     // A node that cannot do without an attribute, and carries none at all, is
     // not repairable. Skipping this check let the repair disagree with the
     // rules, which is the whole way a document becomes impossible to save.
-    return { drop: required.size > 0 };
+    if (attrs !== undefined) ctx.changed = true;
+    return { drop: required.length > 0 };
   }
 
-  for (const name of required) {
-    if (!(name in attrs)) return { drop: true };
-  }
-
-  const kept: Record<string, unknown> = {};
-  for (const [name, value] of Object.entries(attrs).slice(0, 64)) {
+  const source = attrs as Record<string, unknown>;
+  const accepts = (name: string, value: unknown): boolean => {
     const check = ATTR_CHECKS[name];
-    const valid = check && !exempt.has(name) ? check(value) : isPlainAttrValue(value);
-    if (valid) {
-      kept[name] = value;
-    } else if (required.has(name)) {
-      return { drop: true };
+    return check && !exempt.has(name) ? check(value) : isPlainAttrValue(value);
+  };
+
+  // Required attributes are kept first. Truncating the list before looking at
+  // them could discard the one the node cannot do without, leaving a node that
+  // passed the presence check and then failed the rules for ever after.
+  const kept: Record<string, unknown> = {};
+  for (const name of required) {
+    if (!(name in source) || !accepts(name, source[name])) return { drop: true };
+    kept[name] = source[name];
+  }
+
+  for (const [name, value] of Object.entries(source)) {
+    if (name in kept) continue;
+    if (Object.keys(kept).length >= 64) {
+      ctx.changed = true;
+      break;
     }
+    if (accepts(name, value)) kept[name] = value;
+    else ctx.changed = true;
   }
   return { attrs: kept, drop: false };
 }
 
-function sanitizeNode(node: PMNode, depth = 0): PMNode | null {
-  if (depth > 100) return null;
-  if (typeof node?.type !== 'string' || !KNOWN_NODES.has(node.type)) return null;
+function sanitizeMarks(marks: unknown, ctx: RepairContext): PMMark[] | undefined {
+  if (marks === undefined || marks === null) return undefined;
+  if (!Array.isArray(marks)) {
+    ctx.changed = true;
+    return undefined;
+  }
+  const kept: PMMark[] = [];
+  for (const mark of marks) {
+    if (typeof mark !== 'object' || mark === null || Array.isArray(mark)) {
+      ctx.changed = true;
+      continue;
+    }
+    const type = (mark as PMMark).type;
+    if (typeof type !== 'string' || !KNOWN_MARKS.has(type)) {
+      ctx.changed = true;
+      continue;
+    }
+    const attrs = sanitizeAttrs(`mark:${type}`, (mark as PMMark).attrs, NOT_AN_IMAGE, ctx);
+    if (attrs.drop) {
+      ctx.changed = true;
+      continue;
+    }
+    kept.push(
+      attrs.attrs && Object.keys(attrs.attrs).length > 0 ? { type, attrs: attrs.attrs } : { type },
+    );
+  }
+  return kept.length > 0 ? kept : undefined;
+}
+
+function sanitizeChildren(content: unknown, depth: number, ctx: RepairContext): PMNode[] {
+  if (content === undefined || content === null) return [];
+  if (!Array.isArray(content)) {
+    // Reaching this used to throw out of the editor's own start-up, which took
+    // the whole page down with no message and no way back to the document.
+    ctx.changed = true;
+    return [];
+  }
+  const kept: PMNode[] = [];
+  for (const child of content) {
+    const cleaned = sanitizeNode(child, depth + 1, ctx);
+    if (cleaned) kept.push(cleaned);
+  }
+  return kept;
+}
+
+/** Wrap loose inline content in paragraphs, so a block container holds blocks. */
+function asBlocks(children: PMNode[], ctx: RepairContext): PMNode[] {
+  const blocks: PMNode[] = [];
+  let run: PMNode[] = [];
+  const flush = (): void => {
+    if (run.length === 0) return;
+    ctx.changed = true;
+    blocks.push({ type: NODE.paragraph, content: run });
+    run = [];
+  };
+  for (const child of children) {
+    if (INLINE_NODES.has(child.type)) run.push(child);
+    else {
+      flush();
+      blocks.push(child);
+    }
+  }
+  flush();
+  return blocks;
+}
+
+function sanitizeNode(value: unknown, depth: number, ctx: RepairContext): PMNode | null {
+  // One level short of the checker's limit, because a node that must hold a
+  // block gets one substituted below it and that substitute has to fit too.
+  if (depth >= MAX_DEPTH) {
+    ctx.changed = true;
+    return null;
+  }
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    ctx.changed = true;
+    return null;
+  }
+  const node = value as PMNode;
+  if (typeof node.type !== 'string' || !KNOWN_NODES.has(node.type)) {
+    ctx.changed = true;
+    return null;
+  }
+  // The checker refuses a document past its node budget, so a repair that kept
+  // every node produced another document nobody could save.
+  if (ctx.left <= 0) {
+    ctx.changed = true;
+    return null;
+  }
+  ctx.left -= 1;
 
   const exempt = node.type === NODE.image ? NO_EXEMPTIONS : NOT_AN_IMAGE;
-  const attrs = sanitizeAttrs(node.type, node.attrs, exempt);
-  if (attrs.drop) return null;
+  const attrs = sanitizeAttrs(node.type, node.attrs, exempt, ctx);
+  if (attrs.drop) {
+    ctx.changed = true;
+    return null;
+  }
 
   const clean: PMNode = { type: node.type };
   if (attrs.attrs && Object.keys(attrs.attrs).length > 0) clean.attrs = attrs.attrs;
 
+  const marks = sanitizeMarks(node.marks, ctx);
+  if (marks) clean.marks = marks;
+
   if (node.type === NODE.text) {
-    if (typeof node.text !== 'string') return null;
+    if (typeof node.text !== 'string' || node.text.length === 0) {
+      ctx.changed = true;
+      return null;
+    }
+    // A text node carrying children is refused by the checker, so the repair
+    // returns here rather than copying them across.
+    if (node.content !== undefined) ctx.changed = true;
     clean.text = node.text;
+    return clean;
   }
 
-  if (node.marks) {
-    const marks: PMMark[] = [];
-    for (const mark of node.marks) {
-      if (typeof mark?.type !== 'string' || !KNOWN_MARKS.has(mark.type)) continue;
-      const markAttrs = sanitizeAttrs(`mark:${mark.type}`, mark.attrs, NOT_AN_IMAGE);
-      if (markAttrs.drop) continue;
-      marks.push(
-        markAttrs.attrs && Object.keys(markAttrs.attrs).length > 0
-          ? { type: mark.type, attrs: markAttrs.attrs }
-          : { type: mark.type },
-      );
+  const children = sanitizeChildren(node.content, depth, ctx);
+
+  if (NEEDS_BLOCK.has(node.type)) {
+    const blocks = asBlocks(children, ctx);
+    if (blocks.length > 0) {
+      clean.content = blocks;
+    } else {
+      // Nothing left inside something that cannot be empty. An empty paragraph
+      // is a place to type; no content at all is a document that opens blank.
+      ctx.changed = true;
+      clean.content = [{ type: NODE.paragraph }];
     }
-    if (marks.length > 0) clean.marks = marks;
+    return clean;
   }
 
-  if (node.content) {
-    const content: PMNode[] = [];
-    for (const child of node.content) {
-      const cleaned = sanitizeNode(child, depth + 1);
-      if (cleaned) content.push(cleaned);
-    }
-    if (content.length > 0) clean.content = content;
+  if (children.length > 0) {
+    clean.content = children;
+  } else if (DROP_IF_EMPTY.has(node.type)) {
+    ctx.changed = true;
+    return null;
+  } else if (node.content !== undefined && !Array.isArray(node.content)) {
+    ctx.changed = true;
   }
 
   return clean;
