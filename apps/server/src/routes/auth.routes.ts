@@ -8,7 +8,7 @@ import { createSession, revokeSession } from '../services/sessions.js';
 import { recordAudit } from '../services/audit.js';
 import {
   countUsers,
-  createUser,
+  createFirstAdmin,
   findUserByEmail,
   getUser,
   markLogin,
@@ -50,12 +50,20 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
     }
     const problems = passwordProblems(body.password);
     if (problems.length > 0) throw badRequest(problems.join(' '));
-    const user = await createUser(app.db, {
+
+    // The check above is a courtesy for the common case. The one that counts is
+    // inside the transaction below, because hashing a password takes long
+    // enough that two requests arriving together would otherwise both see an
+    // empty instance and both become administrators.
+    const user = await createFirstAdmin(app.db, {
       email: body.email,
       name: body.name,
       password: body.password,
       role: 'admin',
     });
+    if (!user) {
+      throw badRequest('Registration is closed. Ask an administrator for an account.');
+    }
     recordAudit(app.db, {
       actorId: user.id,
       action: 'user.created',
@@ -133,30 +141,34 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
   /** Reports whether the instance still needs its first account. */
   app.get('/auth/bootstrap', async () => ({ needsSetup: countUsers(app.db) === 0 }));
 
-  app.post('/auth/password', async (request) => {
-    const user = await app.authenticate(request);
-    const body = z
-      .object({
-        currentPassword: z.string().min(1).max(200),
-        newPassword: z.string().min(1).max(200),
-      })
-      .parse(request.body);
-    const row = findUserByEmail(app.db, user.email);
-    if (!row || !(await verifyPassword(body.currentPassword, row.password_hash))) {
-      throw unauthorized('Your current password is incorrect');
-    }
-    const problems = passwordProblems(body.newPassword);
-    if (problems.length > 0) throw badRequest(problems.join(' '));
-    await setPassword(app.db, user.id, body.newPassword);
-    // Force every other device to sign in again with the new password.
-    revokeAllSessions(app.db, user.id);
-    recordAudit(app.db, {
-      actorId: user.id,
-      action: 'user.password_changed',
-      targetType: 'user',
-      targetId: user.id,
-      ip: clientIp(request),
-    });
-    return { ok: true };
-  });
+  app.post(
+    '/auth/password',
+    { config: { rateLimit: { max: app.config.loginRateLimit, timeWindow: '1 minute' } } },
+    async (request) => {
+      const user = await app.authenticate(request);
+      const body = z
+        .object({
+          currentPassword: z.string().min(1).max(200),
+          newPassword: z.string().min(1).max(200),
+        })
+        .parse(request.body);
+      const row = findUserByEmail(app.db, user.email);
+      if (!row || !(await verifyPassword(body.currentPassword, row.password_hash))) {
+        throw unauthorized('Your current password is incorrect');
+      }
+      const problems = passwordProblems(body.newPassword);
+      if (problems.length > 0) throw badRequest(problems.join(' '));
+      await setPassword(app.db, user.id, body.newPassword);
+      // Force every other device to sign in again with the new password.
+      revokeAllSessions(app.db, user.id);
+      recordAudit(app.db, {
+        actorId: user.id,
+        action: 'user.password_changed',
+        targetType: 'user',
+        targetId: user.id,
+        ip: clientIp(request),
+      });
+      return { ok: true };
+    },
+  );
 }

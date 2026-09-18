@@ -35,8 +35,23 @@ const BLOCK_TAGS = new Set([
 
 interface ImportState {
   images: number;
+  /** Total bytes of embedded pictures, so a hundred large ones cannot add up. */
+  imageBytes: number;
   messages: Set<string>;
 }
+
+/**
+ * How deep the converter will follow nested markup.
+ *
+ * The walk is mutually recursive across inline content, blocks and containers,
+ * and an uploaded file can nest as deeply as it likes. Without a limit a
+ * hostile document overflows the stack, which surfaces as an opaque server
+ * error rather than a refusal the person can understand.
+ */
+const MAX_HTML_DEPTH = 80;
+
+/** Everything a document may carry in pictures put together. */
+const MAX_TOTAL_IMAGE_BYTES = 16 * 1024 * 1024;
 
 /**
  * The parser exposes DOM node types as an enum. Comparing against bare numbers
@@ -90,7 +105,8 @@ function decodeEntities(text: string): string {
 }
 
 /** Convert inline HTML into ProseMirror text nodes carrying marks. */
-function inline(node: HtmlNode, marks: PMMark[], state: ImportState): PMNode[] {
+function inline(node: HtmlNode, marks: PMMark[], state: ImportState, depth = 0): PMNode[] {
+  if (depth > MAX_HTML_DEPTH) return [];
   if (isText(node)) {
     const text = decodeEntities(node.rawText);
     if (text.length === 0) return [];
@@ -155,11 +171,17 @@ function inline(node: HtmlNode, marks: PMMark[], state: ImportState): PMNode[] {
         return [];
       }
       const base64 = src.slice(src.indexOf(',') + 1);
-      if (Math.floor((base64.length * 3) / 4) > MAX_IMAGE_BYTES) {
+      const bytes = Math.floor((base64.length * 3) / 4);
+      if (bytes > MAX_IMAGE_BYTES) {
         state.messages.add('An image larger than 2 MB was removed.');
         return [];
       }
+      if (state.imageBytes + bytes > MAX_TOTAL_IMAGE_BYTES) {
+        state.messages.add('Some images were removed because the document held too many.');
+        return [];
+      }
       state.images += 1;
+      state.imageBytes += bytes;
       const measured = measureImage(src);
       return [
         {
@@ -178,11 +200,11 @@ function inline(node: HtmlNode, marks: PMMark[], state: ImportState): PMNode[] {
     default:
       break;
   }
-  return node.childNodes.flatMap((child) => inline(child, next, state));
+  return node.childNodes.flatMap((child) => inline(child, next, state, depth + 1));
 }
 
-function paragraphFrom(node: HTMLElement, state: ImportState): PMNode {
-  const content = node.childNodes.flatMap((child) => inline(child, [], state));
+function paragraphFrom(node: HTMLElement, state: ImportState, depth = 0): PMNode {
+  const content = node.childNodes.flatMap((child) => inline(child, [], state, depth + 1));
   const align = alignmentOf(node);
   const attrs = align ? { textAlign: align } : undefined;
   return content.length > 0
@@ -200,12 +222,12 @@ function alignmentOf(node: HTMLElement): string | undefined {
   return marked?.[1]?.toLowerCase();
 }
 
-function listFrom(node: HTMLElement, state: ImportState): PMNode {
+function listFrom(node: HTMLElement, state: ImportState, depth = 0): PMNode {
   const ordered = node.rawTagName?.toLowerCase() === 'ol';
   const items: PMNode[] = [];
   for (const child of node.childNodes) {
     if (!isElement(child) || child.rawTagName?.toLowerCase() !== 'li') continue;
-    const blocks = blocksOf(child, state);
+    const blocks = blocksOf(child, state, depth + 1);
     items.push({
       type: NODE.listItem,
       content: blocks.length > 0 ? blocks : [{ type: NODE.paragraph }],
@@ -238,7 +260,7 @@ function rowsOf(table: HTMLElement): HTMLElement[] {
   return rows;
 }
 
-function tableFrom(node: HTMLElement, state: ImportState): PMNode {
+function tableFrom(node: HTMLElement, state: ImportState, depth = 0): PMNode {
   const rows: PMNode[] = [];
   for (const tr of rowsOf(node)) {
     const cells: PMNode[] = [];
@@ -246,7 +268,7 @@ function tableFrom(node: HTMLElement, state: ImportState): PMNode {
       if (!isElement(cell)) continue;
       const tag = cell.rawTagName?.toLowerCase();
       if (tag !== 'td' && tag !== 'th') continue;
-      const blocks = blocksOf(cell, state);
+      const blocks = blocksOf(cell, state, depth + 1);
       const colspan = Number(cell.getAttribute('colspan') ?? '1');
       const rowspan = Number(cell.getAttribute('rowspan') ?? '1');
       cells.push({
@@ -266,13 +288,14 @@ function tableFrom(node: HTMLElement, state: ImportState): PMNode {
 }
 
 /** Convert a container element's children into block-level ProseMirror nodes. */
-function blocksOf(container: HTMLElement, state: ImportState): PMNode[] {
+function blocksOf(container: HTMLElement, state: ImportState, depth = 0): PMNode[] {
+  if (depth > MAX_HTML_DEPTH) return [];
   const blocks: PMNode[] = [];
   let pendingInline: HtmlNode[] = [];
 
   const flush = (): void => {
     if (pendingInline.length === 0) return;
-    const content = pendingInline.flatMap((child) => inline(child, [], state));
+    const content = pendingInline.flatMap((child) => inline(child, [], state, depth + 1));
     pendingInline = [];
     if (content.some((n) => n.type !== NODE.text || (n.text ?? '').trim().length > 0)) {
       blocks.push({ type: NODE.paragraph, content });
@@ -282,7 +305,7 @@ function blocksOf(container: HTMLElement, state: ImportState): PMNode[] {
   for (const child of container.childNodes) {
     if (isElement(child) && BLOCK_TAGS.has(child.rawTagName?.toLowerCase() ?? '')) {
       flush();
-      blocks.push(...convertBlock(child, state));
+      blocks.push(...convertBlock(child, state, depth + 1));
     } else {
       pendingInline.push(child);
     }
@@ -291,11 +314,12 @@ function blocksOf(container: HTMLElement, state: ImportState): PMNode[] {
   return blocks;
 }
 
-function convertBlock(node: HTMLElement, state: ImportState): PMNode[] {
+function convertBlock(node: HTMLElement, state: ImportState, depth = 0): PMNode[] {
+  if (depth > MAX_HTML_DEPTH) return [];
   const tag = node.rawTagName?.toLowerCase() ?? '';
   if (/^h[1-6]$/u.test(tag)) {
     const level = Number(tag.slice(1));
-    const content = node.childNodes.flatMap((child) => inline(child, [], state));
+    const content = node.childNodes.flatMap((child) => inline(child, [], state, depth + 1));
     // A heading carries alignment just as a paragraph does. Reading it only for
     // paragraphs silently dropped the centring from every centred title.
     const align = alignmentOf(node);
@@ -308,14 +332,14 @@ function convertBlock(node: HTMLElement, state: ImportState): PMNode[] {
   }
   switch (tag) {
     case 'p':
-      return [paragraphFrom(node, state)];
+      return [paragraphFrom(node, state, depth)];
     case 'ul':
     case 'ol':
-      return [listFrom(node, state)];
+      return [listFrom(node, state, depth + 1)];
     case 'table':
-      return [tableFrom(node, state)];
+      return [tableFrom(node, state, depth + 1)];
     case 'blockquote': {
-      const inner = blocksOf(node, state);
+      const inner = blocksOf(node, state, depth + 1);
       // Alignment sits on the quote element, so pass it to the paragraphs
       // inside that do not carry one of their own.
       const align = alignmentOf(node);
@@ -334,7 +358,7 @@ function convertBlock(node: HTMLElement, state: ImportState): PMNode[] {
     case 'hr':
       return [{ type: NODE.horizontalRule }];
     default:
-      return blocksOf(node, state);
+      return blocksOf(node, state, depth + 1);
   }
 }
 
@@ -354,7 +378,7 @@ export async function importDocx(buffer: Buffer): Promise<ImportResult> {
     );
   }
   let html: string;
-  const state: ImportState = { images: 0, messages: new Set() };
+  const state: ImportState = { images: 0, imageBytes: 0, messages: new Set() };
   try {
     const result = await mammoth.convertToHtml(
       { buffer },
@@ -385,7 +409,7 @@ export async function importDocx(buffer: Buffer): Promise<ImportResult> {
  * input, unreachable from a docx fixture.
  */
 export function htmlToDocument(html: string): ImportResult {
-  const state: ImportState = { images: 0, messages: new Set() };
+  const state: ImportState = { images: 0, imageBytes: 0, messages: new Set() };
   const root = parse(`<div>${html}</div>`, { blockTextElements: {} });
   const container = root.firstChild as HTMLElement;
   const blocks = blocksOf(container, state);

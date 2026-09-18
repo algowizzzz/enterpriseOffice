@@ -9,7 +9,13 @@ type View = { name: 'documents' } | { name: 'editor'; id: string } | { name: 'ad
 
 /** Read the current view from the URL path, so reload and the back button work. */
 function viewFromLocation(): View {
-  const match = /^\/documents\/([0-9a-f-]{36})$/iu.exec(window.location.pathname);
+  // Match the shape the server accepts. A looser pattern sent anything
+  // thirty-six characters long to the API, which answered with a validation
+  // error about a request body the person never sent.
+  const match =
+    /^\/documents\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/iu.exec(
+      window.location.pathname,
+    );
   if (match?.[1]) return { name: 'editor', id: match[1] };
   if (window.location.pathname === '/admin') return { name: 'admin' };
   return { name: 'documents' };

@@ -56,43 +56,49 @@ export async function registerDocumentRoutes(app: FastifyInstance): Promise<void
   });
 
   /** Upload a .docx and convert it into a new editable document. */
-  app.post('/documents/import', async (request, reply) => {
-    const user = await app.authenticate(request);
-    if (user.role === 'viewer') throw badRequest('Your account cannot create documents');
+  // Converting a Word file is CPU bound and holds the single-threaded server
+  // while it runs, so this route is limited even though the caller is signed in.
+  app.post(
+    '/documents/import',
+    { config: { rateLimit: { max: 20, timeWindow: '1 minute' } } },
+    async (request, reply) => {
+      const user = await app.authenticate(request);
+      if (user.role === 'viewer') throw badRequest('Your account cannot create documents');
 
-    const file = await request.file();
-    if (!file) throw badRequest('Attach a .docx file to upload');
-    const isDocx =
-      file.mimetype === DOCX_MIME ||
-      file.mimetype === 'application/octet-stream' ||
-      /\.docx$/iu.test(file.filename ?? '');
-    if (!isDocx) {
-      throw unsupportedMedia('Only .docx files can be uploaded. Convert .doc files first.');
-    }
+      const file = await request.file();
+      if (!file) throw badRequest('Attach a .docx file to upload');
+      const isDocx =
+        file.mimetype === DOCX_MIME ||
+        file.mimetype === 'application/octet-stream' ||
+        /\.docx$/iu.test(file.filename ?? '');
+      if (!isDocx) {
+        throw unsupportedMedia('Only .docx files can be uploaded. Convert .doc files first.');
+      }
 
-    const buffer = await file.toBuffer();
-    if (file.file.truncated || buffer.length > app.config.maxUploadBytes) {
-      throw payloadTooLarge('That file is larger than the upload limit.');
-    }
-    if (buffer.length === 0) throw badRequest('That file is empty');
+      const buffer = await file.toBuffer();
+      if (file.file.truncated || buffer.length > app.config.maxUploadBytes) {
+        throw payloadTooLarge('That file is larger than the upload limit.');
+      }
+      if (buffer.length === 0) throw badRequest('That file is empty');
 
-    const { content, messages } = await importDocx(buffer);
-    const document = createDocument(app.db, user, {
-      title: titleFromFileName(file.filename ?? 'Imported document'),
-      content,
-      origin: 'import',
-      sourceName: file.filename,
-    });
-    recordAudit(app.db, {
-      actorId: user.id,
-      action: 'document.imported',
-      targetType: 'document',
-      targetId: document.id,
-      detail: { sourceName: file.filename, bytes: buffer.length, words: document.wordCount },
-      ip: request.ip,
-    });
-    return reply.code(201).send({ document, messages });
-  });
+      const { content, messages } = await importDocx(buffer);
+      const document = createDocument(app.db, user, {
+        title: titleFromFileName(file.filename ?? 'Imported document'),
+        content,
+        origin: 'import',
+        sourceName: file.filename,
+      });
+      recordAudit(app.db, {
+        actorId: user.id,
+        action: 'document.imported',
+        targetType: 'document',
+        targetId: document.id,
+        detail: { sourceName: file.filename, bytes: buffer.length, words: document.wordCount },
+        ip: request.ip,
+      });
+      return reply.code(201).send({ document, messages });
+    },
+  );
 
   app.get('/documents/:id', async (request) => {
     const user = await app.authenticate(request);

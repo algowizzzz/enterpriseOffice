@@ -221,7 +221,23 @@ export async function buildApp(options: BuildOptions = {}): Promise<FastifyInsta
   await ensureBootstrapAdmin(app);
   purgeExpiredSessions(db);
 
+  // Clearing expired sessions only at startup meant a server that runs for
+  // months accumulated them for ever. `unref` keeps the timer from holding the
+  // process open on shutdown.
+  const housekeeping = setInterval(
+    () => {
+      try {
+        purgeExpiredSessions(db);
+      } catch (error) {
+        app.log.warn({ err: error }, 'Could not clear expired sessions');
+      }
+    },
+    60 * 60 * 1000,
+  );
+  housekeeping.unref();
+
   app.addHook('onClose', async () => {
+    clearInterval(housekeeping);
     db.close();
   });
 

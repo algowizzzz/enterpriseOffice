@@ -1,5 +1,6 @@
 import type { Database } from '../db.js';
 import { conflict, notFound } from '../errors.js';
+import { transaction } from '../db.js';
 import { newId, now } from '../lib/ids.js';
 import { hashPassword } from '../lib/password.js';
 
@@ -70,11 +71,34 @@ export interface CreateUserInput {
   role: Role;
 }
 
+/**
+ * Create the very first account, and only if there is still none.
+ *
+ * The password hash is computed before the transaction, because hashing takes
+ * about a tenth of a second and the check and the insert must not be separated
+ * by anything that yields. Registering twice at the same moment used to let
+ * both requests see an empty user table and both become administrators.
+ */
+export async function createFirstAdmin(db: Database, input: CreateUserInput): Promise<User | null> {
+  const hash = await hashPassword(input.password);
+  return transaction(db, () => {
+    if (countUsers(db) > 0) return null;
+    return insertUser(db, input, hash);
+  });
+}
+
 export async function createUser(db: Database, input: CreateUserInput): Promise<User> {
   const email = input.email.trim();
   const lower = normalizeEmail(email);
   if (findUserByEmail(db, lower)) throw conflict('An account with that email already exists');
   const hash = await hashPassword(input.password);
+  return insertUser(db, input, hash);
+}
+
+function insertUser(db: Database, input: CreateUserInput, hash: string): User {
+  const email = input.email.trim();
+  const lower = normalizeEmail(email);
+  if (findUserByEmail(db, lower)) throw conflict('An account with that email already exists');
   const timestamp = now();
   const user: UserRow = {
     id: newId(),
@@ -106,7 +130,7 @@ export async function createUser(db: Database, input: CreateUserInput): Promise<
 
 export function listUsers(db: Database): User[] {
   const rows = db
-    .prepare('SELECT * FROM users ORDER BY datetime(created_at) ASC')
+    .prepare('SELECT * FROM users ORDER BY created_at ASC, id ASC')
     .all() as UserRow[];
   return rows.map(toUser);
 }

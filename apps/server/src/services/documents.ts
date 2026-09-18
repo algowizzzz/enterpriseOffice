@@ -211,7 +211,7 @@ export function listDocuments(db: Database, user: { id: string; role: Role }): D
          LEFT JOIN document_shares s ON s.document_id = d.id AND s.user_id = ?
         WHERE d.deleted_at IS NULL
           AND (d.owner_id = ? OR s.user_id IS NOT NULL)
-        ORDER BY datetime(d.updated_at) DESC`,
+        ORDER BY d.updated_at DESC, d.id DESC`,
     )
     .all(user.id, user.id, user.id) as (DocRow & { owner_name: string; access: Access })[];
   return rows.map((row) => rowToSummary(row, row.access, row.owner_name));
