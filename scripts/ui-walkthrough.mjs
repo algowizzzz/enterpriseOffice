@@ -71,6 +71,17 @@ page.on('console', (m) => {
 });
 page.on('pageerror', (e) => errors.push(String(e)));
 
+// The air gap, checked from the browser's side. The build-time audit looks for
+// URL strings and the server probe watches its sockets; this watches what the
+// page actually asks for. Anything not served by this origin is a violation,
+// whether it came from our code, a dependency, or a document somebody uploaded.
+const offOrigin = [];
+page.on('request', (request) => {
+  const url = request.url();
+  if (url.startsWith(BASE) || url.startsWith('data:') || url.startsWith('blob:')) return;
+  offOrigin.push(`${request.method()} ${url}`);
+});
+
 try {
   // 1. Sign in
   await page.goto(BASE, { waitUntil: 'networkidle' });
@@ -146,6 +157,14 @@ try {
 
   console.log('Screenshots written to', OUT);
   console.log('Console errors:', errors.length === 0 ? 'none' : errors.slice(0, 10));
+
+  if (offOrigin.length > 0) {
+    console.error('\nAIR GAP VIOLATION: the page requested addresses it does not serve:');
+    for (const request of [...new Set(offOrigin)]) console.error(`  ${request}`);
+    process.exitCode = 1;
+  } else {
+    console.log('Air gap: the page requested nothing beyond its own origin.');
+  }
 } catch (error) {
   console.error('FAILED:', error.message);
   await page.screenshot({ path: `${OUT}/failure.png` }).catch(() => {});

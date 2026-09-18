@@ -2,10 +2,11 @@
 
 A collaborative, browser-based word processor for air-gapped deployment.
 
-- **Air gapped.** No CDN, no web fonts, no telemetry. Two checks enforce it: the
-  browser bundle is audited for remote URLs, and the end-to-end test runs the
-  server behind a probe that fails the run if it dials any address beyond the
-  loopback interface.
+- **Air gapped.** No CDN, no web fonts, no telemetry. Three checks enforce it, at
+  three layers: the browser bundle is audited for remote URLs, the page is
+  watched in a real browser for any request off its own origin, and the server
+  runs behind a probe that fails the run if it dials anything beyond loopback.
+  The last two are themselves verified against deliberate violations.
 - **Two targets.** A Linux server for a team, and a single Windows laptop that
   runs the same stack locally.
 - **Enterprise shaped.** Roles, per-document sharing, version history, an

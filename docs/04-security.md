@@ -129,8 +129,14 @@ the server with a probe wrapping the socket and name-resolution layers, and
 fails if the process reaches for any address beyond loopback. The probe is
 itself verified against a deliberate violation, so it cannot pass vacuously.
 
-The systemd unit restricts the service further, and a firewall should do the
-rest. There is no telemetry, no update check and no font or script fetched at
+The browser is watched too. The walkthrough records every request the page makes
+and fails if any address other than its own origin is asked for, whatever asked
+for it. That one is also checked against a page that deliberately loads a remote
+image.
+
+So there are three controls, at three different layers: what is written into the
+bundle, what the page asks for, and what the server dials. The systemd unit
+restricts the service further, and a firewall should do the rest. There is no telemetry, no update check and no font or script fetched at
 run time.
 
 ## Auditing

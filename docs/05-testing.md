@@ -108,6 +108,11 @@ node scripts/ui-walkthrough.mjs
 `DOCFORGE_CHROMIUM` points at a browser elsewhere; `DOCFORGE_SHOT_DIR` chooses
 where the images go.
 
+It also watches every request the page makes and fails if any address other
+than its own origin is asked for, whatever asked for it: our code, a dependency,
+or a document somebody uploaded. Like the server probe, this was checked against
+a page that deliberately loads a remote image, so it cannot pass vacuously.
+
 This layer earns its place. It caught the editor header scrolling out of view
 and a missing `Ctrl+End` binding, neither of which any assertion had noticed.
 
