@@ -33,6 +33,18 @@ Real-time co-editing is designed but not built. The document model and the
 storage layer were chosen so that a CRDT layer drops in without reshaping them.
 See the architecture document.
 
+## Screenshots
+
+Captured by `scripts/ui-walkthrough.mjs`, which drives the built portal in a
+real browser.
+
+| | |
+|---|---|
+| ![Editor](docs/screenshots/02-editor.png) | ![Documents](docs/screenshots/03-documents.png) |
+| The editor, with the formatting ribbon and a table | The document list |
+| ![Administration](docs/screenshots/04-administration.png) | ![Sign in](docs/screenshots/01-sign-in.png) |
+| Accounts, roles and the audit trail | Sign in |
+
 ## Try it
 
 ```
@@ -61,6 +73,11 @@ npm run dev:web        # http://127.0.0.1:5173, proxies the API
 | `npm run audit:airgap` | Fails if the browser bundle references an unreviewed remote URL |
 | `npm run test:e2e` | Starts the built server and walks the whole user journey over HTTP |
 
+`scripts/ui-walkthrough.mjs` additionally drives the portal in a real browser
+and writes a screenshot of each screen. It is not part of `verify`, because it
+needs Playwright and a Chromium the shipped build deliberately does not carry.
+Install it where you want it with `npm install --no-save playwright`.
+
 ## Testing
 
 Three layers, all runnable offline.
@@ -73,6 +90,11 @@ history, the audit trail, and a full `.docx` export and import round trip.
 **Client suite.** The editor rendered in jsdom. Checks that the toolbar acts on
 the document and, importantly, that what the editor produces passes the same
 validator the server applies on save, so the two cannot drift apart.
+
+**Browser walkthrough.** Sign in, type a document, apply a heading, insert a
+table, open the history, and visit administration, in Chromium, capturing each
+screen. This is what caught the editor header scrolling out of view and the
+missing `Ctrl+End` binding, neither of which any assertion would have noticed.
 
 **End-to-end smoke test.** `scripts/smoke-test.mjs` starts the bundled server as
 a real process and drives it over HTTP with a cookie jar: seed the

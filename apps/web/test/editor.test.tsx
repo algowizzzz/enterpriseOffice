@@ -184,6 +184,48 @@ describe('DocumentEditor', () => {
     expect(validateDoc(saved).ok).toBe(true);
   });
 
+  it('moves the caret to the document start and end with the Word shortcuts', async () => {
+    const onChange = vi.fn();
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    const threeParagraphs: PMNode = {
+      type: 'doc',
+      content: [
+        { type: 'paragraph', content: [{ type: 'text', text: 'First' }] },
+        { type: 'paragraph', content: [{ type: 'text', text: 'Second' }] },
+        { type: 'paragraph', content: [{ type: 'text', text: 'Third' }] },
+      ],
+    };
+    render(
+      <DocumentEditor
+        initialContent={threeParagraphs}
+        readOnly={false}
+        onChange={onChange}
+        onDirty={() => {}}
+      />,
+    );
+    const body = await screen.findByRole('textbox');
+    await user.click(body);
+
+    // Without these bindings the caret would not move and the typed text would
+    // land wherever the click left it.
+    await user.keyboard('{Control>}{End}{/Control}');
+    await user.keyboard('!');
+    await user.keyboard('{Control>}{Home}{/Control}');
+    await user.keyboard('>');
+
+    await act(async () => {
+      vi.advanceTimersByTime(AUTOSAVE_DEBOUNCE_MS + 50);
+    });
+    await waitFor(() => expect(onChange).toHaveBeenCalled());
+
+    const saved = onChange.mock.lastCall?.[0] as PMNode;
+    const paragraphs = (saved.content ?? []).map((node) =>
+      (node.content ?? []).map((child) => child.text ?? '').join(''),
+    );
+    expect(paragraphs[0]).toBe('>First');
+    expect(paragraphs[2]).toBe('Third!');
+  });
+
   it('disables the toolbar when the document is read only', async () => {
     render(
       <DocumentEditor

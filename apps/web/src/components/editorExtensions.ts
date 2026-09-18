@@ -7,6 +7,7 @@ import TextAlign from '@tiptap/extension-text-align';
 import { Color, FontFamily, FontSize, TextStyle } from '@tiptap/extension-text-style';
 import { Table, TableCell, TableHeader, TableRow } from '@tiptap/extension-table';
 import type { Extensions } from '@tiptap/react';
+import { WordNavigation } from './wordNavigation';
 
 /**
  * The editor's extension set.
@@ -43,6 +44,7 @@ export const editorExtensions: Extensions = [
   TableRow,
   TableHeader,
   TableCell,
+  WordNavigation,
 ];
 
 /** Font families bundled with the application. No web fonts are fetched. */
