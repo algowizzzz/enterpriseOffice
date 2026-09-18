@@ -43,6 +43,13 @@ have signed in.
 
 Put a reverse proxy in front for TLS and set `DOCFORGE_SECURE_COOKIES=1`.
 
+If, and only if, that proxy sets `X-Forwarded-For` itself, also set
+`DOCFORGE_TRUST_PROXY=1` so the rate limits and the audit trail record the real
+client address rather than the proxy's. Leave it off otherwise: with nothing in
+front of the server, that header comes from whoever is connecting, who could
+then use a new value for every sign-in attempt to escape the rate limit and
+write any address they like into the audit trail.
+
 ## Docker
 
 ```

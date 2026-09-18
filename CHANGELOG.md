@@ -25,9 +25,49 @@ Notable changes, newest first. Dates are when the work landed.
 - Tests: 253 server, 140 client, 29 end-to-end checks, and a browser walkthrough
   that captures each screen.
 
+### Security
+
+- Sign-in rate limiting could be bypassed and audit addresses forged. The
+  forwarded-address header was trusted unconditionally, and the rate limiter
+  keys on the address it produces, so a fresh value on each attempt gave every
+  password guess its own bucket. Trusting that header is now configuration, off
+  by default.
+- Attribute values in stored documents were never checked, so a client that is
+  not the editor could put anything into a document and have it handed to the
+  Word serializer. Values that reach a serializer are now validated, including
+  hyperlink targets, which the server previously had no opinion about at all.
+- Two registrations arriving at the same moment could both become
+  administrators, because hashing a password takes long enough for both to see
+  an empty instance. The check and the insert are now one transaction.
+- The importer recursed without a depth limit, so deeply nested markup from an
+  uploaded file overflowed the stack. An uploaded archive declaring an enormous
+  payload is now refused before anything is decompressed.
+- Uploading and changing your own password are now rate limited, and expired
+  sessions are cleared hourly rather than only at startup.
+
 ### Fixed
 
-Every entry below was found by testing, not in production.
+Every entry below was found by testing or by an adversarial review of the code,
+not in production.
+
+- The editor could get permanently stuck and stop saving. Two of your own writes
+  overlapping, which the title field losing focus during an autosave does
+  routinely, left the revision stale and every later save failed while the
+  person kept typing. Saves are now serialized, and a genuine conflict stops
+  retrying and offers a reload.
+- Autosave destroyed the version history, the as-imported state of an uploaded
+  file included, in about a minute of writing. Retention now keeps the first
+  revision, the most recent fifty, and one from each recent hour.
+- Importing silently corrupted text. Entity decoding ran in passes, so a
+  document containing the literal text `&lt;` had it replaced by the character
+  it names. A character reference outside the Unicode range crashed the import.
+- A table inside a table imported with its rows doubled.
+- A list or table inside a quote flattened into one run-on paragraph on export.
+- Every image was written back at a fixed size, resizing and distorting all of
+  them. Formats Word carries but this cannot write back, such as EMF and WMF,
+  imported fine and were then dropped silently; they are now refused with a
+  reason.
+- Plain-text export ran list items and table cells together.
 
 - The seed administrator could never sign in. The email rule rejected a
   single-label domain, so the default `admin@localhost` was unusable and every
@@ -59,3 +99,6 @@ Every entry below was found by testing, not in production.
   with numbering properties.
 - There is no pagination: the editor shows one continuous page.
 - Real-time co-editing is designed but not built.
+- An uploaded archive that lies about its size is contained only by the upload
+  cap, the rate limit and the memory limit on the process. Converting in a
+  separate process with its own limit is the real fix and is not built.
