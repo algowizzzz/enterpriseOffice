@@ -23,13 +23,19 @@ export async function hashPassword(password: string): Promise<string> {
   return `scrypt$${PARAMS.N}$${PARAMS.r}$${PARAMS.p}$${salt.toString('base64')}$${derived.toString('base64')}`;
 }
 
+const isWithin = (value: number, min: number, max: number): boolean =>
+  Number.isInteger(value) && value >= min && value <= max;
+
 export async function verifyPassword(password: string, encoded: string): Promise<boolean> {
   const parts = encoded.split('$');
   if (parts.length !== 6 || parts[0] !== 'scrypt') return false;
   const N = Number(parts[1]);
   const r = Number(parts[2]);
   const p = Number(parts[3]);
-  if (!Number.isFinite(N) || !Number.isFinite(r) || !Number.isFinite(p)) return false;
+  // The parameters come out of the stored row, and they decide how much memory
+  // the check allocates. Nothing should be able to write that row, but a value
+  // from storage is not a value to take on trust.
+  if (!isWithin(N, 1024, 1 << 20) || !isWithin(r, 1, 32) || !isWithin(p, 1, 16)) return false;
   let salt: Buffer;
   let expected: Buffer;
   try {

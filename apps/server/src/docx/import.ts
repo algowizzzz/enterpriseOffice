@@ -4,6 +4,7 @@ import { parse, NodeType, type HTMLElement, type Node as HtmlNode } from 'node-h
 import { NODE, MARK, type PMNode, type PMMark } from '@docforge/model';
 import { badRequest } from '../errors.js';
 import { measureImage } from './imageSize.js';
+import { archiveIsReasonable } from './zipGuard.js';
 
 /** Inline images larger than this are dropped rather than inlined as data URIs. */
 const MAX_IMAGE_BYTES = 2 * 1024 * 1024;
@@ -52,6 +53,13 @@ const MAX_HTML_DEPTH = 80;
 
 /** Everything a document may carry in pictures put together. */
 const MAX_TOTAL_IMAGE_BYTES = 16 * 1024 * 1024;
+
+/**
+ * What an uploaded archive may expand to. The converter reads the whole file
+ * into memory, so a small upload declaring an enormous payload would otherwise
+ * take the process down.
+ */
+const MAX_EXPANDED_BYTES = 200 * 1024 * 1024;
 
 /**
  * The parser exposes DOM node types as an enum. Comparing against bare numbers
@@ -377,6 +385,9 @@ export async function importDocx(buffer: Buffer): Promise<ImportResult> {
       'That file is not a valid .docx. Older .doc files must be converted to .docx first.',
     );
   }
+  const reasonable = archiveIsReasonable(buffer, MAX_EXPANDED_BYTES);
+  if (!reasonable.ok) throw badRequest(reasonable.reason);
+
   let html: string;
   const state: ImportState = { images: 0, imageBytes: 0, messages: new Set() };
   try {

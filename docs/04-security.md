@@ -51,6 +51,17 @@ cannot be signed into is better than one with a known credential. A configured
 address that is not a valid email stops the server rather than creating an
 account nobody can reach.
 
+**Rate limits** apply to signing in, to changing your own password, and to
+uploading, each per address per minute. The upload route is limited even for a
+signed-in person because converting a Word file is processor bound and holds
+this single-threaded server while it runs.
+
+The address a limit is keyed on is the one the connection came from.
+`X-Forwarded-For` is believed only when `DOCFORGE_TRUST_PROXY` is set, which
+should be on only behind a proxy you control: with nothing in front of the
+server that header comes from whoever is connecting, who could otherwise use a
+new value for every guess and write any address into the audit trail.
+
 **Sign-in** is rate limited per address. A wrong password and an unknown account
 produce the same message, and a verification is run even when no account exists,
 so the two take the same time. The endpoint cannot be used to enumerate
@@ -81,9 +92,24 @@ stripped and stored. The walk is bounded in both node count and depth, so a
 deliberately deep or enormous document cannot exhaust the stack or the disk
 before the limit is reached.
 
+Attribute values are checked too, which matters because they are what reaches
+the Word serializer. A heading level must be one to six, a column or row span a
+plausible integer, an image size a sensible number of pixels, an alignment one
+of four words, and a link target a protocol that cannot execute anything. An
+attribute cannot carry a nested structure. Names the rules do not know are
+allowed through with a plain value, because editor extensions add attributes of
+their own and refusing an unknown name would break a document for no gain.
+
 **Uploaded files** are checked for a zip signature before any parsing, size
 limited before they are read into memory, and converted in a library that does
-not execute anything from the file.
+not execute anything from the file. The archive's own table of contents is read
+first, without decompressing anything, and a file declaring an enormous payload
+is refused: a small upload can otherwise expand to tens of gigabytes and take
+the process down. Those sizes are written by whoever made the archive, so a
+crafted one can lie about them; what contains that case is the upload cap, the
+rate limit on the conversion route, and a memory limit on the process. The
+importer also stops following nested markup past a depth no real document
+reaches, which used to overflow the stack.
 
 **Hyperlinks** in an uploaded document are filtered to `http`, `https`,
 `mailto`, fragments and site-relative paths. A `javascript:`, `data:`,
@@ -165,8 +191,13 @@ Being explicit about this is part of the model.
 - **No protection against a malicious administrator.** An administrator can
   reset any password and then sign in as that person. The audit trail records
   it, which is the control: detection, not prevention.
-- **No rate limiting beyond sign-in.** An authenticated user can make as many
-  requests as they like. Add a reverse proxy limit if that matters.
+- **No general rate limiting.** Signing in, changing a password and uploading
+  are limited; everything else an authenticated user does is not. Add a reverse
+  proxy limit if that matters.
+- **No containment for a crafted archive.** The size an upload declares is
+  checked, but a forged declaration is only contained by the upload cap, the
+  rate limit and whatever memory limit the process runs under. Converting in a
+  separate process with its own limit is the real fix and is not built.
 
 ## Reporting a problem
 
