@@ -20,7 +20,17 @@
  */
 import { createHash } from 'node:crypto';
 import { strFromU8, strToU8, unzipSync, zipSync } from 'fflate';
-import { MARK, NODE, isSafeHref, type PageSetup, type PMMark, type PMNode } from '@docforge/model';
+import {
+  MARK,
+  NODE,
+  isSafeHref,
+  locateAnchor,
+  textBlocks,
+  type CommentAnchor,
+  type PageSetup,
+  type PMMark,
+  type PMNode,
+} from '@docforge/model';
 import { measureImage } from '../imageSize.js';
 import { HIGHLIGHTS } from './toDocument.js';
 import {
@@ -97,6 +107,20 @@ export interface WriteOptions {
    * typing a new one replaces the part with that line.
    */
   originalSetup?: PageSetup | undefined;
+  /** Review comments, which are written into Word's own comments part. */
+  comments?: ExportedThread[] | undefined;
+}
+
+export interface ExportedComment {
+  author: string;
+  date: string;
+  body: string;
+}
+
+export interface ExportedThread extends ExportedComment {
+  anchor: CommentAnchor | null;
+  resolved: boolean;
+  replies: ExportedComment[];
 }
 
 interface Relationships {
@@ -200,7 +224,8 @@ export function writeDocx(doc: PMNode, options: WriteOptions): Buffer {
   const section = finalSection(body, options.pageSetup);
   applyRunningText(ctx, section, options.pageSetup, options.originalSetup);
 
-  const blocks = writeBlocks(ctx, doc.content ?? [], { depth: 0 });
+  const commented = writeComments(ctx, doc, options.comments ?? []);
+  const blocks = writeBlocks(ctx, commented.content ?? [], { depth: 0 });
   const root = { ...original.attrs };
   for (const [name, value] of Object.entries(NAMESPACES)) root[name] ??= value;
   const rootAttrs = Object.entries(root)
@@ -702,6 +727,12 @@ function writeInlineNode(ctx: Context, node: PMNode): string {
       return '<w:r><w:br/></w:r>';
     case NODE.image:
       return writeImage(ctx, node);
+    case COMMENT_START:
+      return `<w:commentRangeStart w:id="${escapeXmlAttr(String(node.attrs?.['id']))}"/>`;
+    case COMMENT_END: {
+      const id = escapeXmlAttr(String(node.attrs?.['id']));
+      return `<w:commentRangeEnd w:id="${id}"/><w:r><w:commentReference w:id="${id}"/></w:r>`;
+    }
     case NODE.wordInline: {
       const kept = fragment(ctx, node.attrs?.['ref']);
       if (kept) return kept.map(serializeXml).join('');
@@ -1066,4 +1097,142 @@ function writeTable(ctx: Context, table: PMNode, block: BlockContext): string | 
 /** The plain words of a part, for comparing what was read with what is asked for. */
 export function partText(root: XmlElement): string {
   return textOf(root).replace(/\s+/gu, ' ').trim();
+}
+
+// ------------------------------------------------------------------- comments
+
+const COMMENT_START = '__commentStart';
+const COMMENT_END = '__commentEnd';
+const W14 = 'http://schemas.microsoft.com/office/word/2010/wordml';
+const W15 = 'http://schemas.microsoft.com/office/word/2012/wordml';
+
+/** Put a marker into a block's content at an offset into its text. */
+function insertAt(block: PMNode, offset: number, marker: PMNode): void {
+  const content = [...(block.content ?? [])];
+  let at = 0;
+  for (let index = 0; index < content.length; index += 1) {
+    const inner = content[index] as PMNode;
+    // Markers already placed take no room of their own.
+    const size =
+      inner.type === COMMENT_START || inner.type === COMMENT_END
+        ? 0
+        : inner.type === NODE.text
+          ? (inner.text ?? '').length
+          : 1;
+    if (offset <= at) {
+      content.splice(index, 0, marker);
+      block.content = content;
+      return;
+    }
+    if (inner.type === NODE.text && offset < at + size) {
+      const value = inner.text ?? '';
+      content.splice(
+        index,
+        1,
+        { ...inner, text: value.slice(0, offset - at) },
+        marker,
+        { ...inner, text: value.slice(offset - at) },
+      );
+      block.content = content;
+      return;
+    }
+    at += size;
+  }
+  content.push(marker);
+  block.content = content;
+}
+
+/**
+ * Write the comments into the package and mark their ranges in a copy of the
+ * document. Word has no comment that belongs to the document as a whole, and a
+ * comment whose words have since been rewritten has nowhere to go either: both
+ * are attached to the start of the first paragraph, so that they are kept.
+ * A reply is a comment of its own on the same range, which is how Word has it.
+ */
+function writeComments(ctx: Context, doc: PMNode, threads: ExportedThread[]): PMNode {
+  // Whatever was there is replaced. These parts name the comments part's
+  // paragraphs by id, and those ids are about to change.
+  for (const stale of ['word/commentsIds.xml', 'word/commentsExtensible.xml', 'word/people.xml']) {
+    if (ctx.parts[stale]) dropPart(ctx, stale);
+  }
+  if (threads.length === 0) {
+    for (const part of ['word/comments.xml', 'word/commentsExtended.xml']) {
+      if (ctx.parts[part]) dropPart(ctx, part);
+    }
+    return doc;
+  }
+
+  const copy = JSON.parse(JSON.stringify(doc)) as PMNode;
+  let blocks = textBlocks(copy);
+  if (blocks.length === 0) {
+    copy.content = [{ type: NODE.paragraph }, ...(copy.content ?? [])];
+    blocks = textBlocks(copy);
+  }
+
+  let nextId = 0;
+  let nextParagraph = 0x10000000;
+  const paragraphId = (): string => (nextParagraph += 7).toString(16).toUpperCase().padStart(8, '0');
+  const comments: string[] = [];
+  const extended: string[] = [];
+
+  const write = (comment: ExportedComment, parent: string | null, done: boolean): { id: number; paragraph: string } => {
+    const id = nextId;
+    nextId += 1;
+    const lines = comment.body.split('\n');
+    let last = '';
+    const paragraphs = lines
+      .map((line) => {
+        last = paragraphId();
+        return `<w:p w14:paraId="${last}"><w:r><w:t xml:space="preserve">${escapeXmlText(line)}</w:t></w:r></w:p>`;
+      })
+      .join('');
+    const initials = comment.author
+      .split(/\s+/u)
+      .map((word) => word[0] ?? '')
+      .join('')
+      .slice(0, 4)
+      .toUpperCase();
+    comments.push(
+      `<w:comment w:id="${id}" w:author="${escapeXmlAttr(comment.author)}" w:date="${escapeXmlAttr(comment.date)}" w:initials="${escapeXmlAttr(initials)}">${paragraphs}</w:comment>`,
+    );
+    extended.push(
+      `<w15:commentEx w15:paraId="${last}"${parent ? ` w15:paraIdParent="${parent}"` : ''} w15:done="${done ? '1' : '0'}"/>`,
+    );
+    return { id, paragraph: last };
+  };
+
+  for (const thread of threads) {
+    const found = thread.anchor ? locateAnchor(blocks, thread.anchor) : null;
+    const place = found ?? { block: 0, from: 0, to: 0 };
+    const block = (blocks[place.block] as { node: PMNode }).node;
+    const first = write(thread, null, thread.resolved);
+    const ids = [first.id, ...thread.replies.map((reply) => write(reply, first.paragraph, thread.resolved).id)];
+    // Ends first, so that placing them does not move where the starts go.
+    for (const id of ids) insertAt(block, place.to, { type: COMMENT_END, attrs: { id } });
+    for (const id of ids) insertAt(block, place.from, { type: COMMENT_START, attrs: { id } });
+  }
+
+  ctx.parts['word/comments.xml'] = strToU8(
+    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<w:comments xmlns:w="${NAMESPACES['xmlns:w']}" xmlns:w14="${W14}">${comments.join('')}</w:comments>`,
+  );
+  ctx.parts['word/commentsExtended.xml'] = strToU8(
+    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<w15:commentsEx xmlns:w15="${W15}">${extended.join('')}</w15:commentsEx>`,
+  );
+  ensureOverride(ctx, '/word/comments.xml', 'application/vnd.openxmlformats-officedocument.wordprocessingml.comments+xml');
+  ensureOverride(ctx, '/word/commentsExtended.xml', 'application/vnd.openxmlformats-officedocument.wordprocessingml.commentsExtended+xml');
+  addRelationship(ctx, `${REL}/comments`, 'comments.xml');
+  addRelationship(ctx, 'http://schemas.microsoft.com/office/2011/relationships/commentsExtended', 'commentsExtended.xml');
+  return copy;
+}
+
+/** Remove a part, and everything that names it. */
+function dropPart(ctx: Context, name: string): void {
+  delete ctx.parts[name];
+  const target = name.replace(/^word\//u, '');
+  ctx.rels.xml.children = ctx.rels.xml.children.filter(
+    (node) => !isElement(node) || node.attrs['Target'] !== target,
+  );
+  ctx.contentTypes.children = ctx.contentTypes.children.filter(
+    (node) => !isElement(node) || node.attrs['PartName'] !== `/${name}`,
+  );
 }

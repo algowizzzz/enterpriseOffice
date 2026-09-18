@@ -21,6 +21,7 @@ import type { Role } from './services/users.js';
 import { registerAuthRoutes } from './routes/auth.routes.js';
 import { registerUserRoutes } from './routes/users.routes.js';
 import { registerDocumentRoutes } from './routes/documents.routes.js';
+import { registerCommentRoutes } from './routes/comments.routes.js';
 import { purgeExpiredSessions } from './services/sessions.js';
 
 export const SESSION_COOKIE = 'docforge_session';
@@ -210,6 +211,7 @@ export async function buildApp(options: BuildOptions = {}): Promise<FastifyInsta
       await registerAuthRoutes(instance);
       await registerUserRoutes(instance);
       await registerDocumentRoutes(instance);
+      await registerCommentRoutes(instance);
     },
     { prefix: '/api' },
   );

@@ -183,7 +183,7 @@ export function accessFor(db: Database, documentId: string, user: { id: string; 
 
 const canWrite = (access: Access): boolean => access === 'owner' || access === 'edit';
 
-function requireAccess(
+export function requireAccess(
   db: Database,
   documentId: string,
   user: { id: string; role: Role },

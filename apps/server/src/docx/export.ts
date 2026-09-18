@@ -28,7 +28,7 @@ import {
   type PMNode,
 } from '@docforge/model';
 import { measureImage } from './imageSize.js';
-import { writeDocx } from './ooxml/write.js';
+import { writeDocx, type ExportedThread } from './ooxml/write.js';
 
 const HEADING_BY_LEVEL: Record<number, (typeof HeadingLevel)[keyof typeof HeadingLevel]> = {
   1: HeadingLevel.HEADING_1,
@@ -326,6 +326,8 @@ export interface ExportOptions {
   fragments?: Record<string, string> | undefined;
   /** The page setup as it was read, so an untouched header is left alone. */
   originalSetup?: PageSetup | undefined;
+  /** Review comments, written into Word's own comments part. */
+  comments?: ExportedThread[] | undefined;
 }
 
 /**
@@ -344,6 +346,7 @@ export async function exportDocx(doc: PMNode, options: ExportOptions): Promise<B
       fragments: options.fragments ?? {},
       pageSetup,
       originalSetup: options.originalSetup,
+      comments: options.comments,
     });
   }
   const template = await templatePackage({ type: NODE.doc, content: [] }, { ...options, pageSetup: defaultPageSetup() });
@@ -352,6 +355,7 @@ export async function exportDocx(doc: PMNode, options: ExportOptions): Promise<B
     fragments: options.fragments ?? {},
     pageSetup,
     originalSetup: defaultPageSetup(),
+    comments: options.comments,
   });
 }
 

@@ -20,7 +20,17 @@
  * Word wraps a cover page and its own table of contents.
  */
 import { createHash } from 'node:crypto';
-import { MARK, NODE, isSafeHref, type PMMark, type PMNode, type StyleTable } from '@docforge/model';
+import {
+  MARK,
+  NODE,
+  anchorFor,
+  isSafeHref,
+  textBlocks,
+  type CommentAnchor,
+  type PMMark,
+  type PMNode,
+  type StyleTable,
+} from '@docforge/model';
 import {
   attrOf,
   child,
@@ -85,6 +95,18 @@ export interface ConversionResult {
   fragments: Record<string, string>;
   /** The document's own styles, resolved for drawing. */
   styles: StyleTable;
+  /** Review comments the file carried, replies after the comment they answer. */
+  comments: ImportedComment[];
+}
+
+export interface ImportedComment {
+  wordId: string;
+  parentWordId: string | null;
+  author: string;
+  date: string | null;
+  body: string;
+  anchor: CommentAnchor | null;
+  resolved: boolean;
 }
 
 export interface DocumentMeta {
@@ -124,12 +146,15 @@ export function documentFromPackage(pkg: WordPackage): ConversionResult {
 
   const body = child(pkg.document, 'w:body');
   const blocks = body ? blocksOf(body, state) : [];
+  const content: PMNode = {
+    type: NODE.doc,
+    content: blocks.length > 0 ? blocks : [{ type: NODE.paragraph }],
+  };
+  const comments = commentsFrom(pkg, liftCommentRanges(content));
 
   return {
-    content: {
-      type: NODE.doc,
-      content: blocks.length > 0 ? blocks : [{ type: NODE.paragraph }],
-    },
+    content,
+    comments,
     messages: [...state.messages],
     meta: {
       header: firstText(pkg.headers),
@@ -163,7 +188,9 @@ function keep(state: State, markup: string | XmlElement | XmlElement[]): string 
 
 const firstText = (parts: XmlElement[]): string => {
   for (const part of parts) {
-    const text = textOf(part).replace(/\s+/gu, ' ').trim();
+    // What a reader sees, not what Word computes it from: reading every text
+    // node showed a footer as "Page PAGE 1 of NUMPAGES 1".
+    const text = visibleText(part).replace(/\s+/gu, ' ').trim();
     if (text.length > 0) return text.slice(0, 300);
   }
   return '';
@@ -405,6 +432,9 @@ function visibleText(element: XmlElement): string {
       if (candidate.name === 'w:t') text += textOf(candidate);
       else if (candidate.name === 'w:tab') text += '\t';
       else if (candidate.name === 'w:instrText' || candidate.name === 'w:delText') continue;
+      // A shape is written twice, once for readers that know the new markup and
+      // once for those that do not. Its words are the same words both times.
+      else if (candidate.name === 'mc:Fallback') continue;
       else walk(candidate);
     }
   };
@@ -560,8 +590,6 @@ function paragraphFrom(paragraph: XmlElement, state: State, inList: boolean): PM
 const INVISIBLE_MARKERS: Record<string, string> = {
   'w:bookmarkStart': 'bookmark',
   'w:bookmarkEnd': 'bookmark',
-  'w:commentRangeStart': 'comment',
-  'w:commentRangeEnd': 'comment',
   'w:permStart': 'permission',
   'w:permEnd': 'permission',
 };
@@ -627,6 +655,15 @@ function inlineOf(container: XmlElement, state: State, marks: PMMark[]): PMNode[
       case 'm:oMathPara':
         nodes.push(opaqueInline(state, [element], 'equation', textOf(element)));
         break;
+      case 'w:commentRangeStart':
+      case 'w:commentRangeEnd':
+        // Lifted out again once the whole document is built: see
+        // liftCommentRanges. Comments live beside the document, not in it.
+        nodes.push({
+          type: element.name === 'w:commentRangeStart' ? COMMENT_START : COMMENT_END,
+          attrs: { id: element.attrs['w:id'] ?? '' },
+        });
+        break;
       default:
         if (INVISIBLE_MARKERS[element.name]) {
           nodes.push(opaqueInline(state, [element], INVISIBLE_MARKERS[element.name] as string, ''));
@@ -689,7 +726,6 @@ function hyperlinkTarget(element: XmlElement, state: State): string | null {
 const OPAQUE_RUN_CHILDREN: Record<string, string> = {
   'w:footnoteReference': 'footnote',
   'w:endnoteReference': 'endnote',
-  'w:commentReference': 'comment',
   'w:sym': 'symbol',
   'w:ptab': 'tab',
   'w:fldChar': 'field',
@@ -700,7 +736,6 @@ const OPAQUE_RUN_CHILDREN: Record<string, string> = {
   'w:ruby': 'ruby',
   'w:footnoteRef': 'footnote',
   'w:endnoteRef': 'endnote',
-  'w:annotationRef': 'comment',
   'w:separator': 'other',
   'w:continuationSeparator': 'other',
   'w:pgNum': 'field',
@@ -716,6 +751,10 @@ function runOf(run: XmlElement, state: State, inherited: PMMark[]): PMNode[] {
   // one object rather than being read in part: a footnote mark without its
   // formatting, or half a field, is worse than either.
   const elements = run.children.filter(isElement);
+  // The mark in the margin. The comment itself is read from its own part.
+  if (elements.some((element) => element.name === 'w:commentReference' || element.name === 'w:annotationRef')) {
+    return [];
+  }
   const unknown = elements.find((element) => {
     if (OPAQUE_RUN_CHILDREN[element.name]) return true;
     if (element.name === 'w:drawing') return !pictureOf(element);
@@ -1098,4 +1137,122 @@ function lastCellAt(rows: PMNode[], column: number): PMNode | null {
     }
   }
   return null;
+}
+
+const COMMENT_START = '__commentStart';
+const COMMENT_END = '__commentEnd';
+
+/**
+ * Take the comment range markers back out of the document, and say where each
+ * range was: the words it covered and what stood around them.
+ *
+ * A range that runs over several paragraphs is anchored to the part of it in
+ * the first, because an anchor lives in one block of text.
+ */
+function liftCommentRanges(doc: PMNode): Map<string, CommentAnchor> {
+  const open = new Map<string, { block: number; from: number }>();
+  const spans = new Map<string, { block: number; from: number; to: number }>();
+
+  // First pass: offsets, counted the way textBlocks counts them, markers aside.
+  const strip = (node: PMNode): void => {
+    for (const inner of node.content ?? []) strip(inner);
+    if (node.content?.some((inner) => inner.type === COMMENT_START || inner.type === COMMENT_END)) {
+      node.content = node.content.filter((inner) => inner.type !== COMMENT_START && inner.type !== COMMENT_END);
+      if (node.content.length === 0) delete node.content;
+    }
+  };
+  let blockIndex = -1;
+  const measure = (node: PMNode): void => {
+    if (node.type === NODE.paragraph || node.type === NODE.heading) {
+      blockIndex += 1;
+      let offset = 0;
+      for (const inner of node.content ?? []) {
+        const raw = inner.attrs?.['id'];
+        const id = typeof raw === 'string' ? raw : '';
+        if (inner.type === COMMENT_START) open.set(id, { block: blockIndex, from: offset });
+        else if (inner.type === COMMENT_END) {
+          const started = open.get(id);
+          if (started && !spans.has(id)) {
+            spans.set(id, {
+              block: started.block,
+              from: started.from,
+              // Ended in a later paragraph: to the end of the one it began in.
+              to: started.block === blockIndex ? offset : Number.MAX_SAFE_INTEGER,
+            });
+          }
+        } else offset += inner.type === NODE.text ? (inner.text ?? '').length : 1;
+      }
+      return;
+    }
+    for (const inner of node.content ?? []) measure(inner);
+  };
+  measure(doc);
+  strip(doc);
+
+  const blocks = textBlocks(doc);
+  const anchors = new Map<string, CommentAnchor>();
+  for (const [id, span] of spans) {
+    const text = blocks[span.block]?.text ?? '';
+    let from = span.from;
+    const to = Math.min(span.to, text.length);
+    if (from >= to) {
+      // A comment made at a point rather than on a selection, which is how some
+      // word processors write every comment. It belongs to the word it follows.
+      const before = /\S+\s*$/u.exec(text.slice(0, to));
+      if (before) from = to - before[0].length;
+    }
+    const anchor = anchorFor(blocks, span.block, from, from < to ? to : text.length);
+    if (anchor) anchors.set(id, anchor);
+  }
+  return anchors;
+}
+
+function commentsFrom(pkg: WordPackage, anchors: Map<string, CommentAnchor>): ImportedComment[] {
+  if (!pkg.comments) return [];
+  // Threads and resolution are stated per paragraph id, in a part of their own.
+  const extended = new Map<string, { parent: string | null; done: boolean }>();
+  for (const entry of childrenNamed(pkg.commentsExtended, 'w15:commentEx')) {
+    const id = entry.attrs['w15:paraId'];
+    if (!id) continue;
+    extended.set(id, {
+      parent: entry.attrs['w15:paraIdParent'] ?? null,
+      done: entry.attrs['w15:done'] === '1' || entry.attrs['w15:done'] === 'true',
+    });
+  }
+
+  const byParagraph = new Map<string, string>();
+  const read = childrenNamed(pkg.comments, 'w:comment').slice(0, 5000).map((comment) => {
+    const paragraphs = descendants(comment, 'w:p');
+    const lastParagraph = paragraphs.at(-1)?.attrs['w14:paraId'] ?? null;
+    const wordId = comment.attrs['w:id'] ?? '';
+    for (const paragraph of paragraphs) {
+      const id = paragraph.attrs['w14:paraId'];
+      if (id) byParagraph.set(id, wordId);
+    }
+    return {
+      wordId,
+      lastParagraph,
+      author: (comment.attrs['w:author'] ?? 'Unknown').slice(0, 200),
+      date: /^\d{4}-\d{2}-\d{2}T/u.test(comment.attrs['w:date'] ?? '') ? (comment.attrs['w:date'] as string) : null,
+      body: paragraphs.map((paragraph) => visibleText(paragraph)).join('\n').trim(),
+    };
+  });
+
+  const comments: ImportedComment[] = [];
+  for (const comment of read) {
+    if (!comment.wordId || comment.body.length === 0) continue;
+    const more = comment.lastParagraph ? extended.get(comment.lastParagraph) : undefined;
+    const parentWordId = more?.parent ? (byParagraph.get(more.parent) ?? null) : null;
+    comments.push({
+      wordId: comment.wordId,
+      parentWordId: parentWordId === comment.wordId ? null : parentWordId,
+      author: comment.author,
+      date: comment.date,
+      body: comment.body.slice(0, 10000),
+      anchor: parentWordId ? null : (anchors.get(comment.wordId) ?? null),
+      resolved: more?.done ?? false,
+    });
+  }
+  // Parents first, so a reply always finds the comment it answers.
+  return [...comments.filter((c) => !c.parentWordId), ...comments.filter((c) => c.parentWordId)];
 }

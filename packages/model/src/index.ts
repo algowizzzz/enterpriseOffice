@@ -960,3 +960,151 @@ export function styleSheetFor(table: StyleTable | null, scope = '.page'): string
   }
   return rules.join('\n');
 }
+
+/**
+ * Where a comment is attached: the words it was made on, and a little of what
+ * stood on either side of them.
+ *
+ * A comment is not stored inside the text. If it were, making one would be an
+ * edit: somebody with view access could not comment at all, and everybody else
+ * with the document open would find their next save refused because a comment
+ * had moved the revision on. Anchoring by quotation means the document is not
+ * touched. The cost is that a comment can lose its place when the words it
+ * was made on are rewritten; it is then shown as detached rather than lost.
+ */
+export interface CommentAnchor {
+  quote: string;
+  prefix: string;
+  suffix: string;
+  /** Which text block it was in, counted from the top, as a tie-breaker. */
+  block: number;
+}
+
+export const MAX_ANCHOR_QUOTE = 2000;
+export const ANCHOR_CONTEXT = 40;
+
+/** Nodes whose inline content is one run of text a comment can sit in. */
+const TEXT_BLOCKS: ReadonlySet<string> = new Set([NODE.paragraph, NODE.heading]);
+
+export interface TextBlock {
+  /** The block itself, so a caller can change it in place. */
+  node: PMNode;
+  text: string;
+  /**
+   * Where the block's content starts, as ProseMirror counts positions. Only
+   * right for a document the editor holds; the server never relies on it.
+   */
+  start: number;
+}
+
+/** The size of a node as ProseMirror counts it. */
+function nodeSize(node: PMNode): number {
+  if (node.type === NODE.text) return (node.text ?? '').length;
+  if (!node.content || node.content.length === 0) {
+    // A leaf takes one position; an empty text block still has its two edges.
+    return TEXT_BLOCKS.has(node.type) || NEEDS_BLOCK.has(node.type) ? 2 : 1;
+  }
+  return node.content.reduce((sum, inner) => sum + nodeSize(inner), 2);
+}
+
+/**
+ * Every text block in reading order, with its text. Anything that is not text
+ * (a picture, a line break, a kept object) counts as one character that no
+ * quotation can contain, so that offsets into the text are offsets into the
+ * block's content as well.
+ */
+export const NOT_TEXT = String.fromCodePoint(0xfffc);
+
+export function textBlocks(doc: PMNode): TextBlock[] {
+  const blocks: TextBlock[] = [];
+  const visit = (node: PMNode, position: number): void => {
+    if (TEXT_BLOCKS.has(node.type)) {
+      const text = (node.content ?? [])
+        .map((inner) => (inner.type === NODE.text ? (inner.text ?? '') : NOT_TEXT))
+        .join('');
+      blocks.push({ node, text, start: position + 1 });
+      return;
+    }
+    let at = position + (node.type === NODE.doc ? 0 : 1);
+    for (const inner of node.content ?? []) {
+      visit(inner, at);
+      at += nodeSize(inner);
+    }
+  };
+  visit(doc, 0);
+  return blocks;
+}
+
+const commonSuffix = (a: string, b: string): number => {
+  let n = 0;
+  while (n < a.length && n < b.length && a[a.length - 1 - n] === b[b.length - 1 - n]) n += 1;
+  return n;
+};
+const commonPrefix = (a: string, b: string): number => {
+  let n = 0;
+  while (n < a.length && n < b.length && a[n] === b[n]) n += 1;
+  return n;
+};
+
+export interface LocatedAnchor {
+  /** Index into `textBlocks(doc)`. */
+  block: number;
+  /** Offsets into that block's text. */
+  from: number;
+  to: number;
+}
+
+/**
+ * Find where an anchor now sits. The quotation must still be there, whole, in
+ * one block. Where it occurs more than once, the occurrence whose surroundings
+ * look most like they did wins, and then the one nearest where it was.
+ */
+export function locateAnchor(blocks: TextBlock[], anchor: CommentAnchor): LocatedAnchor | null {
+  if (!anchor.quote) return null;
+  let best: (LocatedAnchor & { score: number }) | null = null;
+  blocks.forEach((block, index) => {
+    let from = block.text.indexOf(anchor.quote);
+    while (from !== -1) {
+      const to = from + anchor.quote.length;
+      const score =
+        commonSuffix(block.text.slice(0, from), anchor.prefix) * 2 +
+        commonPrefix(block.text.slice(to), anchor.suffix) * 2 -
+        Math.min(20, Math.abs(index - anchor.block));
+      if (!best || score > best.score) best = { block: index, from, to, score };
+      from = block.text.indexOf(anchor.quote, from + 1);
+    }
+  });
+  if (!best) return null;
+  const { block, from, to } = best as LocatedAnchor;
+  return { block, from, to };
+}
+
+/** The anchor for a stretch of one block's text. */
+export function anchorFor(blocks: TextBlock[], block: number, from: number, to: number): CommentAnchor | null {
+  const text = blocks[block]?.text;
+  if (text === undefined) return null;
+  const quote = text.slice(from, to);
+  if (quote.trim().length === 0 || quote.includes(NOT_TEXT) || quote.length > MAX_ANCHOR_QUOTE) return null;
+  return {
+    quote,
+    prefix: text.slice(Math.max(0, from - ANCHOR_CONTEXT), from),
+    suffix: text.slice(to, to + ANCHOR_CONTEXT),
+    block,
+  };
+}
+
+/** Read an anchor from anything, or null if it is not shaped like one. */
+export function anchorFrom(value: unknown): CommentAnchor | null {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return null;
+  const source = value as Record<string, unknown>;
+  const quote = typeof source['quote'] === 'string' ? source['quote'].slice(0, MAX_ANCHOR_QUOTE) : '';
+  if (quote.trim().length === 0) return null;
+  const side = (raw: unknown): string => (typeof raw === 'string' ? raw.slice(0, ANCHOR_CONTEXT * 2) : '');
+  const block = Number(source['block']);
+  return {
+    quote,
+    prefix: side(source['prefix']),
+    suffix: side(source['suffix']),
+    block: Number.isInteger(block) && block >= 0 && block < 1_000_000 ? block : 0,
+  };
+}

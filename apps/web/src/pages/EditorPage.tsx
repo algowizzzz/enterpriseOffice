@@ -10,7 +10,9 @@ import {
   type User,
   type VersionSummary,
 } from '../lib/api';
+import type { Editor } from '@tiptap/react';
 import { DocumentEditor, type SaveState } from '../components/DocumentEditor';
+import { CommentsPanel } from '../components/CommentsPanel';
 import { useSession } from '../lib/session';
 import { textField } from '../lib/forms';
 
@@ -37,6 +39,9 @@ export function EditorPage({ documentId, onBack }: EditorPageProps): JSX.Element
   const [versions, setVersions] = useState<VersionSummary[] | null>(null);
   const [shares, setShares] = useState<ShareEntry[] | null>(null);
   const [setupOpen, setSetupOpen] = useState(false);
+  const [commentsOpen, setCommentsOpen] = useState(false);
+  const [openComments, setOpenComments] = useState<number | null>(null);
+  const [editor, setEditor] = useState<Editor | null>(null);
   const [directory, setDirectory] = useState<User[]>([]);
   const revision = useRef(0);
   // One save at a time, with the next one waiting its turn.
@@ -306,6 +311,14 @@ export function EditorPage({ documentId, onBack }: EditorPageProps): JSX.Element
               Original
             </button>
           ) : null}
+          <button
+            type="button"
+            title="Comment on the selected words, reply, and resolve"
+            aria-pressed={commentsOpen}
+            onClick={() => setCommentsOpen((open) => !open)}
+          >
+            Comments{openComments ? ` (${openComments})` : ''}
+          </button>
           <button type="button" onClick={() => setSetupOpen((open) => !open)}>
             Page setup
           </button>
@@ -477,8 +490,10 @@ export function EditorPage({ documentId, onBack }: EditorPageProps): JSX.Element
         </aside>
       ) : null}
 
+      <div className={`editor-with-side${commentsOpen ? ' has-side' : ''}`}>
       <DocumentEditor
         key={surface}
+        onReady={setEditor}
         initialContent={document.content}
         header={document.pageSetup?.header ?? ''}
         footer={document.pageSetup?.footer ?? ''}
@@ -500,6 +515,15 @@ export function EditorPage({ documentId, onBack }: EditorPageProps): JSX.Element
           setNotice((current) => (current === message ? current : message));
         }}
       />
+      {commentsOpen ? (
+        <CommentsPanel
+          documentId={documentId}
+          editor={editor}
+          onClose={() => setCommentsOpen(false)}
+          onCount={setOpenComments}
+        />
+      ) : null}
+      </div>
     </div>
   );
 }

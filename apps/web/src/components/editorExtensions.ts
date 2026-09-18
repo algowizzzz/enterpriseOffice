@@ -11,6 +11,7 @@ import { Color, FontFamily, FontSize, TextStyle } from '@tiptap/extension-text-s
 import { Table, TableCell, TableHeader, TableRow } from '@tiptap/extension-table';
 import type { Extensions } from '@tiptap/react';
 import { WordNavigation } from './wordNavigation';
+import { CommentHighlights } from './commentHighlights';
 
 /**
  * Pictures must be embedded in the document itself.
@@ -402,6 +403,7 @@ export const editorExtensions: Extensions = [
   ShadedTableHeader,
   ShadedTableCell,
   WordNavigation,
+  CommentHighlights,
 ];
 
 /** Font families bundled with the application. No web fonts are fetched. */

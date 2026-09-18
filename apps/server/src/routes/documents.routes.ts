@@ -5,6 +5,7 @@ import { badRequest, notFound, payloadTooLarge, unsupportedMedia } from '../erro
 import { exportDocx, safeFileName } from '../docx/export.js';
 import { importDocx, titleFromFileName } from '../docx/import.js';
 import { recordAudit } from '../services/audit.js';
+import { addComment, listThreads } from '../services/comments.js';
 import {
   createDocument,
   deleteDocument,
@@ -85,7 +86,7 @@ export async function registerDocumentRoutes(app: FastifyInstance): Promise<void
       }
       if (buffer.length === 0) throw badRequest('That file is empty');
 
-      const { content, messages, meta, fragments, styles } = await importDocx(buffer);
+      const { content, messages, meta, fragments, styles, comments } = await importDocx(buffer);
       const created = createDocument(app.db, user, {
         title: titleFromFileName(file.filename ?? 'Imported document'),
         content,
@@ -104,6 +105,21 @@ export async function registerDocumentRoutes(app: FastifyInstance): Promise<void
         styles: styles ?? null,
         pageSetup: created.pageSetup,
       });
+      // The review comments the file carried, signed as Word signed them.
+      const imported = new Map<string, string>();
+      for (const comment of comments ?? []) {
+        const parentId = comment.parentWordId ? imported.get(comment.parentWordId) : undefined;
+        if (comment.parentWordId && !parentId) continue;
+        const added = addComment(app.db, user, created.id, {
+          body: comment.body,
+          parentId,
+          anchor: comment.anchor ?? undefined,
+          authorName: comment.author,
+          createdAt: comment.date ?? undefined,
+          resolved: comment.resolved,
+        });
+        imported.set(comment.wordId, added.id);
+      }
       const document = { ...created, styles: styles ?? null };
       recordAudit(app.db, {
         actorId: user.id,
@@ -214,6 +230,18 @@ export async function registerDocumentRoutes(app: FastifyInstance): Promise<void
         source: source?.package,
         fragments: source?.fragments,
         originalSetup: source?.pageSetup,
+        comments: listThreads(app.db, user, id).map((thread) => ({
+          author: thread.authorName,
+          date: thread.createdAt,
+          body: thread.body,
+          anchor: thread.anchor,
+          resolved: thread.resolvedAt !== null,
+          replies: thread.replies.map((reply) => ({
+            author: reply.authorName,
+            date: reply.createdAt,
+            body: reply.body,
+          })),
+        })),
       });
       const fileName = safeFileName(document.title, 'docx');
       return reply

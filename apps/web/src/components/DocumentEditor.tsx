@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type JSX } from 'react';
-import { EditorContent, useEditor } from '@tiptap/react';
+import { EditorContent, useEditor, type Editor } from '@tiptap/react';
 import {
   repairDocument,
   styleSheetFor,
@@ -67,6 +67,8 @@ interface DocumentEditorProps {
    * empty quote, because nothing was lost and saying otherwise is untrue.
    */
   onRepair?: (when: 'open' | 'save') => void;
+  /** Hands the editor to the page, for the panels that work alongside it. */
+  onReady?: (editor: Editor | null) => void;
 }
 
 /** How long the editor waits after the last keystroke before reporting a change. */
@@ -92,6 +94,7 @@ export function DocumentEditor({
   onChange,
   onDirty,
   onRepair,
+  onReady,
   header = '',
   footer = '',
   styles = null,
@@ -156,6 +159,13 @@ export function DocumentEditor({
   useEffect(() => {
     if (opened.current?.removed) report.current?.('open');
   }, []);
+
+  const ready = useRef(onReady);
+  ready.current = onReady;
+  useEffect(() => {
+    ready.current?.(editor);
+    return () => ready.current?.(null);
+  }, [editor]);
 
   useEffect(() => {
     return () => {

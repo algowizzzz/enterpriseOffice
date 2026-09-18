@@ -1,4 +1,4 @@
-import type { PageSetup, PMNode, StyleTable } from '@docforge/model';
+import type { CommentAnchor, PageSetup, PMNode, StyleTable } from '@docforge/model';
 
 export type Role = 'admin' | 'editor' | 'viewer';
 export type UserStatus = 'active' | 'disabled';
@@ -35,6 +35,24 @@ export interface DocumentDetail extends DocumentSummary {
   pageSetup: PageSetup;
   /** The document's own styles, when it was uploaded from Word. */
   styles?: StyleTable | null;
+}
+
+export interface DocumentComment {
+  id: string;
+  parentId: string | null;
+  authorId: string | null;
+  authorName: string;
+  body: string;
+  anchor: CommentAnchor | null;
+  createdAt: string;
+  updatedAt: string;
+  resolvedAt: string | null;
+  /** Whether the person signed in may change or remove it. */
+  mine: boolean;
+}
+
+export interface CommentThread extends DocumentComment {
+  replies: DocumentComment[];
 }
 
 export interface VersionSummary {
@@ -191,6 +209,20 @@ export const api = {
 
   unshare: (id: string, userId: string) =>
     request<{ shares: ShareEntry[] }>(`/documents/${id}/shares/${userId}`, { method: 'DELETE' }),
+
+  listComments: (id: string) => request<{ threads: CommentThread[] }>(`/documents/${id}/comments`),
+
+  addComment: (id: string, input: { body: string; parentId?: string; anchor?: CommentAnchor }) =>
+    request<{ comment: DocumentComment }>(`/documents/${id}/comments`, { method: 'POST', ...json(input) }),
+
+  updateComment: (id: string, commentId: string, patch: { body?: string; resolved?: boolean }) =>
+    request<{ comment: DocumentComment }>(`/documents/${id}/comments/${commentId}`, {
+      method: 'PATCH',
+      ...json(patch),
+    }),
+
+  removeComment: (id: string, commentId: string) =>
+    request<{ ok: true }>(`/documents/${id}/comments/${commentId}`, { method: 'DELETE' }),
 
   /** The export endpoint returns a file, so it is fetched directly rather than as JSON. */
   exportUrl: (id: string, format: ExportFormat) =>

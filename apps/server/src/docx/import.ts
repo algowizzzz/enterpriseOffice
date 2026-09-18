@@ -1,7 +1,11 @@
 import { type PMNode, type StyleTable } from '@docforge/model';
 import { badRequest } from '../errors.js';
 import { readPackage } from './ooxml/package.js';
-import { documentFromPackage, type DocumentMeta } from './ooxml/toDocument.js';
+import {
+  documentFromPackage,
+  type DocumentMeta,
+  type ImportedComment,
+} from './ooxml/toDocument.js';
 import { archiveIsReasonable } from './zipGuard.js';
 
 export interface ImportResult {
@@ -14,6 +18,8 @@ export interface ImportResult {
   fragments?: Record<string, string>;
   /** The document's own styles, resolved for drawing. */
   styles?: StyleTable;
+  /** Review comments the file carried. */
+  comments?: ImportedComment[];
 }
 
 /**
@@ -51,6 +57,7 @@ export async function importDocx(buffer: Buffer): Promise<ImportResult> {
       meta: result.meta,
       fragments: result.fragments,
       styles: result.styles,
+      comments: result.comments,
     };
   } catch (error) {
     throw badRequest(`Could not read that .docx file: ${(error as Error).message}`);

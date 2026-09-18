@@ -765,3 +765,115 @@ main {
 .ProseMirror-selectednode.word-block {
   outline: 2px solid #2e75b6;
 }
+
+/* Comments: a column beside the page, and highlights on the words. */
+.editor-with-side {
+  display: flex;
+  align-items: flex-start;
+  min-height: 0;
+  flex: 1;
+}
+.editor-with-side > .editor {
+  flex: 1;
+  min-width: 0;
+}
+.comments-panel {
+  width: 320px;
+  flex: none;
+  align-self: stretch;
+  overflow-y: auto;
+  max-height: calc(100vh - 110px);
+  position: sticky;
+  top: 0;
+  border-left: 1px solid #d9dee5;
+  background: #fafbfc;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.comments-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+.comments-head h2 {
+  margin: 0;
+  font-size: 1rem;
+}
+.comment-thread {
+  border: 1px solid #d9dee5;
+  border-radius: 6px;
+  background: #fff;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.comment-thread-active {
+  border-color: #e0a800;
+  box-shadow: 0 0 0 2px rgba(224, 168, 0, 0.2);
+}
+.comment-thread-resolved {
+  opacity: 0.7;
+}
+.comment-quote {
+  margin: 0;
+  font-size: 0.85em;
+  color: #5b6673;
+  border-left: 3px solid #f2c94c;
+  padding-left: 8px;
+}
+.comment-meta {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  font-size: 0.85em;
+}
+.comment-body {
+  margin: 2px 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.comment-reply {
+  border-top: 1px solid #eef0f3;
+  padding-top: 6px;
+  margin-left: 10px;
+}
+.comment-actions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+.comments-panel textarea {
+  width: 100%;
+  min-height: 64px;
+  resize: vertical;
+  font: inherit;
+  padding: 6px;
+  box-sizing: border-box;
+}
+.danger-link {
+  color: #b3261e;
+}
+.comment-mark {
+  background: rgba(242, 201, 76, 0.45);
+  border-bottom: 2px solid #e0a800;
+  cursor: pointer;
+}
+.comment-mark-resolved {
+  background: rgba(160, 170, 180, 0.25);
+  border-bottom-color: #a0aab4;
+}
+.comment-mark-active {
+  background: rgba(242, 153, 74, 0.55);
+}
+@media print {
+  .comments-panel {
+    display: none;
+  }
+  .comment-mark {
+    background: none;
+    border: none;
+  }
+}
