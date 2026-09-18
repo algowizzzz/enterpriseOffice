@@ -88,7 +88,7 @@ describe('toolbar, character formatting', () => {
   it('sets a text colour', async () => {
     const user = await mount();
     await selectAll(user);
-    const colour = screen.getByLabelText('Text colour') as HTMLInputElement;
+    const colour = screen.getByLabelText('Text colour');
     // A colour input cannot be typed into, so drive its change event directly.
     fireEvent.change(colour, { target: { value: '#cc0000' } });
     await waitFor(() => expect(asText()).toContain('#cc0000'));

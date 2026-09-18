@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState, type FormEvent, type JSX } from 'react';
 import { api, ApiError, type AuditEntry, type Role, type User } from '../lib/api';
 import { useSession } from '../lib/session';
+import { textField } from '../lib/forms';
 
 export function AdminPage(): JSX.Element {
   const { user: currentUser } = useSession();
@@ -37,10 +38,10 @@ export function AdminPage(): JSX.Element {
     setNotice(null);
     try {
       await api.createUser({
-        email: String(form.get('email') ?? ''),
-        name: String(form.get('name') ?? ''),
-        password: String(form.get('password') ?? ''),
-        role: String(form.get('role') ?? 'editor') as Role,
+        email: textField(form, 'email'),
+        name: textField(form, 'name'),
+        password: textField(form, 'password'),
+        role: textField(form, 'role', 'editor') as Role,
       });
       element.reset();
       setNotice('Account created.');
@@ -86,7 +87,12 @@ export function AdminPage(): JSX.Element {
 
       <section>
         <h2>Add an account</h2>
-        <form className="inline-form" onSubmit={addUser}>
+        <form
+          className="inline-form"
+          onSubmit={(event) => {
+            void addUser(event);
+          }}
+        >
           <label>
             Name
             <input name="name" type="text" required maxLength={120} />

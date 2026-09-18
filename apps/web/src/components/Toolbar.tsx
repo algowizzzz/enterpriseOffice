@@ -105,7 +105,9 @@ export function Toolbar({ editor, disabled = false }: ToolbarProps): JSX.Element
       }
       const reader = new FileReader();
       reader.onload = () => {
-        editor.chain().focus().setImage({ src: String(reader.result) }).run();
+        // readAsDataURL always yields a string, but the type allows a buffer.
+        if (typeof reader.result !== 'string') return;
+        editor.chain().focus().setImage({ src: reader.result }).run();
       };
       reader.readAsDataURL(file);
     };

@@ -364,7 +364,9 @@ describe('docx round trip, images', () => {
     });
     const images = collect(await roundTrip(source), 'image');
     expect(images).toHaveLength(1);
-    expect(String(images[0]?.attrs?.['src'] ?? '')).toMatch(/^data:image\//u);
+    const src = images[0]?.attrs?.['src'];
+    expect(typeof src).toBe('string');
+    expect(src as string).toMatch(/^data:image\//u);
   });
 
   it('drops an image whose source is not embedded data', async () => {
@@ -421,7 +423,7 @@ describe('docx export, resilience', () => {
     const source = doc({
       type: 'somethingNew',
       content: [paragraph('Text from an unknown wrapper')],
-    } as PMNode);
+    });
     expect(toPlainText(await roundTrip(source))).toContain('Text from an unknown wrapper');
   });
 

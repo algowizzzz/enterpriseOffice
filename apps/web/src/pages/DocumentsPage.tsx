@@ -88,7 +88,9 @@ export function DocumentsPage({ onOpen }: DocumentsPageProps): JSX.Element {
           <button
             type="button"
             className="primary"
-            onClick={createBlank}
+            onClick={() => {
+              void createBlank();
+            }}
             disabled={busy || !canCreate}
           >
             New blank document

@@ -26,7 +26,12 @@ export function SignInPage(): JSX.Element {
 
   return (
     <div className="centred-panel">
-      <form className="card" onSubmit={submit}>
+      <form
+        className="card"
+        onSubmit={(event) => {
+          void submit(event);
+        }}
+      >
         <h1>DocForge</h1>
         <p className="muted">
           {needsSetup

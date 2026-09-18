@@ -22,6 +22,14 @@
     "test": "npm run test --workspace @docforge/server && npm run test --workspace @docforge/web",
     "test:e2e": "node scripts/smoke-test.mjs",
     "audit:airgap": "node scripts/check-no-remote-urls.mjs",
-    "verify": "npm run typecheck && npm test && npm run build && npm run audit:airgap && npm run test:e2e"
+    "verify": "npm run lint && npm run typecheck && npm test && npm run build && npm run audit:airgap && npm run test:e2e",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix"
+  },
+  "devDependencies": {
+    "eslint": "^9.39.5",
+    "eslint-plugin-react-hooks": "^5.2.0",
+    "globals": "^17.12.0",
+    "typescript-eslint": "^8.70.0"
   }
 }

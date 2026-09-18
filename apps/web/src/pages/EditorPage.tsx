@@ -11,6 +11,7 @@ import {
 } from '../lib/api';
 import { DocumentEditor, type SaveState } from '../components/DocumentEditor';
 import { useSession } from '../lib/session';
+import { textField } from '../lib/forms';
 
 interface EditorPageProps {
   documentId: string;
@@ -237,9 +238,17 @@ export function EditorPage({ documentId, onBack }: EditorPageProps): JSX.Element
                 <button
                   type="button"
                   className="danger"
-                  onClick={async () => {
-                    const { shares: updated } = await api.unshare(documentId, share.userId);
-                    setShares(updated);
+                  onClick={() => {
+                    void (async () => {
+                      try {
+                        const { shares: updated } = await api.unshare(documentId, share.userId);
+                        setShares(updated);
+                      } catch (caught) {
+                        setError(
+                          caught instanceof ApiError ? caught.message : 'Could not remove that share.',
+                        );
+                      }
+                    })();
                   }}
                 >
                   Remove
@@ -249,15 +258,23 @@ export function EditorPage({ documentId, onBack }: EditorPageProps): JSX.Element
           </ul>
           <form
             className="share-form"
-            onSubmit={async (event) => {
+            onSubmit={(event) => {
               event.preventDefault();
               // Read the form before yielding: React clears currentTarget.
               const form = new FormData(event.currentTarget);
-              const userId = String(form.get('userId') ?? '');
-              const permission = String(form.get('permission') ?? 'view') as 'view' | 'edit';
+              const userId = textField(form, 'userId');
+              const permission = textField(form, 'permission', 'view') as 'view' | 'edit';
               if (!userId) return;
-              const { shares: updated } = await api.share(documentId, userId, permission);
-              setShares(updated);
+              void (async () => {
+                try {
+                  const { shares: updated } = await api.share(documentId, userId, permission);
+                  setShares(updated);
+                } catch (caught) {
+                  setError(
+                    caught instanceof ApiError ? caught.message : 'Could not share that document.',
+                  );
+                }
+              })();
             }}
           >
             <label>

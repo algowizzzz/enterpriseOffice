@@ -12,7 +12,7 @@ function largeDocument(paragraphs: number): PMNode {
     if (i % 10 === 0) {
       content.push({
         type: 'heading',
-        attrs: { level: (i % 30 === 0 ? 1 : 2) as number },
+        attrs: { level: (i % 30 === 0 ? 1 : 2) },
         content: [{ type: 'text', text: `Section ${i / 10 + 1}` }],
       });
     }

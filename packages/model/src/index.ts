@@ -170,7 +170,7 @@ export function validateDoc(value: unknown): ValidationResult {
           const m = mark as Record<string, unknown> | null;
           if (typeof m !== 'object' || m === null || typeof m['type'] !== 'string') {
             errors.push(`${path}.marks[${i}]: malformed mark`);
-          } else if (!KNOWN_MARKS.has(m['type'] as string)) {
+          } else if (!KNOWN_MARKS.has(m['type'])) {
             errors.push(`${path}.marks[${i}]: unknown mark "${String(m['type'])}"`);
           }
         });

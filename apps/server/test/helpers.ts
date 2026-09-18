@@ -42,7 +42,7 @@ export async function registerFirstAdmin(
   if (response.statusCode !== 201) {
     throw new Error(`registerFirstAdmin failed: ${response.statusCode} ${response.body}`);
   }
-  const body = response.json() as { user: TestActor; token: string };
+  const body = response.json();
   return { ...body.user, token: body.token };
 }
 
@@ -78,7 +78,7 @@ export async function login(
   if (response.statusCode !== 200) {
     throw new Error(`login failed: ${response.statusCode} ${response.body}`);
   }
-  const body = response.json() as { user: TestActor; token: string };
+  const body = response.json();
   return { ...body.user, token: body.token };
 }
 

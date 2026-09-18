@@ -31,6 +31,10 @@ const ALIGNMENT: Record<string, (typeof AlignmentType)[keyof typeof AlignmentTyp
   justify: AlignmentType.JUSTIFIED,
 };
 
+/** Read an attribute that is meant to be text, ignoring anything that is not. */
+const textAttr = (value: unknown, fallback = ''): string =>
+  typeof value === 'string' ? value : fallback;
+
 function markSet(marks: PMMark[] | undefined): Map<string, Record<string, unknown>> {
   const map = new Map<string, Record<string, unknown>>();
   for (const mark of marks ?? []) map.set(mark.type, mark.attrs ?? {});
@@ -58,7 +62,7 @@ function runsOf(node: PMNode): ParagraphChild[] {
       continue;
     }
     if (child.type === NODE.image) {
-      const decoded = decodeDataUri(String(child.attrs?.['src'] ?? ''));
+      const decoded = decodeDataUri(textAttr(child.attrs?.['src']));
       if (!decoded) continue;
       children.push(
         new ImageRun({
@@ -80,8 +84,8 @@ function runsOf(node: PMNode): ParagraphChild[] {
     if (text.length === 0) continue;
     const marks = markSet(child.marks);
     const style = marks.get(MARK.textStyle) ?? {};
-    const fontSizePt = Number(String(style['fontSize'] ?? '').replace(/[^\d.]/gu, ''));
-    const color = String(style['color'] ?? '').replace('#', '');
+    const fontSizePt = Number(textAttr(style['fontSize']).replace(/[^\d.]/gu, ''));
+    const color = textAttr(style['color']).replace('#', '');
     const isLink = marks.has(MARK.link);
     children.push(
       new TextRun({
@@ -97,7 +101,7 @@ function runsOf(node: PMNode): ParagraphChild[] {
           ? { size: Math.round(fontSizePt * 2) }
           : {}),
         ...(/^[0-9a-f]{6}$/iu.test(color) ? { color } : {}),
-        ...(style['fontFamily'] ? { font: String(style['fontFamily']) } : {}),
+        ...(textAttr(style['fontFamily']) ? { font: textAttr(style['fontFamily']) } : {}),
       }),
     );
   }
@@ -110,7 +114,7 @@ interface ListContext {
 }
 
 function paragraphOptions(node: PMNode, list?: ListContext): IParagraphOptions {
-  const align = String(node.attrs?.['textAlign'] ?? '');
+  const align = textAttr(node.attrs?.['textAlign']);
   return {
     children: runsOf(node),
     ...(ALIGNMENT[align] ? { alignment: ALIGNMENT[align] } : {}),

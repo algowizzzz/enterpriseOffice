@@ -1,6 +1,6 @@
 import mammoth from 'mammoth';
 import { buildStyleMap, alignmentTransform } from './mammothOptions.js';
-import { parse, type HTMLElement, type Node as HtmlNode } from 'node-html-parser';
+import { parse, NodeType, type HTMLElement, type Node as HtmlNode } from 'node-html-parser';
 import { NODE, MARK, type PMNode, type PMMark } from '@docforge/model';
 import { badRequest } from '../errors.js';
 
@@ -34,12 +34,12 @@ interface ImportState {
   messages: Set<string>;
 }
 
-const TEXT_NODE = 3;
-const ELEMENT_NODE = 1;
-
-function isElement(node: HtmlNode): node is HTMLElement {
-  return node.nodeType === ELEMENT_NODE;
-}
+/**
+ * The parser exposes DOM node types as an enum. Comparing against bare numbers
+ * happens to work but is not checked, so the enum is used directly.
+ */
+const isElement = (node: HtmlNode): node is HTMLElement => node.nodeType === NodeType.ELEMENT_NODE;
+const isText = (node: HtmlNode): boolean => node.nodeType === NodeType.TEXT_NODE;
 
 function decodeEntities(text: string): string {
   return text
@@ -54,7 +54,7 @@ function decodeEntities(text: string): string {
 
 /** Convert inline HTML into ProseMirror text nodes carrying marks. */
 function inline(node: HtmlNode, marks: PMMark[], state: ImportState): PMNode[] {
-  if (node.nodeType === TEXT_NODE) {
+  if (isText(node)) {
     const text = decodeEntities(node.rawText);
     if (text.length === 0) return [];
     return [marks.length > 0 ? { type: NODE.text, text, marks } : { type: NODE.text, text }];
