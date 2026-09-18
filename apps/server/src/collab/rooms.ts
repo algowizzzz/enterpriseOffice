@@ -16,6 +16,7 @@ import { repairDocument, validateDoc } from '@docforge/model';
 import type { Database } from '../db.js';
 import { now } from '../lib/ids.js';
 import { updateDocument } from '../services/documents.js';
+import { savePictures, takePicturesOut } from '../services/media.js';
 import type { Role } from '../services/users.js';
 import { readShared, seedShared } from './convert.js';
 
@@ -270,7 +271,11 @@ export class Rooms {
     try {
       const repaired = repairDocument(readShared(room.shared)).doc;
       if (!validateDoc(repaired).ok) throw new Error('the merged document did not pass validation');
-      const saved = updateDocument(this.db, room.lastEditor, room.id, { content: repaired });
+      // A picture pasted into a shared session travels inside the text like any
+      // other; it is moved into the picture store as it is written down.
+      const light = takePicturesOut(repaired);
+      const saved = updateDocument(this.db, room.lastEditor, room.id, { content: light.doc });
+      savePictures(this.db, room.id, light.pictures);
       this.db
         .prepare('UPDATE document_collab SET state = ?, revision = ?, updated_at = ? WHERE document_id = ?')
         .run(Y.encodeStateAsUpdate(room.shared), saved.revision, now(), room.id);

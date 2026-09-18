@@ -50,14 +50,15 @@ const EMU_PER_PIXEL = 9525;
 const DXA_PER_PIXEL = 15;
 
 /**
- * Picture limits. One picture may be large; the total is what a stored document
- * can carry while pictures travel inside it, which they do until they are moved
- * out into a store of their own. A picture left out of the editor is still in
- * the uploaded file and still goes back out to Word.
+ * Picture limits. Pictures are kept in a store of their own once a document is
+ * uploaded, so these bound the work of one upload rather than what a stored
+ * document can carry: within an upload limit of fifty megabytes, nearly all of
+ * a file may be pictures. One left out of the editor is still in the uploaded
+ * file and still goes back out to Word.
  */
-const MAX_IMAGE_BYTES = 6 * 1024 * 1024;
-const MAX_TOTAL_IMAGE_BYTES = 8 * 1024 * 1024;
-const MAX_IMAGES = 200;
+const MAX_IMAGE_BYTES = 25 * 1024 * 1024;
+const MAX_TOTAL_IMAGE_BYTES = 40 * 1024 * 1024;
+const MAX_IMAGES = 500;
 
 const IMAGE_TYPES: Record<string, string> = {
   png: 'image/png',
@@ -1028,7 +1029,7 @@ function imageFrom(element: XmlElement, state: State, quiet: boolean): PMNode | 
     return null;
   }
   if (bytes.length > MAX_IMAGE_BYTES) {
-    state.messages.add('An image larger than 6 MB is not shown here. It is still in the Word file.');
+    state.messages.add('An image larger than 25 MB is not shown here. It is still in the Word file.');
     return null;
   }
   if (state.imageBytes + bytes.length > MAX_TOTAL_IMAGE_BYTES) {

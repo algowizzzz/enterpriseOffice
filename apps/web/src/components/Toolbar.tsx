@@ -280,8 +280,8 @@ export function Toolbar({
     input.onchange = () => {
       const file = input.files?.[0];
       if (!file) return;
-      if (file.size > 2 * 1024 * 1024) {
-        window.alert('Images must be smaller than 2 MB.');
+      if (file.size > 10 * 1024 * 1024) {
+        window.alert('Images must be smaller than 10 MB.');
         return;
       }
       const reader = new FileReader();

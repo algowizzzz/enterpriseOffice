@@ -14,6 +14,7 @@ import { importDocx, titleFromFileName } from '../docx/import.js';
 import { recordAudit } from '../services/audit.js';
 import { addComment, listThreads } from '../services/comments.js';
 import { collabEpoch } from '../collab/rooms.js';
+import { putPicturesBack, readPicture, savePictures, takePicturesOut } from '../services/media.js';
 import {
   createDocument,
   deleteDocument,
@@ -58,6 +59,20 @@ function redline(
   return compareDocuments(before, after, { author: user.name, date: new Date().toISOString() });
 }
 
+/**
+ * Content as it arrived, with any large pictures taken out of it. Content that is
+ * not shaped like a document is passed on untouched, for the validator to refuse.
+ */
+function lighter(content: unknown): { content: unknown; pictures: ReturnType<typeof takePicturesOut>['pictures'] } {
+  if (typeof content !== 'object' || content === null || Array.isArray(content)) return { content, pictures: [] };
+  try {
+    const taken = takePicturesOut(content as PMNode);
+    return { content: taken.doc, pictures: taken.pictures };
+  } catch {
+    return { content, pictures: [] };
+  }
+}
+
 export async function registerDocumentRoutes(app: FastifyInstance): Promise<void> {
   app.get('/documents', async (request) => {
     const user = await app.authenticate(request);
@@ -75,12 +90,14 @@ export async function registerDocumentRoutes(app: FastifyInstance): Promise<void
         pageSetup: z.unknown().optional(),
       })
       .parse(request.body ?? {});
+    const light = lighter(body.content);
     const document = createDocument(app.db, user, {
       title: body.title,
-      content: body.content,
+      content: light.content,
       pageSetup: body.pageSetup,
       origin: 'blank',
     });
+    savePictures(app.db, document.id, light.pictures);
     recordAudit(app.db, {
       actorId: user.id,
       action: 'document.created',
@@ -90,6 +107,22 @@ export async function registerDocumentRoutes(app: FastifyInstance): Promise<void
       ip: request.ip,
     });
     return reply.code(201).send({ document });
+  });
+
+  /**
+   * A picture that belongs to a document the caller can read. Named by its
+   * hash, so it never changes and a browser may keep it for as long as it likes.
+   */
+  app.get('/media/:hash', async (request, reply) => {
+    const user = await app.authenticate(request);
+    const { hash } = z.object({ hash: z.string().regex(/^[0-9a-f]{64}$/u) }).parse(request.params);
+    const picture = readPicture(app.db, user, hash);
+    if (!picture) throw notFound('Picture not found');
+    return reply
+      .header('Content-Type', picture.mediaType)
+      .header('Cache-Control', 'private, max-age=31536000, immutable')
+      .header('X-Content-Type-Options', 'nosniff')
+      .send(picture.bytes);
   });
 
   /** Upload a .docx and convert it into a new editable document. */
@@ -139,9 +172,12 @@ export async function registerDocumentRoutes(app: FastifyInstance): Promise<void
             comments: undefined,
           }))
         : await importDocx(buffer);
+      // The pictures go into their own store, and the document keeps their
+      // addresses: see services/media.ts.
+      const light = takePicturesOut(content);
       const created = createDocument(app.db, user, {
         title: titleFromFileName(file.filename ?? 'Imported document'),
-        content,
+        content: light.doc,
         // The header, the footer and the orientation the file arrived with. A
         // house template often wants the uploaded letterhead gone, so that the
         // approved one can be applied: that is a choice made at upload.
@@ -150,6 +186,7 @@ export async function registerDocumentRoutes(app: FastifyInstance): Promise<void
         origin: 'import',
         sourceName: file.filename,
       });
+      savePictures(app.db, created.id, light.pictures);
       // The file itself, kept so the export can patch it rather than rebuild
       // it, and so the original can be downloaded again.
       saveSource(app.db, created.id, {
@@ -212,7 +249,12 @@ export async function registerDocumentRoutes(app: FastifyInstance): Promise<void
     if (body.title === undefined && body.content === undefined && body.pageSetup === undefined) {
       throw badRequest('Nothing to update');
     }
-    const document = updateDocument(app.db, user, id, body);
+    const light = lighter(body.content);
+    const document = updateDocument(app.db, user, id, {
+      ...body,
+      ...(body.content === undefined ? {} : { content: light.content }),
+    });
+    savePictures(app.db, id, light.pictures);
     // Content written here did not come through the shared document, so whoever
     // has it open together is now looking at something else. The editor itself
     // only sends the title and the page setup this way.
@@ -273,7 +315,8 @@ export async function registerDocumentRoutes(app: FastifyInstance): Promise<void
         content = redline(app.db, user, id, from, to, stored);
       } else if (changes === 'accepted') content = acceptAllChanges(content);
       else if (changes === 'rejected') content = rejectAllChanges(content);
-      const document = { ...stored, content };
+      // The writers want the pictures themselves, not their addresses.
+      const document = { ...stored, content: putPicturesBack(app.db, id, content) };
 
       recordAudit(app.db, {
         actorId: user.id,

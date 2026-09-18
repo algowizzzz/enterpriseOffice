@@ -219,6 +219,26 @@ const MIGRATIONS: { id: string; sql: string }[] = [
       );
     `,
   },
+  {
+    // Pictures, kept beside the document they belong to rather than inside its
+    // text, under a hash of their bytes. A document with forty megabytes of
+    // pictures used to be forty megabytes of JSON on every save, and the editor
+    // capped what it would show at eight to stay usable. Rows go when the
+    // document goes; they are never removed while it exists, because an earlier
+    // version may still show the picture.
+    id: '0010_document_media',
+    sql: `
+      CREATE TABLE document_media (
+        document_id TEXT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+        hash        TEXT NOT NULL,
+        media_type  TEXT NOT NULL,
+        bytes       BLOB NOT NULL,
+        created_at  TEXT NOT NULL,
+        PRIMARY KEY (document_id, hash)
+      );
+      CREATE INDEX idx_document_media_hash ON document_media(hash);
+    `,
+  },
 ];
 
 export function openDatabase(file: string): Database {

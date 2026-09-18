@@ -199,8 +199,20 @@ const SAFE_SRC = /^data:image\/[a-z0-9.+-]+;base64,/iu;
 
 /** Whether a picture is embedded in the document itself, as the air gap requires. */
 export function isEmbeddedImageSrc(src: unknown): boolean {
-  return typeof src === 'string' && src.length <= MAX_SRC_LENGTH && SAFE_SRC.test(src);
+  if (typeof src !== 'string') return false;
+  return (src.length <= MAX_SRC_LENGTH && SAFE_SRC.test(src)) || STORED_SRC.test(src);
 }
+
+/**
+ * A picture kept by the server beside the document, named by a hash of its
+ * bytes. It is an address on this origin and nowhere else, so the air gap and
+ * the content security policy are as they were, and a document no longer has to
+ * carry every one of its pictures inside itself each time it is saved.
+ */
+const STORED_SRC = /^\/api\/media\/[0-9a-f]{64}$/u;
+export const storedImageSrc = (hash: string): string => `/api/media/${hash}`;
+export const storedImageHash = (src: unknown): string | null =>
+  typeof src === 'string' && STORED_SRC.test(src) ? src.slice('/api/media/'.length) : null;
 
 const isBoundedInteger = (value: unknown, min: number, max: number): boolean =>
   typeof value === 'number' && Number.isInteger(value) && value >= min && value <= max;

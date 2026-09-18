@@ -330,13 +330,15 @@ describe('toolbar, images', () => {
   });
 
   it('refuses an image that is too large to embed', async () => {
-    const big = new File([new Uint8Array(3 * 1024 * 1024)], 'big.png', { type: 'image/png' });
+    // The limit was 2 MB while pictures travelled inside the text; it is 10 MB
+    // now that the server moves them into a store of their own.
+    const big = new File([new Uint8Array(11 * 1024 * 1024)], 'big.png', { type: 'image/png' });
     stubFilePicker(big);
     const alert = vi.spyOn(window, 'alert').mockImplementation(() => {});
     const user = await mount();
     await user.click(screen.getByRole('textbox'));
     await user.click(screen.getByRole('button', { name: 'Insert image' }));
-    await waitFor(() => expect(alert).toHaveBeenCalledWith(expect.stringContaining('2 MB')));
+    await waitFor(() => expect(alert).toHaveBeenCalledWith(expect.stringContaining('10 MB')));
     expect(asText()).not.toContain('"image"');
   });
 
