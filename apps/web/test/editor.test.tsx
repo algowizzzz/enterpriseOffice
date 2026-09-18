@@ -32,7 +32,22 @@ describe('editor extensions', () => {
 
   it('restricts link protocols to ones that cannot execute script', () => {
     const starterKit = editorExtensions.find((extension) => extension.name === 'starterKit');
-    expect(starterKit?.options.link.protocols).toEqual(['http', 'https', 'mailto']);
+    // StarterKit's own link is switched off in favour of one that also refuses
+    // targets the model will not store.
+    expect(starterKit?.options.link).toBe(false);
+    const link = editorExtensions.find((extension) => extension.name === 'link');
+    expect(link?.options.protocols).toEqual(['http', 'https', 'mailto']);
+  });
+
+  it('has a node for every node the model knows', async () => {
+    // A node the model accepts and the editor does not cannot be opened at all:
+    // Tiptap substitutes an empty document and warns to the console, so the
+    // document reads as blank and the first save stores that.
+    const { getSchema } = await import('@tiptap/core');
+    const { NODE, MARK } = await import('@docforge/model');
+    const schema = getSchema(editorExtensions);
+    for (const name of Object.values(NODE)) expect(Object.keys(schema.nodes)).toContain(name);
+    for (const name of Object.values(MARK)) expect(Object.keys(schema.marks)).toContain(name);
   });
 });
 
@@ -377,6 +392,23 @@ describe('a document the editor has to repair before it can show it', () => {
       ),
     ).not.toThrow();
     await waitFor(() => expect(screen.getByRole('textbox')).toBeInTheDocument());
+  });
+
+  it('does not claim a removal when it only filled an empty quote', async () => {
+    // Regression: the message said content had been left out although nothing
+    // had, because the repair reported any change at all rather than a loss.
+    const repairs: string[] = [];
+    render(
+      <DocumentEditor
+        initialContent={{ type: 'doc', content: [{ type: 'blockquote', content: [] }] }}
+        readOnly={false}
+        onChange={() => {}}
+        onDirty={() => {}}
+        onRepair={(when) => repairs.push(when)}
+      />,
+    );
+    await screen.findByRole('textbox');
+    expect(repairs).toEqual([]);
   });
 
   it('says so when a save had to remove something', async () => {

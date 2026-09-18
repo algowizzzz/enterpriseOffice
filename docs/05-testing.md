@@ -19,8 +19,8 @@ Current state:
 
 | Suite | Tests | Statements | Branches |
 |---|---|---|---|
-| Server | 410 | 97% | 89% |
-| Client | 178 | 96% | 84% |
+| Server | 420 | 97% | 89% |
+| Client | 185 | 96% | 84% |
 | End to end | 29 checks | n/a | n/a |
 
 Coverage numbers come from `npx vitest run --coverage` in either workspace.
@@ -133,7 +133,7 @@ before any claim about it is made.
 
 | Run | Result | Time |
 |---|---|---|
-| 1 to 5 | 410 server, 178 client, 29 end-to-end, no unhandled errors, no lint findings | about 40 seconds each |
+| 1 to 5 | 420 server, 185 client, 29 end-to-end, no unhandled errors, no lint findings | about 40 seconds each |
 
 Two things keep it that way. Each server test gets its own in-memory database,
 so no test can depend on another having run first. And an unhandled promise
@@ -181,6 +181,13 @@ Worth recording, because it says what these layers are for.
 | A document past the node limit was repaired into an identical one, still too large to save | Fourth review |
 | Content was removed on the way in and out with nothing said about it | Fourth review |
 | Two documents created in the same millisecond shared a timestamp, so the list ordered them arbitrarily | Server suite |
+| The new message became a permanent banner after pasting a telephone or relative link, pointing at a link still visible on screen that was silently dropped from every save | Fifth review |
+| Restoring a version was the one write path with no repair, so tightening a rule made an old version impossible to restore for ever | Fifth review |
+| A document holding a page break opened completely blank, because the model had a node the editor did not | Fifth review |
+| The repair deleted empty tables and lists that the rules accepted, then reported content as lost | Fifth review |
+| The message claimed content had been left out when the repair had only filled an empty quote | Fifth review |
+| The repair stopped one level shallower than the rules, and did not count the paragraphs it added against the node budget | Fifth review |
+| An imported list item holding only a nested list was a shape the editor's schema does not allow | Fifth review |
 
 ## Review
 
@@ -225,6 +232,18 @@ case by case: whatever goes in, the repair returns without throwing and its
 output satisfies the rules, and a second repair changes nothing. The same pass
 noted that removing content silently is worse than the refusal it replaced, so
 the editor now says when something was left out.
+
+A fifth pass read the repair again and cleared it: twenty thousand generated
+values, and nothing it returned was refused. The damage had moved to the message
+beside it. A pasted telephone or relative link is kept by the editor and stripped
+by the model, so the repair reported a removal on every autosave: an amber banner
+after every keystroke, about a link the person could still see. The rule now
+lives in one place and the editor refuses those targets as they arrive. The same
+pass found the one write path with no repair in front of it, restore-from-version,
+where a tightened rule made an old version permanently unrestorable, and a node
+the model knew that the editor did not, which made any document holding a page
+break open blank. The message is now keyed on something being taken away rather
+than on anything changing, which it was not before.
 
 The lesson is worth stating plainly, because it took three rounds to learn:
 a validation rule is only half a change. The other half is the thing that makes

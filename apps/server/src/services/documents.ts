@@ -1,4 +1,4 @@
-import { emptyDoc, validateDoc, wordCount, type PMNode } from '@docforge/model';
+import { emptyDoc, sanitizeDocument, validateDoc, wordCount, type PMNode } from '@docforge/model';
 import type { Database } from '../db.js';
 import { HttpError, badRequest, forbidden, notFound } from '../errors.js';
 import { newId, now } from '../lib/ids.js';
@@ -354,7 +354,13 @@ export function restoreVersion(
   id: string,
   revision: number,
 ): DocumentDetail {
-  const content = getVersionContent(db, user, id, revision);
+  // Repaired on the way back in, because this is the one write path whose
+  // content nobody typed: it was stored by an earlier build, under whatever
+  // rules applied then. Handing it straight to the checker meant tightening a
+  // rule could make an old version impossible to restore, and the version most
+  // likely to be affected is the as-imported original, which is the one the
+  // history exists for.
+  const content = sanitizeDocument(getVersionContent(db, user, id, revision));
   return updateDocument(db, user, id, { content });
 }
 

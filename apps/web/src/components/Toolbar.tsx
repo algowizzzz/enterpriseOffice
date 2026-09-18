@@ -345,6 +345,12 @@ export function Toolbar({ editor, disabled = false }: ToolbarProps): JSX.Element
           disabled={disabled}
           onClick={() => chain().setHorizontalRule().run()}
         />
+        <ToolButton
+          label="Break"
+          title="Page break"
+          disabled={disabled}
+          onClick={() => chain().insertContent({ type: 'pageBreak' }).run()}
+        />
       </div>
     </div>
   );

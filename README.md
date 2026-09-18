@@ -83,13 +83,13 @@ Install it where you want it with `npm install --no-save playwright`.
 
 Three layers, all runnable offline.
 
-**Server suite.** 410 tests. Fastify in-process injection over a fresh in-memory
+**Server suite.** 420 tests. Fastify in-process injection over a fresh in-memory
 database per test. Covers authentication, session revocation, role enforcement,
 the last administrator rule, document access control, optimistic concurrency,
 version history, the audit trail, migrations, configuration, and the `.docx`
 codec in both directions including hostile input.
 
-**Client suite.** 178 tests in jsdom, with the server module replaced. Covers the
+**Client suite.** 185 tests in jsdom, with the server module replaced. Covers the
 request wrapper, the session provider, the router, all four pages and every
 ribbon control. Several tests assert that what the editor produces passes the
 same validator the server applies on save, so the two cannot drift apart.

@@ -154,6 +154,15 @@ describe('a document larger than the model will store', () => {
     expect(validateDoc(result)).toEqual({ ok: true, errors: [] });
     expect(result.content?.length).toBeLessThan(600_000);
   });
+
+  it('counts the paragraphs it adds against the same budget', () => {
+    // Regression: a substituted paragraph was free, so a document just over the
+    // limit was repaired into one still over it, and every save was refused
+    // with a message about the document's size and no way to act on it.
+    const content = Array.from({ length: 500_100 }, () => ({ type: 'listItem' }));
+    const result = repaired({ type: 'doc', content: [{ type: 'bulletList', content }] });
+    expect(validateDoc(result)).toEqual({ ok: true, errors: [] });
+  });
 });
 
 describe('what the repair reports', () => {
@@ -168,7 +177,7 @@ describe('what the repair reports', () => {
         },
       ],
     };
-    expect(repairDocument(doc)).toEqual({ doc, changed: false });
+    expect(repairDocument(doc)).toEqual({ doc, changed: false, removed: false });
   });
 
   it('says something changed when it removed anything', () => {
@@ -177,6 +186,49 @@ describe('what the repair reports', () => {
       content: [{ type: 'paragraph', content: [{ type: 'image', attrs: { src: 'https://x/y.png' } }] }],
     });
     expect(result.changed).toBe(true);
+    expect(result.removed).toBe(true);
+  });
+
+  it('does not claim content was left out when it only filled a gap', () => {
+    // Regression: putting a paragraph into an empty quote is not a loss, and
+    // saying content had been removed was simply untrue.
+    const result = repairDocument({
+      type: 'doc',
+      content: [{ type: 'blockquote', content: [] }],
+    });
+    expect(result.changed).toBe(true);
+    expect(result.removed).toBe(false);
+  });
+
+  it('agrees with the rules about a container that cannot be empty', () => {
+    // Regression: the repair dropped an empty table while the rules accepted
+    // one, so opening a valid document removed the table and said so.
+    for (const type of ['bulletList', 'orderedList', 'table', 'tableRow']) {
+      const doc = {
+        type: 'doc',
+        content: [{ type: 'paragraph', content: [{ type: 'text', text: 'x' }] }, { type }],
+      };
+      expect(validateDoc(doc).ok, type).toBe(false);
+      expect(repairDocument(doc).removed, type).toBe(true);
+    }
+  });
+
+  it('keeps text as deep as the rules allow', () => {
+    // Regression: the repair stopped one level earlier than the rules, so the
+    // innermost line of a deeply nested document was removed although it could
+    // have been stored.
+    const build = (levels: number): PMNode => {
+      let node: PMNode = { type: 'paragraph', content: [{ type: 'text', text: 'the deepest line' }] };
+      for (let i = 0; i < levels; i += 1) node = { type: 'blockquote', content: [node] };
+      return { type: 'doc', content: [node] };
+    };
+    for (const levels of [96, 97, 98]) {
+      const doc = build(levels);
+      if (!validateDoc(doc).ok) continue;
+      const result = repairDocument(doc);
+      expect(toPlainText(result.doc), `${levels} levels`).toContain('the deepest line');
+      expect(result.changed, `${levels} levels`).toBe(false);
+    }
   });
 });
 
@@ -253,7 +305,7 @@ describe('the repair against arbitrary rubbish', () => {
     for (let attempt = 0; attempt < 200; attempt += 1) {
       const value = { type: 'doc', content: Array.from({ length: 3 }, () => grow(0)) };
       const once = sanitizeDocument(value);
-      expect(repairDocument(once)).toEqual({ doc: once, changed: false });
+      expect(repairDocument(once)).toEqual({ doc: once, changed: false, removed: false });
     }
   });
 });

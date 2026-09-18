@@ -164,12 +164,29 @@ const MAX_SRC_LENGTH = 4 * 1024 * 1024;
 const SAFE_HREF = /^(?:https?:\/\/[^/]|mailto:|#|\/(?!\/))/iu;
 
 /**
+ * Whether a link target is one the model will store.
+ *
+ * Exported so the editor can refuse the same targets as they arrive. Keeping
+ * this rule on the server alone meant the editor happily held a `tel:` or
+ * relative link that was stripped from every save: the person saw a link on
+ * screen that was never stored and vanished on the next reload.
+ */
+export function isSafeHref(href: unknown): boolean {
+  return typeof href === 'string' && href.length <= MAX_ATTR_LENGTH && SAFE_HREF.test(href);
+}
+
+/**
  * What an image may point at. Only data embedded in the document itself: a
  * remote address would make the page fetch something, which the air gap forbids
  * and the content security policy blocks anyway. The rule belongs here too,
  * because a document can be written by a client that is not the editor.
  */
 const SAFE_SRC = /^data:image\/[a-z0-9.+-]+;base64,/iu;
+
+/** Whether a picture is embedded in the document itself, as the air gap requires. */
+export function isEmbeddedImageSrc(src: unknown): boolean {
+  return typeof src === 'string' && src.length <= MAX_SRC_LENGTH && SAFE_SRC.test(src);
+}
 
 const isBoundedInteger = (value: unknown, min: number, max: number): boolean =>
   typeof value === 'number' && Number.isInteger(value) && value >= min && value <= max;
@@ -204,10 +221,8 @@ const ATTR_CHECKS: Record<string, (value: unknown) => boolean> = {
   rowspan: (value) => value === null || isBoundedInteger(value, 1, 1000),
   width: isDimension,
   height: isDimension,
-  href: (value) =>
-    typeof value === 'string' && value.length <= MAX_ATTR_LENGTH && SAFE_HREF.test(value),
-  src: (value) =>
-    typeof value === 'string' && value.length <= MAX_SRC_LENGTH && SAFE_SRC.test(value),
+  href: isSafeHref,
+  src: isEmbeddedImageSrc,
 };
 
 /** A value that can be written into a document without carrying structure. */
@@ -295,7 +310,14 @@ const NEEDS_BLOCK: ReadonlySet<string> = new Set([
   NODE.tableHeader,
 ]);
 
-/** Containers that mean nothing once everything inside them has gone. */
+/**
+ * Containers that mean nothing once everything inside them has gone.
+ *
+ * The repair drops them, so the checker has to refuse them as well. While it
+ * accepted them, opening a document holding an empty table quietly removed the
+ * table and told the person something had been left out, although the checker
+ * had been perfectly happy with it.
+ */
 const DROP_IF_EMPTY: ReadonlySet<string> = new Set([
   NODE.bulletList,
   NODE.orderedList,
@@ -315,8 +337,11 @@ export interface ValidationResult {
  * error, which is the one failure the person cannot see happening, so it is
  * checked on the way in and repaired on the way out.
  */
+const hasChildren = (content: unknown): content is unknown[] =>
+  Array.isArray(content) && content.length > 0;
+
 function checkBlockContent(type: string, content: unknown, path: string, errors: string[]): void {
-  if (!Array.isArray(content) || content.length === 0) {
+  if (!hasChildren(content)) {
     errors.push(`${path}: "${type}" must contain at least one block`);
     return;
   }
@@ -391,6 +416,9 @@ export function validateDoc(value: unknown): ValidationResult {
       n['content'].forEach((child, i) => check(child, `${path}.content[${i}]`, depth + 1));
     }
     if (NEEDS_BLOCK.has(type)) checkBlockContent(type, n['content'], path, errors);
+    if (DROP_IF_EMPTY.has(type) && !hasChildren(n['content'])) {
+      errors.push(`${path}: "${type}" cannot be empty`);
+    }
   };
 
   check(value, 'doc', 0);
@@ -430,12 +458,28 @@ export interface RepairResult {
   doc: PMNode;
   /** True when anything at all was removed, replaced or restructured. */
   changed: boolean;
+  /**
+   * True only when something was taken away.
+   *
+   * Filling an empty quote with a paragraph changes a document without costing
+   * anybody anything, and telling them content was left out would be a lie. The
+   * editor's message is keyed on this rather than on `changed`.
+   */
+  removed: boolean;
 }
 
 interface RepairContext {
   /** Nodes still within the budget, mirroring the checker's node limit. */
   left: number;
   changed: boolean;
+  removed: boolean;
+}
+
+/** Record that something was taken out of the document. */
+function dropped(ctx: RepairContext): null {
+  ctx.changed = true;
+  ctx.removed = true;
+  return null;
 }
 
 export function sanitizeDocument(value: unknown): PMNode {
@@ -443,10 +487,12 @@ export function sanitizeDocument(value: unknown): PMNode {
 }
 
 export function repairDocument(value: unknown): RepairResult {
-  const ctx: RepairContext = { left: MAX_NODES, changed: false };
+  const ctx: RepairContext = { left: MAX_NODES, changed: false, removed: false };
   const root = sanitizeNode(value, 0, ctx);
 
-  if (root && root.type === NODE.doc) return { doc: root, changed: ctx.changed };
+  if (root && root.type === NODE.doc) {
+    return { doc: root, changed: ctx.changed, removed: ctx.removed };
+  }
 
   // A root that is not a document at all still holds the person's words.
   if (root) {
@@ -454,11 +500,18 @@ export function repairDocument(value: unknown): RepairResult {
     return {
       doc: { type: NODE.doc, content: content.length > 0 ? content : [{ type: NODE.paragraph }] },
       changed: true,
+      removed: ctx.removed,
     };
   }
 
   const lines = salvageText(value);
-  return { doc: lines.length > 0 ? docFromParagraphs(lines) : emptyDoc(), changed: true };
+  // Everything but the words is gone, and when there were no words the document
+  // itself is.
+  return {
+    doc: lines.length > 0 ? docFromParagraphs(lines) : emptyDoc(),
+    changed: true,
+    removed: true,
+  };
 }
 
 /**
@@ -493,7 +546,10 @@ function sanitizeAttrs(
     // A node that cannot do without an attribute, and carries none at all, is
     // not repairable. Skipping this check let the repair disagree with the
     // rules, which is the whole way a document becomes impossible to save.
-    if (attrs !== undefined) ctx.changed = true;
+    if (attrs !== undefined) {
+      ctx.changed = true;
+      ctx.removed = true;
+    }
     return { drop: required.length > 0 };
   }
 
@@ -516,10 +572,14 @@ function sanitizeAttrs(
     if (name in kept) continue;
     if (Object.keys(kept).length >= 64) {
       ctx.changed = true;
+      ctx.removed = true;
       break;
     }
     if (accepts(name, value)) kept[name] = value;
-    else ctx.changed = true;
+    else {
+      ctx.changed = true;
+      ctx.removed = true;
+    }
   }
   return { attrs: kept, drop: false };
 }
@@ -527,23 +587,23 @@ function sanitizeAttrs(
 function sanitizeMarks(marks: unknown, ctx: RepairContext): PMMark[] | undefined {
   if (marks === undefined || marks === null) return undefined;
   if (!Array.isArray(marks)) {
-    ctx.changed = true;
+    dropped(ctx);
     return undefined;
   }
   const kept: PMMark[] = [];
   for (const mark of marks) {
     if (typeof mark !== 'object' || mark === null || Array.isArray(mark)) {
-      ctx.changed = true;
+      dropped(ctx);
       continue;
     }
     const type = (mark as PMMark).type;
     if (typeof type !== 'string' || !KNOWN_MARKS.has(type)) {
-      ctx.changed = true;
+      dropped(ctx);
       continue;
     }
     const attrs = sanitizeAttrs(`mark:${type}`, (mark as PMMark).attrs, NOT_AN_IMAGE, ctx);
     if (attrs.drop) {
-      ctx.changed = true;
+      dropped(ctx);
       continue;
     }
     kept.push(
@@ -558,7 +618,7 @@ function sanitizeChildren(content: unknown, depth: number, ctx: RepairContext): 
   if (!Array.isArray(content)) {
     // Reaching this used to throw out of the editor's own start-up, which took
     // the whole page down with no message and no way back to the document.
-    ctx.changed = true;
+    dropped(ctx);
     return [];
   }
   const kept: PMNode[] = [];
@@ -591,35 +651,24 @@ function asBlocks(children: PMNode[], ctx: RepairContext): PMNode[] {
 }
 
 function sanitizeNode(value: unknown, depth: number, ctx: RepairContext): PMNode | null {
-  // One level short of the checker's limit, because a node that must hold a
-  // block gets one substituted below it and that substitute has to fit too.
-  if (depth >= MAX_DEPTH) {
-    ctx.changed = true;
-    return null;
-  }
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-    ctx.changed = true;
-    return null;
-  }
+  if (depth > MAX_DEPTH) return dropped(ctx);
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return dropped(ctx);
   const node = value as PMNode;
-  if (typeof node.type !== 'string' || !KNOWN_NODES.has(node.type)) {
-    ctx.changed = true;
-    return null;
-  }
+  if (typeof node.type !== 'string' || !KNOWN_NODES.has(node.type)) return dropped(ctx);
+
   // The checker refuses a document past its node budget, so a repair that kept
-  // every node produced another document nobody could save.
-  if (ctx.left <= 0) {
-    ctx.changed = true;
-    return null;
-  }
-  ctx.left -= 1;
+  // every node produced another document nobody could save. A node that must
+  // hold a block reserves a second place for the paragraph it may need, and
+  // gives it back once it turns out to have content of its own: counting only
+  // the nodes that were already there let the substitutes push the total back
+  // over the limit.
+  const reserve = NEEDS_BLOCK.has(node.type) ? 2 : 1;
+  if (ctx.left < reserve) return dropped(ctx);
+  ctx.left -= reserve;
 
   const exempt = node.type === NODE.image ? NO_EXEMPTIONS : NOT_AN_IMAGE;
   const attrs = sanitizeAttrs(node.type, node.attrs, exempt, ctx);
-  if (attrs.drop) {
-    ctx.changed = true;
-    return null;
-  }
+  if (attrs.drop) return dropped(ctx);
 
   const clean: PMNode = { type: node.type };
   if (attrs.attrs && Object.keys(attrs.attrs).length > 0) clean.attrs = attrs.attrs;
@@ -628,13 +677,10 @@ function sanitizeNode(value: unknown, depth: number, ctx: RepairContext): PMNode
   if (marks) clean.marks = marks;
 
   if (node.type === NODE.text) {
-    if (typeof node.text !== 'string' || node.text.length === 0) {
-      ctx.changed = true;
-      return null;
-    }
+    if (typeof node.text !== 'string' || node.text.length === 0) return dropped(ctx);
     // A text node carrying children is refused by the checker, so the repair
     // returns here rather than copying them across.
-    if (node.content !== undefined) ctx.changed = true;
+    if (node.content !== undefined) dropped(ctx);
     clean.text = node.text;
     return clean;
   }
@@ -644,24 +690,20 @@ function sanitizeNode(value: unknown, depth: number, ctx: RepairContext): PMNode
   if (NEEDS_BLOCK.has(node.type)) {
     const blocks = asBlocks(children, ctx);
     if (blocks.length > 0) {
+      ctx.left += 1; // the reserved place was not needed
       clean.content = blocks;
-    } else {
-      // Nothing left inside something that cannot be empty. An empty paragraph
-      // is a place to type; no content at all is a document that opens blank.
-      ctx.changed = true;
-      clean.content = [{ type: NODE.paragraph }];
+      return clean;
     }
+    // Nothing left inside something that cannot be empty. An empty paragraph is
+    // a place to type; no content at all is a document that opens blank.
+    if (depth + 1 > MAX_DEPTH) return dropped(ctx);
+    ctx.changed = true;
+    clean.content = [{ type: NODE.paragraph }];
     return clean;
   }
 
-  if (children.length > 0) {
-    clean.content = children;
-  } else if (DROP_IF_EMPTY.has(node.type)) {
-    ctx.changed = true;
-    return null;
-  } else if (node.content !== undefined && !Array.isArray(node.content)) {
-    ctx.changed = true;
-  }
+  if (children.length > 0) clean.content = children;
+  else if (DROP_IF_EMPTY.has(node.type)) return dropped(ctx);
 
   return clean;
 }

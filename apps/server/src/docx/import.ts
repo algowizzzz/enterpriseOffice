@@ -245,9 +245,17 @@ function listFrom(node: HTMLElement, state: ImportState, depth = 0): PMNode {
   for (const child of node.childNodes) {
     if (!isElement(child) || child.rawTagName?.toLowerCase() !== 'li') continue;
     const blocks = blocksOf(child, state, depth + 1);
+    // A list item begins with a paragraph. An item holding only a nested list,
+    // which `<li><ul>…</ul></li>` produces, is a shape the editor's schema does
+    // not allow, and the list commands then operate on a document that cannot
+    // be built. The browser's own parser inserts the same empty paragraph.
+    const content =
+      blocks.length > 0 && blocks[0]?.type !== NODE.paragraph
+        ? [{ type: NODE.paragraph }, ...blocks]
+        : blocks;
     items.push({
       type: NODE.listItem,
-      content: blocks.length > 0 ? blocks : [{ type: NODE.paragraph }],
+      content: content.length > 0 ? content : [{ type: NODE.paragraph }],
     });
   }
   if (items.length === 0) items.push({ type: NODE.listItem, content: [{ type: NODE.paragraph }] });

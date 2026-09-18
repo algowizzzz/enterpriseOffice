@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import { useEditor, EditorContent, type Editor } from '@tiptap/react';
 import type { JSX } from 'react';
-import { sanitizeDocument, validateDoc, type PMNode } from '@docforge/model';
+import { repairDocument, sanitizeDocument, validateDoc, type PMNode } from '@docforge/model';
 import { editorExtensions } from '../src/components/editorExtensions';
 
 let current: Editor | null = null;
@@ -34,6 +34,9 @@ const FRAGMENTS: Record<string, string> = {
   'an enormous column span': '<table><tr><td colspan="99999">cell</td></tr></table>',
   'a negative row span': '<table><tr><td rowspan="-4">cell</td></tr></table>',
   'a heading level that does not exist': '<p>text</p>',
+  'a telephone link': '<p>Ring <a href="tel:+441234567890">the desk</a> first.</p>',
+  'an ftp link': '<p><a href="ftp://host/file">file</a></p>',
+  'a relative link': '<p><a href="../sibling/page.html">next</a></p>',
   'a mixture of all of it':
     '<p><img src="http://x/y.png"><a href="//evil.test">link</a></p><table><tr><td colspan="9999">c</td></tr></table>',
   'markup with no content at all': '<p></p>',
@@ -66,6 +69,36 @@ describe('nothing pasted can make a document unsavable', () => {
     const json = JSON.stringify(editor.getJSON());
     expect(json).not.toContain('intranet');
     expect(json).toContain('kept');
+  });
+
+  it('drops a link it could never store, rather than reporting a removal for ever', async () => {
+    // Regression: the editor kept a tel: link the model strips on every save, so
+    // the repair reported a removal after every keystroke. The person saw a
+    // permanent banner about content they could still see on screen, and the
+    // link was never stored anyway.
+    const editor = await mountEditor();
+    editor.commands.setContent('<p>Ring <a href="tel:+441234567890">the desk</a> first.</p>');
+    const json = JSON.stringify(editor.getJSON());
+    expect(json).not.toContain('tel:');
+    expect(json).toContain('the desk');
+    expect(repairDocument(editor.getJSON() as PMNode).removed).toBe(false);
+  });
+
+  it('shows a document containing a page break instead of opening blank', async () => {
+    // Regression: the model had a node the editor did not, so Tiptap threw the
+    // whole document away, substituted an empty one and warned to the console.
+    const editor = await mountEditor();
+    editor.commands.setContent({
+      type: 'doc',
+      content: [
+        { type: 'paragraph', content: [{ type: 'text', text: 'Page one' }] },
+        { type: 'pageBreak' },
+        { type: 'paragraph', content: [{ type: 'text', text: 'Page two' }] },
+      ],
+    });
+    expect(editor.getText()).toContain('Page one');
+    expect(editor.getText()).toContain('Page two');
+    expect(JSON.stringify(editor.getJSON())).toContain('pageBreak');
   });
 
   it('keeps an embedded image', async () => {

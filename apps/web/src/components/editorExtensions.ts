@@ -1,6 +1,9 @@
 import StarterKit from '@tiptap/starter-kit';
+import { Node, mergeAttributes } from '@tiptap/core';
 import Highlight from '@tiptap/extension-highlight';
 import Image from '@tiptap/extension-image';
+import Link from '@tiptap/extension-link';
+import { isEmbeddedImageSrc, isSafeHref } from '@docforge/model';
 import Subscript from '@tiptap/extension-subscript';
 import Superscript from '@tiptap/extension-superscript';
 import TextAlign from '@tiptap/extension-text-align';
@@ -23,11 +26,50 @@ const EmbeddedImage = Image.extend({
     return [
       {
         tag: 'img[src]',
-        getAttrs: (element) => {
-          const src = (element).getAttribute('src') ?? '';
-          return /^data:image\/[a-z0-9.+-]+;base64,/iu.test(src) ? null : false;
-        },
+        getAttrs: (element) => (isEmbeddedImageSrc(element.getAttribute('src')) ? null : false),
       },
+    ];
+  },
+});
+
+/**
+ * A link the model will actually store.
+ *
+ * The rule lived on the server alone, so the editor happily held a `tel:`, an
+ * `ftp:` or a relative link that was stripped from every save. The person saw a
+ * link on screen that was never stored, that vanished on the next reload, and
+ * that made the editor report a removal after every keystroke. Refusing it as
+ * it arrives keeps what is on screen and what is stored the same thing.
+ */
+const StorableLink = Link.extend({
+  parseHTML() {
+    return [
+      {
+        tag: 'a[href]',
+        getAttrs: (element) => (isSafeHref(element.getAttribute('href')) ? null : false),
+      },
+    ];
+  },
+});
+
+/**
+ * A page break, which the model has a node for and the Word exporter writes.
+ *
+ * Without it here, a document containing one could not be built: Tiptap
+ * substituted an empty document and warned to the console, so the whole
+ * document read as blank and the first save stored that.
+ */
+export const PageBreak = Node.create({
+  name: 'pageBreak',
+  group: 'block',
+  parseHTML() {
+    return [{ tag: 'div[data-page-break]' }];
+  },
+  renderHTML({ HTMLAttributes }) {
+    return [
+      'div',
+      mergeAttributes(HTMLAttributes, { 'data-page-break': '', class: 'page-break' }),
+      ['span', { class: 'page-break-label' }, 'Page break'],
     ];
   },
 });
@@ -45,15 +87,18 @@ export const editorExtensions: Extensions = [
     code: false,
     codeBlock: false,
     heading: { levels: [1, 2, 3, 4, 5, 6] },
-    link: {
-      openOnClick: false,
-      autolink: true,
-      // Only protocols that cannot execute script.
-      protocols: ['http', 'https', 'mailto'],
-      HTMLAttributes: { rel: 'noopener noreferrer nofollow', target: '_blank' },
-    },
+    // Replaced below by one that refuses targets the model will not store.
+    link: false,
     trailingNode: false,
   }),
+  StorableLink.configure({
+    openOnClick: false,
+    autolink: true,
+    // Only protocols that cannot execute script.
+    protocols: ['http', 'https', 'mailto'],
+    HTMLAttributes: { rel: 'noopener noreferrer nofollow', target: '_blank' },
+  }),
+  PageBreak,
   TextStyle,
   Color,
   FontFamily,

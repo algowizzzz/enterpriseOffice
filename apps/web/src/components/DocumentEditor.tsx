@@ -17,7 +17,9 @@ interface DocumentEditorProps {
    * Called when the repair had to remove something, so the caller can say so.
    *
    * Removing content somebody can see, with no message, is worse than the
-   * refusal it replaced: a refusal is visible, this is not.
+   * refusal it replaced: a refusal is visible, this is not. It is not called
+   * when the repair only filled a gap, such as putting a paragraph into an
+   * empty quote, because nothing was lost and saying otherwise is untrue.
    */
   onRepair?: (when: 'open' | 'save') => void;
 }
@@ -82,7 +84,7 @@ export function DocumentEditor({
           // an odd hyperlink, and tightening a server rule without this made a
           // single paste enough to strand a document for ever.
           const result = repairDocument(instance.getJSON() as PMNode);
-          if (result.changed) report.current?.('save');
+          if (result.removed) report.current?.('save');
           onChange(result.doc);
         }, AUTOSAVE_DEBOUNCE_MS);
       },
@@ -104,7 +106,7 @@ export function DocumentEditor({
   }, [editor]);
 
   useEffect(() => {
-    if (opened.current?.changed) report.current?.('open');
+    if (opened.current?.removed) report.current?.('open');
   }, []);
 
   useEffect(() => {

@@ -22,7 +22,7 @@ Notable changes, newest first. Dates are when the work landed.
   example and an install guide.
 - Documentation: architecture and licensing analysis, a tab-by-tab Word feature
   matrix, an API reference, a security model and a testing guide.
-- Tests: 410 server, 178 client, 29 end-to-end checks, and a browser walkthrough
+- Tests: 420 server, 185 client, 29 end-to-end checks, and a browser walkthrough
   that captures each screen. The repair of a stored document is checked as a
   property against generated documents: it never throws, its output always
   satisfies the rules, and repairing twice changes nothing.
@@ -106,6 +106,20 @@ not in production.
 - Two documents created in the same millisecond shared a timestamp, so the
   document list ordered them arbitrarily and editing one did not reliably move
   it to the top.
+- Pasting a telephone, `ftp` or relative link left a permanent banner saying
+  content had been removed, after every keystroke, about a link still visible on
+  screen. The editor and the server disagreed about what a link may point at;
+  they now share one rule and the editor refuses the rest as they arrive.
+- Restoring a version could fail for ever with "Document content is not valid".
+  It was the one write path whose content nobody typed and nothing repaired.
+- A document containing a page break opened completely blank, because the model
+  had a node the editor did not. The editor now has it, with a ribbon button.
+- The repair deleted empty tables and lists that the rules accepted, and then
+  told the person content had been left out. The rules now refuse them too.
+- The message said content had been left out when the repair had only filled an
+  empty quote with a paragraph. It is now shown only when something was lost.
+- An imported list item holding nothing but a nested list was a shape the
+  editor's schema does not allow.
 
 ### Known limits
 

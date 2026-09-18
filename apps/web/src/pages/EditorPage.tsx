@@ -204,6 +204,8 @@ export function EditorPage({ documentId, onBack }: EditorPageProps): JSX.Element
       setVersions(null);
       setSaveState('saved');
       setError(null);
+      // The message belonged to the content that has just been replaced.
+      setNotice(null);
       setSurface((count) => count + 1);
     } catch (caught) {
       setError(caught instanceof ApiError ? caught.message : 'Could not restore that version.');
@@ -296,7 +298,7 @@ export function EditorPage({ documentId, onBack }: EditorPageProps): JSX.Element
       ) : null}
 
       {notice ? (
-        <p className="notice notice-warning" role="status">
+        <p className="notice notice-warning" role="alert">
           {notice}
           <button type="button" className="link" onClick={() => setNotice(null)}>
             Dismiss
@@ -411,13 +413,16 @@ export function EditorPage({ documentId, onBack }: EditorPageProps): JSX.Element
           setSaveState((current) => (current === 'conflict' ? current : 'dirty'));
         }}
         onChange={(content) => void persist({ content })}
-        onRepair={(when) =>
-          setNotice(
+        onRepair={(when) => {
+          // Set, not appended: the same repair happens on every save, and
+          // saying it again after every keystroke made a permanent banner
+          // pointing at nothing anybody could act on.
+          const message =
             when === 'open'
-              ? 'Something in this document could not be opened and has been left out, most often a picture held outside the file. Everything else is here, and saving stores what you can see.'
-              : 'Something that was pasted could not be kept and has been removed, most often a picture held outside the file or a link this editor will not store.',
-          )
-        }
+              ? 'Part of this document could not be opened and has been left out. Everything else is here, and saving stores what you can see.'
+              : 'Part of what you pasted could not be stored and has been left out.';
+          setNotice((current) => (current === message ? current : message));
+        }}
       />
     </div>
   );

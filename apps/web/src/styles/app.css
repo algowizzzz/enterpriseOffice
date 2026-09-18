@@ -612,3 +612,22 @@ main {
     padding: 0;
   }
 }
+
+/* A page break: the exporter turns this into a real break in the Word file. */
+.page-break {
+  position: relative;
+  margin: 24px 0;
+  border-top: 2px dashed var(--border);
+  text-align: center;
+}
+
+.page-break-label {
+  position: relative;
+  top: -10px;
+  background: #fff;
+  padding: 0 8px;
+  color: var(--muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
