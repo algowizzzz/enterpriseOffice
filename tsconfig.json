@@ -1,0 +1,11 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": {
+      "@docforge/model": ["packages/model/src/index.ts"],
+      "@docforge/model/*": ["packages/model/src/*"]
+    }
+  },
+  "include": ["packages/*/src/**/*", "apps/*/src/**/*", "apps/*/test/**/*", "scripts/**/*"]
+}

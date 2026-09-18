@@ -1,0 +1,175 @@
+import type { Database } from '../db.js';
+import { conflict, notFound } from '../errors.js';
+import { newId, now } from '../lib/ids.js';
+import { hashPassword } from '../lib/password.js';
+
+export type Role = 'admin' | 'editor' | 'viewer';
+export type UserStatus = 'active' | 'disabled';
+
+export interface User {
+  id: string;
+  email: string;
+  name: string;
+  role: Role;
+  status: UserStatus;
+  createdAt: string;
+  updatedAt: string;
+  lastLoginAt: string | null;
+}
+
+interface UserRow extends Record<string, unknown> {
+  id: string;
+  email: string;
+  name: string;
+  password_hash: string;
+  role: Role;
+  status: UserStatus;
+  created_at: string;
+  updated_at: string;
+  last_login_at: string | null;
+}
+
+const toUser = (row: UserRow): User => ({
+  id: row.id,
+  email: row.email,
+  name: row.name,
+  role: row.role,
+  status: row.status,
+  createdAt: row.created_at,
+  updatedAt: row.updated_at,
+  lastLoginAt: row.last_login_at,
+});
+
+export const normalizeEmail = (email: string): string => email.trim().toLowerCase();
+
+export function findUserByEmail(db: Database, email: string): UserRow | undefined {
+  return db.prepare('SELECT * FROM users WHERE email_lower = ?').get(normalizeEmail(email)) as
+    | UserRow
+    | undefined;
+}
+
+export function findUserById(db: Database, id: string): UserRow | undefined {
+  return db.prepare('SELECT * FROM users WHERE id = ?').get(id) as UserRow | undefined;
+}
+
+export function getUser(db: Database, id: string): User {
+  const row = findUserById(db, id);
+  if (!row) throw notFound('User not found');
+  return toUser(row);
+}
+
+export function countUsers(db: Database): number {
+  const row = db.prepare('SELECT COUNT(*) AS n FROM users').get() as { n: number };
+  return Number(row.n);
+}
+
+export interface CreateUserInput {
+  email: string;
+  name: string;
+  password: string;
+  role: Role;
+}
+
+export async function createUser(db: Database, input: CreateUserInput): Promise<User> {
+  const email = input.email.trim();
+  const lower = normalizeEmail(email);
+  if (findUserByEmail(db, lower)) throw conflict('An account with that email already exists');
+  const hash = await hashPassword(input.password);
+  const timestamp = now();
+  const user: UserRow = {
+    id: newId(),
+    email,
+    name: input.name.trim(),
+    password_hash: hash,
+    role: input.role,
+    status: 'active',
+    created_at: timestamp,
+    updated_at: timestamp,
+    last_login_at: null,
+  };
+  db.prepare(
+    `INSERT INTO users (id, email, email_lower, name, password_hash, role, status, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).run(
+    user.id,
+    user.email,
+    lower,
+    user.name,
+    user.password_hash,
+    user.role,
+    user.status,
+    user.created_at,
+    user.updated_at,
+  );
+  return toUser(user);
+}
+
+export function listUsers(db: Database): User[] {
+  const rows = db
+    .prepare('SELECT * FROM users ORDER BY datetime(created_at) ASC')
+    .all() as UserRow[];
+  return rows.map(toUser);
+}
+
+export interface UpdateUserInput {
+  name?: string;
+  role?: Role;
+  status?: UserStatus;
+}
+
+export function updateUser(db: Database, id: string, patch: UpdateUserInput): User {
+  const existing = findUserById(db, id);
+  if (!existing) throw notFound('User not found');
+  const next = {
+    name: patch.name?.trim() ?? existing.name,
+    role: patch.role ?? existing.role,
+    status: patch.status ?? existing.status,
+  };
+  db.prepare('UPDATE users SET name = ?, role = ?, status = ?, updated_at = ? WHERE id = ?').run(
+    next.name,
+    next.role,
+    next.status,
+    now(),
+    id,
+  );
+  if (next.status === 'disabled') revokeAllSessions(db, id);
+  return getUser(db, id);
+}
+
+export async function setPassword(db: Database, id: string, password: string): Promise<void> {
+  const existing = findUserById(db, id);
+  if (!existing) throw notFound('User not found');
+  const hash = await hashPassword(password);
+  db.prepare('UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?').run(
+    hash,
+    now(),
+    id,
+  );
+}
+
+export function markLogin(db: Database, id: string): void {
+  db.prepare('UPDATE users SET last_login_at = ? WHERE id = ?').run(now(), id);
+}
+
+export function revokeAllSessions(db: Database, userId: string): void {
+  db.prepare('UPDATE sessions SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL').run(
+    now(),
+    userId,
+  );
+}
+
+/** Admins are the only role that can manage users, so never allow the last one to be lost. */
+export function countActiveAdmins(db: Database, excludeId?: string): number {
+  const row = excludeId
+    ? (db
+        .prepare(
+          "SELECT COUNT(*) AS n FROM users WHERE role = 'admin' AND status = 'active' AND id != ?",
+        )
+        .get(excludeId) as { n: number })
+    : (db
+        .prepare("SELECT COUNT(*) AS n FROM users WHERE role = 'admin' AND status = 'active'")
+        .get() as { n: number });
+  return Number(row.n);
+}
+
+export { toUser };
