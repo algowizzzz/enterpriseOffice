@@ -65,6 +65,43 @@ opens the browser at the local address and keeps the data in
 The same host also serves other people on the same network if you change
 `DOCFORGE_HOST` to `0.0.0.0`.
 
+## Verify an install
+
+Five checks, in order. They need nothing but `curl`, and each one fails loudly
+rather than quietly.
+
+```bash
+BASE=http://127.0.0.1:8080
+
+# 1. The service is up.
+curl -sf $BASE/api/health
+
+# 2. The client is being served, not just the API.
+curl -s $BASE/ | grep -q 'id="root"' && echo "client ok"
+
+# 3. The seed administrator exists and can sign in.
+curl -s -c /tmp/df -X POST $BASE/api/auth/login \
+  -H 'content-type: application/json' \
+  -d '{"email":"admin@localhost","password":"THE-PASSWORD-YOU-SET"}'
+
+# 4. A document can be created and exported as a real Word file.
+ID=$(curl -s -b /tmp/df -X POST $BASE/api/documents \
+  -H 'content-type: application/json' -d '{"title":"Install check"}' \
+  | sed -n 's/.*"id":"\([^"]*\)".*/\1/p' | head -1)
+curl -s -b /tmp/df "$BASE/api/documents/$ID/export" -o /tmp/check.docx
+head -c4 /tmp/check.docx | od -An -tx1   # must be 50 4b 03 04
+
+# 5. Nothing was left behind.
+rm -f /tmp/df /tmp/check.docx
+```
+
+Then restart the service and sign in again. The document must still be there and
+there must still be exactly one account: the seed administrator is created only
+when the user table is empty, so a restart with the password still configured
+must not add a second one.
+
+Clear `DOCFORGE_ADMIN_PASSWORD` once you have signed in.
+
 ## Backups
 
 Everything is in the SQLite database named by `DOCFORGE_DB`. Stop the service,
