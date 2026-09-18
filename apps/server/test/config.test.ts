@@ -42,7 +42,7 @@ describe('configuration', () => {
     expect(config.host).toBe('127.0.0.1');
     expect(config.port).toBe(8080);
     expect(config.sessionTtlSeconds).toBe(12 * 60 * 60);
-    expect(config.maxUploadBytes).toBe(25 * 1024 * 1024);
+    expect(config.maxUploadBytes).toBe(50 * 1024 * 1024);
     expect(config.loginRateLimit).toBe(10);
     expect(config.bootstrapAdminEmail).toBe('admin@localhost');
   });
