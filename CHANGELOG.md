@@ -20,6 +20,12 @@ Notable changes, newest first. Dates are when the work landed.
 - Find and replace, document styles, indent, line spacing, table tools, a
   contents table, standard tables, document type, ownership transfer, a lock for
   approval, uploads to 50 MB.
+- Spelling from a bundled British or American dictionary, with suggestions and a
+  personal word list. Clause numbers on headings. A format painter. Requests
+  for access to a document and for an account.
+- Pictures kept beside the document rather than inside its text.
+- Form controls that can be filled in; footnotes that can be edited and added.
+- Enter and joined paragraphs tracked as changes to the paragraph mark.
 - A wide corpus of 35 documents from three other producers.
 - `docs/10-product-requirements.md` and `docs/11-status.md`.
 

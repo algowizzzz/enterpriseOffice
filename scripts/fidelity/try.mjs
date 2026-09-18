@@ -233,7 +233,11 @@ try {
     }
     const written = join(work, `${name}.out.docx`);
     writeFileSync(written, exported);
-    const opens = opensElsewhere(written);
+    // Asked twice before it counts as a failure. The reader is a desktop program
+    // being driven from a script, and about one run in forty it gives up for
+    // reasons of its own; a file it opens the second time is a file that opens.
+    const first = opensElsewhere(written);
+    const opens = first === false ? opensElsewhere(written) : first;
     if (opens === false) {
       failed += 1;
       console.log('  FAIL an independent reader could not open the exported file');
