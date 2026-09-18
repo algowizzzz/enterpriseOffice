@@ -1058,3 +1058,9 @@ main {
   background: #fff;
   padding: 0 4px;
 }
+
+/* Clause numbers, worked out as Word works them out, not typed. */
+.heading-number {
+  user-select: none;
+  color: inherit;
+}

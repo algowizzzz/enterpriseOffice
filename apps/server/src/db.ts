@@ -181,6 +181,31 @@ const MIGRATIONS: { id: string; sql: string }[] = [
     id: '0007_document_lock',
     sql: `ALTER TABLE documents ADD COLUMN locked INTEGER NOT NULL DEFAULT 0;`,
   },
+  {
+    // Asking for access, and being answered. With accounts made by hand there is
+    // no directory to look somebody up in, so the request has to be able to
+    // arrive from somebody with no account at all: `user_id` is null for those,
+    // and `document_id` is null for a request for an account rather than for a
+    // document. Requests are answered, never deleted, so that who let whom in
+    // stays on the record.
+    id: '0008_access_requests',
+    sql: `
+      CREATE TABLE access_requests (
+        id           TEXT PRIMARY KEY,
+        document_id  TEXT REFERENCES documents(id) ON DELETE CASCADE,
+        user_id      TEXT REFERENCES users(id) ON DELETE CASCADE,
+        name         TEXT NOT NULL,
+        email        TEXT NOT NULL,
+        wanted       TEXT NOT NULL CHECK (wanted IN ('account','view','edit')),
+        note         TEXT NOT NULL DEFAULT '',
+        status       TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','approved','declined')),
+        created_at   TEXT NOT NULL,
+        decided_at   TEXT,
+        decided_by   TEXT REFERENCES users(id) ON DELETE SET NULL
+      );
+      CREATE INDEX idx_access_requests_open ON access_requests(status, document_id);
+    `,
+  },
 ];
 
 export function openDatabase(file: string): Database {

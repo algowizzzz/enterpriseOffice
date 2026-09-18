@@ -390,3 +390,47 @@ describe('toolbar, history and read-only', () => {
     expect(screen.getByRole('toolbar')).toHaveAttribute('aria-disabled', 'true');
   });
 });
+
+describe('format painter', () => {
+  it('gives the next selection the formatting under the cursor, once', async () => {
+    const { Editor } = await import('@tiptap/core');
+    const { render: draw, screen: page, act: run } = await import('@testing-library/react');
+    const { default: userEvents } = await import('@testing-library/user-event');
+    const { Toolbar: Ribbon } = await import('../src/components/Toolbar');
+    const { editorExtensions: extensions } = await import('../src/components/editorExtensions');
+    const editor = new Editor({
+      extensions,
+      content: {
+        type: 'doc',
+        content: [
+          {
+            type: 'paragraph',
+            content: [
+              { type: 'text', text: 'Bold red', marks: [{ type: 'bold' }, { type: 'textStyle', attrs: { color: '#c00000' } }] },
+              { type: 'text', text: ' and plain words.' },
+            ],
+          },
+        ],
+      },
+    });
+    draw(<Ribbon editor={editor as never} />);
+    await run(async () => {
+      editor.commands.setTextSelection(3);
+    });
+    await userEvents.click(page.getByRole('button', { name: /Format painter/u }));
+    await run(async () => {
+      editor.commands.setTextSelection({ from: 14, to: 19 });
+    });
+    const runs = (): { text?: string; marks?: { type: string }[] }[] =>
+      (editor.getJSON().content?.[0]?.content ?? []) as { text?: string; marks?: { type: string }[] }[];
+    const painted = runs().find((node) => node.text === 'plain');
+    expect(painted?.marks?.map((mark) => mark.type).sort()).toEqual(['bold', 'textStyle']);
+    // One use: the next selection is left alone.
+    await run(async () => {
+      editor.commands.setTextSelection({ from: 20, to: 25 });
+    });
+    expect(runs().find((node) => node.text === 'words')).toBeUndefined();
+    expect(editor.getText()).toBe('Bold red and plain words.');
+    editor.destroy();
+  });
+});

@@ -251,6 +251,7 @@ function readNumbering(pkg: WordPackage): Map<string, string> {
   if (!pkg.numbering) return formats;
 
   const abstract = new Map<string, Map<string, string>>();
+  const patterns = new Map<string, string>();
   for (const element of childrenNamed(pkg.numbering, 'w:abstractNum')) {
     const id = element.attrs['w:abstractNumId'];
     if (!id) continue;
@@ -258,6 +259,8 @@ function readNumbering(pkg: WordPackage): Map<string, string> {
     for (const level of childrenNamed(element, 'w:lvl')) {
       const index = level.attrs['w:ilvl'] ?? '0';
       levels.set(index, attrOf(level, ['w:numFmt'], 'w:val') ?? 'decimal');
+      // What the number looks like: "%1.%2" for 1.1, "Section %1" for a label.
+      patterns.set(`${id}:${index}`, attrOf(level, ['w:lvlText'], 'w:val') ?? `%${Number(index) + 1}.`);
     }
     abstract.set(id, levels);
   }
@@ -268,7 +271,11 @@ function readNumbering(pkg: WordPackage): Map<string, string> {
     if (!numId || !abstractId) continue;
     const levels = abstract.get(abstractId);
     if (!levels) continue;
-    for (const [level, format] of levels) formats.set(`${numId}:${level}`, format);
+    for (const [level, format] of levels) {
+      formats.set(`${numId}:${level}`, format);
+      const pattern = patterns.get(`${abstractId}:${level}`);
+      if (pattern !== undefined) formats.set(`${numId}:${level}:text`, pattern);
+    }
   }
   return formats;
 }
@@ -569,7 +576,18 @@ function paragraphFrom(paragraph: XmlElement, state: State, inList: boolean): PM
   const level = headingLevelOf(paragraph, state);
   if (level !== null) {
     const numbering = numberingOf(paragraph, state);
-    if (numbering) attrs['numLevel'] = numbering.level;
+    if (numbering) {
+      // Enough for the editor to draw "2.1" in front of the heading as Word
+      // does. The numbering itself stays in the file; this is only so that a
+      // policy's clause numbers can be seen, and referred to, while editing.
+      attrs['numLevel'] = numbering.level;
+      attrs['numId'] = numbering.numId;
+      const pattern = state.numberingFormats.get(`${numbering.numId}:${numbering.level}:text`);
+      if (pattern) attrs['numPattern'] = pattern.slice(0, 80);
+      attrs['numFormats'] = Array.from({ length: numbering.level + 1 }, (_, index) =>
+        state.numberingFormats.get(`${numbering.numId}:${index}`) ?? 'decimal',
+      ).join(',');
+    }
   }
   const node: PMNode =
     level !== null

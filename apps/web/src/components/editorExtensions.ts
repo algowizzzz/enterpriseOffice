@@ -14,6 +14,7 @@ import { WordNavigation } from './wordNavigation';
 import { CommentHighlights } from './commentHighlights';
 import { Deletion, Insertion, TrackChanges } from './trackChanges';
 import { SearchReplace } from './searchReplace';
+import { HeadingNumbers } from './headingNumbers';
 import Collaboration from '@tiptap/extension-collaboration';
 import CollaborationCaret from '@tiptap/extension-collaboration-caret';
 import type { Doc as YDoc } from 'yjs';
@@ -167,6 +168,9 @@ const ParagraphIdentity = Extension.create({
           },
           ...carried('pprRef'),
           ...carried('numLevel', true),
+          ...carried('numId'),
+          ...carried('numPattern'),
+          ...carried('numFormats'),
           ...carried('indentLeft', true),
           ...carried('indentRight', true),
           ...carried('indentFirstLine', true),
@@ -500,6 +504,7 @@ export function buildExtensions(shared?: SharedEditing): Extensions {
     Deletion,
     TrackChanges,
     SearchReplace,
+    HeadingNumbers,
   ];
 }
 

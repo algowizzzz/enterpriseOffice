@@ -23,6 +23,7 @@ import { registerUserRoutes } from './routes/users.routes.js';
 import { registerDocumentRoutes } from './routes/documents.routes.js';
 import { registerCommentRoutes } from './routes/comments.routes.js';
 import { registerCollabRoutes } from './routes/collab.routes.js';
+import { registerAccessRoutes } from './routes/access.routes.js';
 import websocket from '@fastify/websocket';
 import { Rooms } from './collab/rooms.js';
 import { purgeExpiredSessions } from './services/sessions.js';
@@ -222,6 +223,7 @@ export async function buildApp(options: BuildOptions = {}): Promise<FastifyInsta
       await registerDocumentRoutes(instance);
       await registerCommentRoutes(instance);
       await registerCollabRoutes(instance);
+      await registerAccessRoutes(instance);
     },
     { prefix: '/api' },
   );

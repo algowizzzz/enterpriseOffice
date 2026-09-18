@@ -15,6 +15,7 @@ import type { Editor } from '@tiptap/react';
 import { DocumentEditor, type SaveState } from '../components/DocumentEditor';
 import { CommentsPanel } from '../components/CommentsPanel';
 import { ReviewPanel } from '../components/ReviewPanel';
+import { AccessRequests } from '../components/AccessRequests';
 import { setTracking } from '../components/trackChanges';
 import { joinShared, othersPresent, type Presence, type SharedSession } from '../lib/collab';
 import { useSession } from '../lib/session';
@@ -475,6 +476,24 @@ export function EditorPage({ documentId, onBack }: EditorPageProps): JSX.Element
           <button type="button" onClick={() => void openVersions()}>
             History
           </button>
+          {document.access === 'view' && !document.locked && user?.role !== 'viewer' ? (
+            <button
+              type="button"
+              title="Ask the owner of this document to let you edit it"
+              onClick={() => {
+                const note = window.prompt('Tell the owner why you need to edit this document (optional)');
+                if (note === null) return;
+                void api
+                  .requestEdit(documentId, note)
+                  .then(() => setNotice('Your request has gone to the owner of this document.'))
+                  .catch((caught: unknown) =>
+                    setError(caught instanceof ApiError ? caught.message : 'Could not send the request.'),
+                  );
+              }}
+            >
+              Ask to edit
+            </button>
+          ) : null}
           {document.access === 'owner' ? (
             <button
               type="button"
@@ -609,6 +628,7 @@ export function EditorPage({ documentId, onBack }: EditorPageProps): JSX.Element
       {shares ? (
         <aside className="panel">
           <h2>Sharing</h2>
+          <AccessRequests documentId={documentId} onChanged={() => void api.listShares(documentId).then(({ shares: updated }) => setShares(updated))} />
           {shares.length === 0 ? <p className="muted">Not shared with anyone yet.</p> : null}
           <ul className="version-list">
             {shares.map((share) => (

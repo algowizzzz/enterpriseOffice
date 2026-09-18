@@ -61,6 +61,17 @@ export interface CommentThread extends DocumentComment {
   replies: DocumentComment[];
 }
 
+export interface AccessRequestEntry {
+  id: string;
+  documentId: string | null;
+  documentTitle: string | null;
+  name: string;
+  email: string;
+  wanted: 'account' | 'view' | 'edit';
+  note: string;
+  createdAt: string;
+}
+
 export interface VersionSummary {
   revision: number;
   title: string;
@@ -235,6 +246,17 @@ export const api = {
 
   getVersion: (id: string, revision: number) =>
     request<{ content: PMNode }>(`/documents/${id}/versions/${revision}`),
+
+  requestAccount: (input: { name: string; email: string; note: string }) =>
+    request<{ ok: true }>('/access-requests/account', { method: 'POST', ...json(input) }),
+
+  requestEdit: (id: string, note: string) =>
+    request<{ ok: true }>(`/documents/${id}/access-requests`, { method: 'POST', ...json({ note }) }),
+
+  listAccessRequests: () => request<{ requests: AccessRequestEntry[] }>('/access-requests'),
+
+  decideAccessRequest: (requestId: string, approve: boolean) =>
+    request<{ ok: true }>(`/access-requests/${requestId}`, { method: 'POST', ...json({ approve }) }),
 
   listComments: (id: string) => request<{ threads: CommentThread[] }>(`/documents/${id}/comments`),
 

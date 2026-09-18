@@ -1,4 +1,4 @@
-import { useCallback, type JSX } from 'react';
+import { useCallback, useEffect, useRef, useState, type JSX } from 'react';
 import type { PMNode, StyleTable } from '@docforge/model';
 import { useEditorState, type Editor } from '@tiptap/react';
 import { FONT_FAMILIES, FONT_SIZES } from './editorExtensions';
@@ -46,6 +46,8 @@ const HIGHLIGHTS = [
   ['Red', '#ff0000'],
   ['Grey', '#c0c0c0'],
 ] as const;
+/** The marks that are formatting, and so are what the format painter carries. */
+const PAINTED = new Set(['bold', 'italic', 'underline', 'strike', 'superscript', 'subscript', 'textStyle', 'highlight']);
 /** Half an inch, in the twentieths of a point Word measures indents in. */
 const INDENT_STEP = 720;
 
@@ -205,6 +207,46 @@ export function Toolbar({ editor, disabled = false, styles = null, onFind }: Too
     },
     [editor, setBlockAttribute, styles],
   );
+
+  // The format painter: pick up the formatting under the cursor, then the next
+  // stretch of text that is selected takes it on. One use, as in Word.
+  const [painting, setPainting] = useState(false);
+  const picked = useRef<{ type: string; attrs: Record<string, unknown> }[]>([]);
+  useEffect(() => {
+    if (!painting) return undefined;
+    const apply = (): void => {
+      const { from, to, empty } = editor.state.selection;
+      if (empty) return;
+      const transaction = editor.state.tr;
+      // Formatting only. A comment, a tracked change or kept Word properties
+      // belong to the words they are on and are not something to paint about.
+      for (const [name, type] of Object.entries(editor.state.schema.marks)) {
+        if (PAINTED.has(name)) transaction.removeMark(from, to, type);
+      }
+      for (const mark of picked.current) {
+        const type = editor.state.schema.marks[mark.type];
+        if (type) transaction.addMark(from, to, type.create(mark.attrs));
+      }
+      editor.view.dispatch(transaction);
+      setPainting(false);
+    };
+    editor.on('selectionUpdate', apply);
+    return () => {
+      editor.off('selectionUpdate', apply);
+    };
+  }, [editor, painting]);
+
+  const togglePainter = useCallback(() => {
+    if (painting) {
+      setPainting(false);
+      return;
+    }
+    const marks = editor.state.storedMarks ?? editor.state.selection.$from.marks();
+    picked.current = marks
+      .filter((mark) => PAINTED.has(mark.type.name))
+      .map((mark) => ({ type: mark.type.name, attrs: { ...mark.attrs } }));
+    setPainting(true);
+  }, [editor, painting]);
 
   const setLink = useCallback(() => {
     const href = window.prompt('Link address', state.linkHref);
@@ -440,6 +482,13 @@ export function Toolbar({ editor, disabled = false, styles = null, onFind }: Too
             onChange={(event) => chain().setColor(event.target.value).run()}
           />
         </label>
+        <ToolButton
+          label="Painter"
+          title="Format painter: copies the formatting where the cursor is. Then select the text to give it to"
+          active={painting}
+          disabled={disabled}
+          onClick={togglePainter}
+        />
         <ToolButton
           label="Clear"
           title="Clear formatting"
