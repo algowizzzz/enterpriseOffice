@@ -130,7 +130,7 @@ before any claim about it is made.
 
 | Run | Result | Time |
 |---|---|---|
-| 1 to 5 | 355 server, 150 client, 29 end-to-end, no unhandled errors | about 30 seconds each |
+| 1 to 5 | 355 server, 150 client, 29 end-to-end, no unhandled errors, no lint findings | 39 to 41 seconds each |
 
 Two things keep it that way. Each server test gets its own in-memory database,
 so no test can depend on another having run first. And an unhandled promise
