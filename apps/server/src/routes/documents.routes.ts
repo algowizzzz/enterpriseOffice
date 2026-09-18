@@ -25,6 +25,7 @@ import {
   listVersions,
   restoreVersion,
   saveSource,
+  setLocked,
   shareDocument,
   transferOwnership,
   DOCUMENT_TYPES,
@@ -390,6 +391,25 @@ export async function registerDocumentRoutes(app: FastifyInstance): Promise<void
       ip: request.ip,
     });
     return { shares: listShares(app.db, user, id) };
+  });
+
+  /** Hold the document still for approval, or release it. */
+  app.put('/documents/:id/lock', async (request) => {
+    const user = await app.authenticate(request);
+    const { id } = idParam.parse(request.params);
+    const { locked } = z.object({ locked: z.boolean() }).parse(request.body);
+    setLocked(app.db, user, id, locked);
+    // Whoever has it open is typing into a document that has just been locked,
+    // or reading one that has just been released: either way they start again.
+    app.rooms.reset(id);
+    recordAudit(app.db, {
+      actorId: user.id,
+      action: locked ? 'document.locked' : 'document.unlocked',
+      targetType: 'document',
+      targetId: id,
+      ip: request.ip,
+    });
+    return { document: getDocument(app.db, user, id) };
   });
 
   /** Hand the document to somebody else. */

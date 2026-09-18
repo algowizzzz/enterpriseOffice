@@ -30,6 +30,7 @@ export interface ImportResult {
 const MAX_EXPANDED_BYTES = 200 * 1024 * 1024;
 
 const ZIP_MAGIC = Buffer.from([0x50, 0x4b, 0x03, 0x04]);
+const OLE_MAGIC = Buffer.from([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1]);
 
 /**
  * Convert an uploaded .docx into the editor's document model.
@@ -41,6 +42,15 @@ const ZIP_MAGIC = Buffer.from([0x50, 0x4b, 0x03, 0x04]);
  * could store it.
  */
 export async function importDocx(buffer: Buffer): Promise<ImportResult> {
+  // A file Word has encrypted with a password is not a zip at all: it is the
+  // older container format, with the real document sealed inside it. So is a
+  // .doc from before 2007. Either way there is nothing here to read, and
+  // "not a valid .docx" sent people looking for a fault in a perfectly good file.
+  if (buffer.length >= 8 && buffer.subarray(0, 8).equals(OLE_MAGIC)) {
+    throw badRequest(
+      'That file is either protected with a password or in the older .doc format. Remove the password in Word (File, Info, Protect Document) or save it as .docx, then upload it again.',
+    );
+  }
   if (buffer.length < 4 || !buffer.subarray(0, 4).equals(ZIP_MAGIC)) {
     throw badRequest(
       'That file is not a valid .docx. Older .doc files must be converted to .docx first.',

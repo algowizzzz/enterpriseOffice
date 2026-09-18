@@ -118,7 +118,7 @@ export function EditorPage({ documentId, onBack }: EditorPageProps): JSX.Element
     };
   }, [documentId, reopen]);
 
-  const readOnly = document?.access === 'view';
+  const readOnly = document?.access === 'view' || document?.locked === true;
   const epoch = document?.collab?.epoch;
   const userName = user?.name ?? 'Somebody';
 
@@ -413,6 +413,11 @@ export function EditorPage({ documentId, onBack }: EditorPageProps): JSX.Element
             {present.length > 5 ? <span className="muted">+{present.length - 5}</span> : null}
           </span>
         ) : null}
+        {document.locked ? (
+          <span className="badge" title="Locked by its owner: it can be read and commented on, and not changed">
+            Locked: comments only
+          </span>
+        ) : null}
         <span className={`save-state save-${saveState}`}>{SAVE_LABEL[saveState]}</span>
         {saveState === 'conflict' ? (
           <button
@@ -463,6 +468,32 @@ export function EditorPage({ documentId, onBack }: EditorPageProps): JSX.Element
           <button type="button" onClick={() => void openVersions()}>
             History
           </button>
+          {document.access === 'owner' ? (
+            <button
+              type="button"
+              title={
+                document.locked
+                  ? 'Release the document so that it can be edited again'
+                  : 'Hold the document still while it is approved. Everybody, you included, can read and comment and nobody can change it'
+              }
+              aria-pressed={document.locked === true}
+              onClick={() => {
+                void (async () => {
+                  try {
+                    const { document: next } = await api.setLocked(documentId, !document.locked);
+                    setDocument((current) => (current ? { ...current, ...next } : next));
+                    // The shared document was started afresh for everybody.
+                    if (liveRef.current) setReopen((count) => count + 1);
+                    else setSurface((count) => count + 1);
+                  } catch (caught) {
+                    setError(caught instanceof ApiError ? caught.message : 'Could not change the lock.');
+                  }
+                })();
+              }}
+            >
+              {document.locked ? 'Unlock' : 'Lock'}
+            </button>
+          ) : null}
           {document.access === 'owner' ? (
             <button type="button" onClick={() => void openSharing()}>
               Share

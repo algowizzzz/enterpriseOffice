@@ -174,6 +174,13 @@ const MIGRATIONS: { id: string; sql: string }[] = [
     id: '0006_document_type',
     sql: `ALTER TABLE documents ADD COLUMN doc_type TEXT;`,
   },
+  {
+    // A locked document can be read and commented on and not changed, by
+    // anybody, until its owner unlocks it: what Word calls restricting editing
+    // to comments. It is how a document is held still while it is approved.
+    id: '0007_document_lock',
+    sql: `ALTER TABLE documents ADD COLUMN locked INTEGER NOT NULL DEFAULT 0;`,
+  },
 ];
 
 export function openDatabase(file: string): Database {

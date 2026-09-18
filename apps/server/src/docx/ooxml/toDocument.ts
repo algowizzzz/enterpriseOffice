@@ -126,6 +126,7 @@ interface State {
   fragments: Map<string, string>;
   images: number;
   imageBytes: number;
+  notes: { footnote: number; endnote: number };
   messages: Set<string>;
 }
 
@@ -141,6 +142,7 @@ export function documentFromPackage(pkg: WordPackage): ConversionResult {
     fragments: new Map(),
     images: 0,
     imageBytes: 0,
+    notes: { footnote: 0, endnote: 0 },
     messages: new Set(),
   };
 
@@ -665,9 +667,19 @@ function inlineOf(container: XmlElement, state: State, marks: PMMark[]): PMNode[
         nodes.push(...inlineOf(element, state, [...marks, change]));
         break;
       }
-      case 'w:sdt':
-        nodes.push(...inlineOf(child(element, 'w:sdtContent') ?? element, state, marks));
+      case 'w:sdt': {
+        // A control that is a box of text is read as its text, so that it can
+        // be edited. A drop-down, a date picker, a tick box or a picture holder
+        // is kept whole: reading it as text would hand Word back a form with
+        // the controls taken out of it.
+        const properties = child(element, 'w:sdtPr');
+        const isForm = ['w:dropDownList', 'w:comboBox', 'w:date', 'w14:checkbox', 'w:picture'].some((name) =>
+          Boolean(child(properties, name)),
+        );
+        if (isForm) nodes.push(opaqueInline(state, [element], 'control', visibleText(element)));
+        else nodes.push(...inlineOf(child(element, 'w:sdtContent') ?? element, state, marks));
         break;
+      }
       case 'm:oMath':
       case 'm:oMathPara':
         nodes.push(opaqueInline(state, [element], 'equation', textOf(element)));
@@ -790,12 +802,23 @@ function runOf(run: XmlElement, state: State, inherited: PMMark[]): PMNode[] {
       picture.attrs = { ...(picture.attrs ?? {}), wordRef: keep(state, [run]) };
       return [picture];
     }
-    const label =
-      kind === 'symbol'
-        ? symbolOf(unknown)
-        : kind === 'footnote' || kind === 'endnote'
-          ? (unknown.attrs['w:id'] ?? '')
-          : visibleText(run) || textOf(unknown).slice(0, 500);
+    if (kind === 'footnote' || kind === 'endnote') {
+      // Numbered as a reader sees them, in the order they appear, and carrying
+      // the words of the note so that they can be read here. The note itself
+      // stays in its own part of the file and goes back out untouched.
+      const notes = kind === 'footnote' ? state.pkg.footnotes : state.pkg.endnotes;
+      const id = unknown.attrs['w:id'] ?? '';
+      const source = childrenNamed(notes, kind === 'footnote' ? 'w:footnote' : 'w:endnote').find(
+        (note) => note.attrs['w:id'] === id,
+      );
+      state.notes[kind] += 1;
+      const number = kind === 'footnote' ? String(state.notes[kind]) : toRoman(state.notes[kind]);
+      const node = opaqueInline(state, [run], kind, number);
+      const words = source ? visibleText(source).replace(/\s+/gu, ' ').trim().slice(0, 2000) : '';
+      if (words) node.attrs = { ...(node.attrs ?? {}), note: words };
+      return [node];
+    }
+    const label = kind === 'symbol' ? symbolOf(unknown) : visibleText(run) || textOf(unknown).slice(0, 500);
     return [opaqueInline(state, [run], kind, label)];
   }
 
@@ -836,6 +859,20 @@ function runOf(run: XmlElement, state: State, inherited: PMMark[]): PMNode[] {
   }
   return nodes;
 }
+
+/** Small Roman numerals, which is how Word numbers endnotes. */
+const toRoman = (value: number): string => {
+  const parts: [number, string][] = [[1000, 'm'], [900, 'cm'], [500, 'd'], [400, 'cd'], [100, 'c'], [90, 'xc'], [50, 'l'], [40, 'xl'], [10, 'x'], [9, 'ix'], [5, 'v'], [4, 'iv'], [1, 'i']];
+  let left = Math.max(1, Math.min(value, 3999));
+  let out = '';
+  for (const [size, letters] of parts) {
+    while (left >= size) {
+      out += letters;
+      left -= size;
+    }
+  }
+  return out;
+};
 
 const symbolOf = (element: XmlElement): string => {
   const code = Number.parseInt(element.attrs['w:char'] ?? '', 16);

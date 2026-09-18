@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { Peer } from '../collab/rooms.js';
-import { accessFor } from '../services/documents.js';
+import { accessFor, isLocked } from '../services/documents.js';
 
 const params = z.object({
   // "<document id>.<epoch>": the epoch is how a browser holding the history of
@@ -53,7 +53,7 @@ export async function registerCollabRoutes(app: FastifyInstance): Promise<void> 
         documentId = id;
         joined = app.rooms.join(id, Number(epoch), peer, {
           user: { id: user.id, role: user.role, name: user.name },
-          canWrite: access === 'owner' || access === 'edit',
+          canWrite: (access === 'owner' || access === 'edit') && !isLocked(app.db, id),
         });
         if (!joined) return undefined;
         for (const bytes of early.splice(0)) app.rooms.receive(id, peer, bytes);

@@ -111,6 +111,7 @@ export function DocumentEditor({
   const flush = useRef<(() => void) | null>(null);
   const [stats, setStats] = useState<DocumentStats>({ words: 0, characters: 0 });
   const [finding, setFinding] = useState(false);
+  const [notes, setNotes] = useState<{ kind: string; number: string; words: string }[]>([]);
 
   // Held in a ref so reporting a repair cannot restart the editor, which would
   // throw away the cursor and the undo history.
@@ -165,7 +166,18 @@ export function DocumentEditor({
   // were only correct once something had changed the document.
   useEffect(() => {
     if (!editor) return undefined;
-    const recount = (): void => setStats(statsFor(editor.getText()));
+    const recount = (): void => {
+      setStats(statsFor(editor.getText()));
+      // The notes at the foot of the page, in the order their marks appear.
+      const found: { kind: string; number: string; words: string }[] = [];
+      editor.state.doc.descendants((node) => {
+        if (node.type.name !== 'wordInline') return true;
+        const { kind, label, note } = node.attrs as { kind?: string; label?: string; note?: string };
+        if ((kind === 'footnote' || kind === 'endnote') && note) found.push({ kind, number: label ?? '', words: note });
+        return false;
+      });
+      setNotes(found.slice(0, 500));
+    };
     recount();
     editor.on('update', recount);
     return () => {
@@ -234,6 +246,16 @@ export function DocumentEditor({
             </div>
           ) : null}
           <EditorContent editor={editor} />
+          {notes.length > 0 ? (
+            <div className="page-notes" aria-label="Footnotes and endnotes">
+              {notes.map((entry, index) => (
+                <p key={`${entry.kind}-${index}`}>
+                  <sup>{entry.number}</sup> {entry.words}
+                </p>
+              ))}
+              <p className="hint">Notes are kept as they are in the Word file. Edit their wording in Word.</p>
+            </div>
+          ) : null}
           {footer ? (
             <div className="page-running page-running-footer" aria-label="Page footer">
               {footer}

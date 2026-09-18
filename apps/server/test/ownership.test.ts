@@ -129,3 +129,44 @@ describe('choices made at upload', () => {
     expect(xml).not.toContain('footerReference');
   });
 });
+
+describe('locking a document while it is approved', () => {
+  let app: FastifyInstance;
+  let owner: TestActor;
+  let editor: TestActor;
+  let documentId: string;
+  const call = (actor: TestActor, method: 'GET' | 'POST' | 'PUT', url: string, payload?: object) =>
+    app.inject({ method, url, headers: authHeader(actor), ...(payload === undefined ? {} : { payload }) });
+  const body = { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Changed.' }] }] };
+
+  beforeEach(async () => {
+    app = await makeApp();
+    owner = await registerFirstAdmin(app);
+    editor = await createAndLogin(app, owner, { email: 'ed@example.com', name: 'Edie Editor' });
+    documentId = (await call(owner, 'POST', '/api/documents', { title: 'Policy' })).json().document.id;
+    await call(owner, 'PUT', `/api/documents/${documentId}/shares`, { userId: editor.id, permission: 'edit' });
+  });
+  afterEach(async () => {
+    await app.close();
+  });
+
+  it('stops everybody changing it, its owner included, and still takes comments', async () => {
+    expect((await call(owner, 'PUT', `/api/documents/${documentId}/lock`, { locked: true })).json().document.locked).toBe(true);
+    expect((await call(editor, 'PUT', `/api/documents/${documentId}`, { content: body })).statusCode).toBe(403);
+    // A lock its owner can type through holds nothing still.
+    expect((await call(owner, 'PUT', `/api/documents/${documentId}`, { content: body })).statusCode).toBe(403);
+    expect((await call(editor, 'GET', `/api/documents/${documentId}`)).json().document.access).toBe('view');
+    expect((await call(editor, 'POST', `/api/documents/${documentId}/comments`, { body: 'Looks right.' })).statusCode).toBe(201);
+  });
+
+  it('gives everybody their access back when it is unlocked', async () => {
+    await call(owner, 'PUT', `/api/documents/${documentId}/lock`, { locked: true });
+    await call(owner, 'PUT', `/api/documents/${documentId}/lock`, { locked: false });
+    expect((await call(editor, 'GET', `/api/documents/${documentId}`)).json().document.access).toBe('edit');
+    expect((await call(editor, 'PUT', `/api/documents/${documentId}`, { content: body })).statusCode).toBe(200);
+  });
+
+  it('can only be locked or unlocked by its owner', async () => {
+    expect((await call(editor, 'PUT', `/api/documents/${documentId}/lock`, { locked: true })).statusCode).toBe(403);
+  });
+});

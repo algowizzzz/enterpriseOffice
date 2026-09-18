@@ -28,6 +28,8 @@ export interface DocumentSummary {
   sourceName: string | null;
   /** Framework, policy, standard, procedure, or nothing said. */
   docType: DocumentType | null;
+  /** Held still for approval: readable and open to comments, not to edits. */
+  locked: boolean;
   wordCount: number;
   revision: number;
   createdAt: string;
@@ -139,6 +141,7 @@ interface DocRow extends Record<string, unknown> {
   deleted_at: string | null;
   page_setup?: string | null;
   doc_type?: string | null;
+  locked?: number | null;
 }
 
 export const DOCUMENT_TYPES = ['Framework', 'Policy', 'Standard', 'Procedure', 'Guideline', 'Other'] as const;
@@ -168,6 +171,7 @@ function rowToSummary(row: DocRow, access: Access, ownerName: string): DocumentS
     origin: row.origin,
     sourceName: row.source_name,
     docType: asDocumentType(row.doc_type),
+    locked: Number(row.locked ?? 0) === 1,
     wordCount: Number(row.word_count),
     revision: Number(row.revision),
     createdAt: row.created_at,
@@ -179,14 +183,16 @@ function rowToSummary(row: DocRow, access: Access, ownerName: string): DocumentS
 /** Effective access for a user, combining ownership, explicit shares and the admin role. */
 export function accessFor(db: Database, documentId: string, user: { id: string; role: Role }): Access {
   const row = db
-    .prepare('SELECT owner_id FROM documents WHERE id = ? AND deleted_at IS NULL')
-    .get(documentId) as { owner_id: string } | undefined;
+    .prepare('SELECT owner_id, locked FROM documents WHERE id = ? AND deleted_at IS NULL')
+    .get(documentId) as { owner_id: string; locked: number } | undefined;
   if (!row) return 'none';
   if (row.owner_id === user.id) return 'owner';
   const share = db
     .prepare('SELECT permission FROM document_shares WHERE document_id = ? AND user_id = ?')
     .get(documentId, user.id) as { permission: Permission } | undefined;
-  if (share) return share.permission;
+  // While a document is locked, being allowed to edit it means being allowed to
+  // read it. The share is not changed, so unlocking gives the access back.
+  if (share) return Number(row.locked) === 1 ? 'view' : share.permission;
   // Administrators can always read, for support and compliance. They do not get
   // silent write access: that would make the audit trail misleading.
   if (user.role === 'admin') return 'view';
@@ -364,6 +370,10 @@ export function updateDocument(
     .prepare('SELECT * FROM documents WHERE id = ? AND deleted_at IS NULL')
     .get(id) as DocRow | undefined;
   if (!row) throw notFound('Document not found');
+  if (Number(row.locked ?? 0) === 1 && (input.content !== undefined || input.pageSetup !== undefined)) {
+    // The owner too. A lock its owner can type through holds nothing still.
+    throw forbidden('This document is locked. Unlock it to make changes.');
+  }
   if (input.expectedRevision !== undefined && Number(row.revision) !== input.expectedRevision) {
     // A conflict, not a malformed request. The client needs to tell the two
     // apart to recover: one means reload, the other means the payload is wrong.
@@ -610,6 +620,18 @@ export function transferOwnership(
        ON CONFLICT (document_id, user_id) DO UPDATE SET permission = 'edit'`,
     ).run(id, row.owner_id, now(), user.id);
   });
+}
+
+export function isLocked(db: Database, id: string): boolean {
+  const row = db.prepare('SELECT locked FROM documents WHERE id = ?').get(id) as { locked: number } | undefined;
+  return Number(row?.locked ?? 0) === 1;
+}
+
+/** Lock or unlock a document. Only its owner may. */
+export function setLocked(db: Database, user: { id: string; role: Role }, id: string, locked: boolean): void {
+  const access = requireAccess(db, id, user, 'read');
+  if (access !== 'owner') throw forbidden('Only the owner can lock or unlock a document');
+  db.prepare('UPDATE documents SET locked = ? WHERE id = ?').run(locked ? 1 : 0, id);
 }
 
 export function unshareDocument(

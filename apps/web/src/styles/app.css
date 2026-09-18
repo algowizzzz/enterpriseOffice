@@ -1041,3 +1041,20 @@ main {
   display: grid;
   gap: 8px;
 }
+
+.page-notes {
+  border-top: 1px solid #b8c0cc;
+  margin: 24px 72px 0;
+  padding-top: 8px;
+  font-size: 0.85em;
+  color: #3b4757;
+}
+.page-notes p {
+  margin: 2px 0;
+}
+.word-inline-control {
+  border: 1px solid #8a97a8;
+  border-radius: 3px;
+  background: #fff;
+  padding: 0 4px;
+}

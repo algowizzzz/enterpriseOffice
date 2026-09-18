@@ -251,6 +251,9 @@ const OBJECT_NAMES: Record<string, string> = {
   equation: 'Equation',
   toc: 'Table of contents',
   field: 'Field',
+  control: 'Form control',
+  footnote: 'Footnote',
+  endnote: 'Endnote',
 };
 
 /** Kinds that mark a place and show nothing, such as the ends of a bookmark. */
@@ -268,7 +271,7 @@ export const WordInline = Node.create({
   atom: true,
   selectable: true,
   addAttributes() {
-    return { ...carried('ref'), ...carried('kind'), ...carried('label') };
+    return { ...carried('ref'), ...carried('kind'), ...carried('label'), ...carried('note') };
   },
   parseHTML() {
     return [{ tag: 'span[data-word-inline]' }];
@@ -291,7 +294,11 @@ export const WordInline = Node.create({
         'data-word-inline': '',
         class: `word-inline word-inline-${kind.replace(/[^a-z]/giu, '')}${hidden ? ' word-inline-hidden' : ''}`,
         contenteditable: 'false',
-        title: OBJECT_NAMES[kind] ?? kind,
+        // A footnote says what it says when pointed at.
+        title:
+          typeof node.attrs['note'] === 'string' && node.attrs['note']
+            ? node.attrs['note']
+            : (OBJECT_NAMES[kind] ?? kind),
       }),
       hidden ? '' : shown,
     ];

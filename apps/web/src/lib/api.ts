@@ -29,6 +29,8 @@ export interface DocumentSummary {
   access: Access;
   /** Framework, policy, standard, procedure: chosen at upload. */
   docType?: DocumentType | null;
+  /** Held still for approval: open to comments, not to edits. */
+  locked?: boolean;
 }
 
 export interface DocumentDetail extends DocumentSummary {
@@ -213,6 +215,10 @@ export const api = {
       method: 'PUT',
       ...json({ userId, permission }),
     }),
+
+  /** Hold the document still for approval, or release it. Its owner only. */
+  setLocked: (id: string, locked: boolean) =>
+    request<{ document: DocumentDetail }>(`/documents/${id}/lock`, { method: 'PUT', ...json({ locked }) }),
 
   /** Hand the document to somebody else. */
   transferOwnership: (id: string, userId: string) =>

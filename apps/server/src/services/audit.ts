@@ -20,6 +20,8 @@ export type AuditAction =
   | 'document.shared'
   | 'document.unshared'
   | 'document.transferred'
+  | 'document.locked'
+  | 'document.unlocked'
   | 'comment.added'
   | 'comment.replied'
   | 'comment.edited'
