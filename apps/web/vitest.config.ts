@@ -9,6 +9,13 @@ export default mergeConfig(
       globals: false,
       setupFiles: ['./test/setup.ts'],
       include: ['test/**/*.test.{ts,tsx}'],
+      coverage: {
+        provider: 'v8',
+        include: ['src/**/*.{ts,tsx}'],
+        exclude: ['src/main.tsx'],
+        reporter: ['text-summary', 'json-summary'],
+        reportsDirectory: './coverage',
+      },
     },
   }),
 );

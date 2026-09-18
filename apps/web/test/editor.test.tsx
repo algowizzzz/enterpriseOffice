@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 import type { PMNode } from '@docforge/model';
 import { validateDoc } from '@docforge/model';
 import { DocumentEditor, AUTOSAVE_DEBOUNCE_MS } from '../src/components/DocumentEditor';
+import { statsFor } from '../src/components/DocumentEditor';
 import { editorExtensions } from '../src/components/editorExtensions';
 import { fileNameFromDisposition } from '../src/lib/api';
 
@@ -55,6 +56,58 @@ describe('DocumentEditor', () => {
     );
     await waitFor(() => expect(screen.getByRole('textbox')).toHaveTextContent('Hello world'));
     expect(screen.getByText('2 words')).toBeInTheDocument();
+  });
+
+  it('stays clean when a document is merely opened', async () => {
+    // Regression: making the editor editable emitted an update, which marked
+    // every freshly opened document dirty and autosaved a revision nobody made.
+    const onChange = vi.fn();
+    const onDirty = vi.fn();
+    render(
+      <DocumentEditor
+        initialContent={startingDoc}
+        readOnly={false}
+        onChange={onChange}
+        onDirty={onDirty}
+      />,
+    );
+    await waitFor(() => expect(screen.getByRole('textbox')).toBeInTheDocument());
+
+    await act(async () => {
+      vi.advanceTimersByTime(AUTOSAVE_DEBOUNCE_MS * 3);
+    });
+
+    expect(onDirty).not.toHaveBeenCalled();
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it('counts the words in a document that nobody has touched', async () => {
+    // The counts used to be filled in by the update handler, so they read zero
+    // until something changed.
+    render(
+      <DocumentEditor
+        initialContent={{
+          type: 'doc',
+          content: [{ type: 'paragraph', content: [{ type: 'text', text: 'one two three four' }] }],
+        }}
+        readOnly={false}
+        onChange={() => {}}
+        onDirty={() => {}}
+      />,
+    );
+    expect(await screen.findByText('4 words')).toBeInTheDocument();
+  });
+
+  it('stays clean when a read-only document is opened', async () => {
+    const onDirty = vi.fn();
+    render(
+      <DocumentEditor initialContent={startingDoc} readOnly onChange={() => {}} onDirty={onDirty} />,
+    );
+    await waitFor(() => expect(screen.getByRole('textbox')).toBeInTheDocument());
+    await act(async () => {
+      vi.advanceTimersByTime(AUTOSAVE_DEBOUNCE_MS * 3);
+    });
+    expect(onDirty).not.toHaveBeenCalled();
   });
 
   it('reports the document as dirty on the first keystroke, then saves once', async () => {
@@ -255,5 +308,25 @@ describe('download file names', () => {
 
   it('returns null when the header carries no name', () => {
     expect(fileNameFromDisposition('attachment')).toBeNull();
+  });
+});
+
+describe('word and character counts', () => {
+  it('counts nothing in an empty document', () => {
+    expect(statsFor('')).toEqual({ words: 0, characters: 0 });
+    expect(statsFor('   \n  ')).toEqual({ words: 0, characters: 6 });
+  });
+
+  it('counts runs of non-whitespace as words', () => {
+    expect(statsFor('one two three')).toEqual({ words: 3, characters: 13 });
+    expect(statsFor('  padded  words  ')).toMatchObject({ words: 2 });
+  });
+
+  it('counts across line breaks', () => {
+    expect(statsFor('first line\nsecond line')).toMatchObject({ words: 4 });
+  });
+
+  it('counts a non-Latin script', () => {
+    expect(statsFor('یہ ایک جملہ ہے')).toMatchObject({ words: 4 });
   });
 });

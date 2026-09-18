@@ -27,7 +27,11 @@ export function AdminPage(): JSX.Element {
 
   const addUser = async (event: FormEvent<HTMLFormElement>): Promise<void> => {
     event.preventDefault();
-    const form = new FormData(event.currentTarget);
+    // Hold on to the element itself. React clears `currentTarget` once the
+    // handler yields, so reading it after the await below threw and the
+    // account was created while the page reported a failure.
+    const element = event.currentTarget;
+    const form = new FormData(element);
     setBusy(true);
     setError(null);
     setNotice(null);
@@ -38,7 +42,7 @@ export function AdminPage(): JSX.Element {
         password: String(form.get('password') ?? ''),
         role: String(form.get('role') ?? 'editor') as Role,
       });
-      event.currentTarget.reset();
+      element.reset();
       setNotice('Account created.');
       await load();
     } catch (caught) {

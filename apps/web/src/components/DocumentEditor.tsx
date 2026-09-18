@@ -18,6 +18,20 @@ interface DocumentEditorProps {
 /** How long the editor waits after the last keystroke before reporting a change. */
 export const AUTOSAVE_DEBOUNCE_MS = 1500;
 
+export interface DocumentStats {
+  words: number;
+  characters: number;
+}
+
+/** Count words the way a word processor does: runs of non-whitespace. */
+export function statsFor(text: string): DocumentStats {
+  const trimmed = text.trim();
+  return {
+    words: trimmed.length === 0 ? 0 : trimmed.split(/\s+/u).length,
+    characters: text.length,
+  };
+}
+
 export function DocumentEditor({
   initialContent,
   readOnly,
@@ -25,7 +39,7 @@ export function DocumentEditor({
   onDirty,
 }: DocumentEditorProps): JSX.Element {
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [stats, setStats] = useState({ words: 0, characters: 0 });
+  const [stats, setStats] = useState<DocumentStats>({ words: 0, characters: 0 });
 
   const editor = useEditor(
     {
@@ -42,12 +56,6 @@ export function DocumentEditor({
         },
       },
       onUpdate: ({ editor: instance }) => {
-        const text = instance.getText();
-        const trimmed = text.trim();
-        setStats({
-          words: trimmed.length === 0 ? 0 : trimmed.split(/\s+/u).length,
-          characters: text.length,
-        });
         if (readOnly) return;
         onDirty();
         if (timer.current) clearTimeout(timer.current);
@@ -55,17 +63,22 @@ export function DocumentEditor({
           onChange(instance.getJSON() as PMNode);
         }, AUTOSAVE_DEBOUNCE_MS);
       },
-      onCreate: ({ editor: instance }) => {
-        const text = instance.getText();
-        const trimmed = text.trim();
-        setStats({
-          words: trimmed.length === 0 ? 0 : trimmed.split(/\s+/u).length,
-          characters: text.length,
-        });
-      },
     },
     [],
   );
+
+  // Derive the counts from the editor rather than recomputing them in two
+  // separate callbacks. Keeping them in the update handler meant the numbers
+  // were only correct once something had changed the document.
+  useEffect(() => {
+    if (!editor) return undefined;
+    const recount = (): void => setStats(statsFor(editor.getText()));
+    recount();
+    editor.on('update', recount);
+    return () => {
+      editor.off('update', recount);
+    };
+  }, [editor]);
 
   useEffect(() => {
     return () => {
@@ -74,7 +87,13 @@ export function DocumentEditor({
   }, []);
 
   useEffect(() => {
-    editor?.setEditable(!readOnly);
+    if (!editor) return;
+    const editable = !readOnly;
+    if (editor.isEditable === editable) return;
+    // The second argument stops Tiptap emitting an update. Changing whether a
+    // document can be typed into is not an edit, and treating it as one marked
+    // every freshly opened document dirty and saved a revision nobody made.
+    editor.setEditable(editable, false);
   }, [editor, readOnly]);
 
   if (!editor) return <div className="editor-loading">Preparing the editor…</div>;

@@ -1,5 +1,5 @@
 import { useCallback, type JSX } from 'react';
-import type { Editor } from '@tiptap/react';
+import { useEditorState, type Editor } from '@tiptap/react';
 import { FONT_FAMILIES, FONT_SIZES } from './editorExtensions';
 
 interface ToolbarProps {
@@ -32,13 +32,54 @@ function ToolButton({ label, title, active, disabled, onClick }: ButtonProps): J
   );
 }
 
-/** The formatting ribbon. Every control acts on the current selection. */
+const ALIGNMENTS = ['left', 'center', 'right', 'justify'] as const;
+const HEADING_LEVELS = [1, 2, 3, 4, 5, 6] as const;
+
+/**
+ * The formatting ribbon. Every control acts on the current selection.
+ *
+ * The state each control shows is read through `useEditorState`, so the ribbon
+ * re-renders whenever the document or the selection changes. Reading it during
+ * an ordinary render instead left the ribbon stale: moving the caret between
+ * bold and plain text did not update the buttons, and the table controls stayed
+ * disabled after a table was inserted until something else forced a render.
+ */
 export function Toolbar({ editor, disabled = false }: ToolbarProps): JSX.Element {
+  const state = useEditorState({
+    editor,
+    selector: ({ editor: instance }) => {
+      const textStyle = instance.getAttributes('textStyle');
+      const headingLevel = HEADING_LEVELS.find((level) => instance.isActive('heading', { level }));
+      return {
+        bold: instance.isActive('bold'),
+        italic: instance.isActive('italic'),
+        underline: instance.isActive('underline'),
+        strike: instance.isActive('strike'),
+        superscript: instance.isActive('superscript'),
+        subscript: instance.isActive('subscript'),
+        highlight: instance.isActive('highlight'),
+        bulletList: instance.isActive('bulletList'),
+        orderedList: instance.isActive('orderedList'),
+        blockquote: instance.isActive('blockquote'),
+        alignment: ALIGNMENTS.find((value) => instance.isActive({ textAlign: value })),
+        heading: headingLevel === undefined ? 'p' : String(headingLevel),
+        fontFamily: (textStyle['fontFamily'] as string | undefined) ?? '',
+        fontSize: String(textStyle['fontSize'] ?? '').replace('pt', ''),
+        color: (textStyle['color'] as string | undefined) ?? '#000000',
+        linkHref: (instance.getAttributes('link')['href'] as string | undefined) ?? '',
+        canUndo: instance.can().undo(),
+        canRedo: instance.can().redo(),
+        canAddRow: instance.can().addRowAfter(),
+        canAddColumn: instance.can().addColumnAfter(),
+        canDeleteRow: instance.can().deleteRow(),
+      };
+    },
+  });
+
   const chain = useCallback(() => editor.chain().focus(), [editor]);
 
   const setLink = useCallback(() => {
-    const previous = (editor.getAttributes('link')['href'] as string | undefined) ?? '';
-    const href = window.prompt('Link address', previous);
+    const href = window.prompt('Link address', state.linkHref);
     if (href === null) return;
     if (href.trim() === '') {
       editor.chain().focus().extendMarkRange('link').unsetLink().run();
@@ -49,7 +90,7 @@ export function Toolbar({ editor, disabled = false }: ToolbarProps): JSX.Element
       return;
     }
     editor.chain().focus().extendMarkRange('link').setLink({ href }).run();
-  }, [editor]);
+  }, [editor, state.linkHref]);
 
   const insertImage = useCallback(() => {
     const input = document.createElement('input');
@@ -71,26 +112,19 @@ export function Toolbar({ editor, disabled = false }: ToolbarProps): JSX.Element
     input.click();
   }, [editor]);
 
-  const headingValue = (): string => {
-    for (let level = 1; level <= 6; level += 1) {
-      if (editor.isActive('heading', { level })) return String(level);
-    }
-    return 'p';
-  };
-
   return (
     <div className="toolbar" role="toolbar" aria-label="Formatting" aria-disabled={disabled}>
       <div className="tool-group">
         <ToolButton
           label="Undo"
           title="Undo"
-          disabled={disabled || !editor.can().undo()}
+          disabled={disabled || !state.canUndo}
           onClick={() => chain().undo().run()}
         />
         <ToolButton
           label="Redo"
           title="Redo"
-          disabled={disabled || !editor.can().redo()}
+          disabled={disabled || !state.canRedo}
           onClick={() => chain().redo().run()}
         />
       </div>
@@ -103,7 +137,7 @@ export function Toolbar({ editor, disabled = false }: ToolbarProps): JSX.Element
           id="tb-style"
           className="tool-select"
           disabled={disabled}
-          value={headingValue()}
+          value={state.heading}
           onChange={(event) => {
             const value = event.target.value;
             if (value === 'p') chain().setParagraph().run();
@@ -111,12 +145,11 @@ export function Toolbar({ editor, disabled = false }: ToolbarProps): JSX.Element
           }}
         >
           <option value="p">Normal text</option>
-          <option value="1">Heading 1</option>
-          <option value="2">Heading 2</option>
-          <option value="3">Heading 3</option>
-          <option value="4">Heading 4</option>
-          <option value="5">Heading 5</option>
-          <option value="6">Heading 6</option>
+          {HEADING_LEVELS.map((level) => (
+            <option key={level} value={String(level)}>
+              Heading {level}
+            </option>
+          ))}
         </select>
 
         <label className="visually-hidden" htmlFor="tb-font">
@@ -126,7 +159,7 @@ export function Toolbar({ editor, disabled = false }: ToolbarProps): JSX.Element
           id="tb-font"
           className="tool-select"
           disabled={disabled}
-          value={(editor.getAttributes('textStyle')['fontFamily'] as string) ?? ''}
+          value={state.fontFamily}
           onChange={(event) => {
             const value = event.target.value;
             if (value === '') chain().unsetFontFamily().run();
@@ -147,7 +180,7 @@ export function Toolbar({ editor, disabled = false }: ToolbarProps): JSX.Element
           id="tb-size"
           className="tool-select tool-select-narrow"
           disabled={disabled}
-          value={String(editor.getAttributes('textStyle')['fontSize'] ?? '').replace('pt', '')}
+          value={state.fontSize}
           onChange={(event) => {
             const value = event.target.value;
             if (value === '') chain().unsetFontSize().run();
@@ -167,49 +200,49 @@ export function Toolbar({ editor, disabled = false }: ToolbarProps): JSX.Element
         <ToolButton
           label="B"
           title="Bold"
-          active={editor.isActive('bold')}
+          active={state.bold}
           disabled={disabled}
           onClick={() => chain().toggleBold().run()}
         />
         <ToolButton
           label="I"
           title="Italic"
-          active={editor.isActive('italic')}
+          active={state.italic}
           disabled={disabled}
           onClick={() => chain().toggleItalic().run()}
         />
         <ToolButton
           label="U"
           title="Underline"
-          active={editor.isActive('underline')}
+          active={state.underline}
           disabled={disabled}
           onClick={() => chain().toggleUnderline().run()}
         />
         <ToolButton
           label="S"
           title="Strikethrough"
-          active={editor.isActive('strike')}
+          active={state.strike}
           disabled={disabled}
           onClick={() => chain().toggleStrike().run()}
         />
         <ToolButton
           label="x²"
           title="Superscript"
-          active={editor.isActive('superscript')}
+          active={state.superscript}
           disabled={disabled}
           onClick={() => chain().toggleSuperscript().run()}
         />
         <ToolButton
           label="x₂"
           title="Subscript"
-          active={editor.isActive('subscript')}
+          active={state.subscript}
           disabled={disabled}
           onClick={() => chain().toggleSubscript().run()}
         />
         <ToolButton
           label="Mark"
           title="Highlight"
-          active={editor.isActive('highlight')}
+          active={state.highlight}
           disabled={disabled}
           onClick={() => chain().toggleHighlight().run()}
         />
@@ -218,7 +251,7 @@ export function Toolbar({ editor, disabled = false }: ToolbarProps): JSX.Element
           <input
             type="color"
             disabled={disabled}
-            value={(editor.getAttributes('textStyle')['color'] as string) ?? '#000000'}
+            value={state.color}
             onChange={(event) => chain().setColor(event.target.value).run()}
           />
         </label>
@@ -231,12 +264,16 @@ export function Toolbar({ editor, disabled = false }: ToolbarProps): JSX.Element
       </div>
 
       <div className="tool-group">
-        {(['left', 'center', 'right', 'justify'] as const).map((alignment) => (
+        {ALIGNMENTS.map((alignment) => (
           <ToolButton
             key={alignment}
-            label={alignment === 'justify' ? 'Just' : alignment.slice(0, 1).toUpperCase() + alignment.slice(1, 4)}
+            label={
+              alignment === 'justify'
+                ? 'Just'
+                : alignment.slice(0, 1).toUpperCase() + alignment.slice(1, 4)
+            }
             title={`Align ${alignment}`}
-            active={editor.isActive({ textAlign: alignment })}
+            active={state.alignment === alignment}
             disabled={disabled}
             onClick={() => chain().setTextAlign(alignment).run()}
           />
@@ -247,21 +284,21 @@ export function Toolbar({ editor, disabled = false }: ToolbarProps): JSX.Element
         <ToolButton
           label="Bullets"
           title="Bulleted list"
-          active={editor.isActive('bulletList')}
+          active={state.bulletList}
           disabled={disabled}
           onClick={() => chain().toggleBulletList().run()}
         />
         <ToolButton
           label="Numbers"
           title="Numbered list"
-          active={editor.isActive('orderedList')}
+          active={state.orderedList}
           disabled={disabled}
           onClick={() => chain().toggleOrderedList().run()}
         />
         <ToolButton
           label="Quote"
           title="Block quote"
-          active={editor.isActive('blockquote')}
+          active={state.blockquote}
           disabled={disabled}
           onClick={() => chain().toggleBlockquote().run()}
         />
@@ -274,26 +311,24 @@ export function Toolbar({ editor, disabled = false }: ToolbarProps): JSX.Element
           label="Table"
           title="Insert table"
           disabled={disabled}
-          onClick={() =>
-            chain().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run()
-          }
+          onClick={() => chain().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run()}
         />
         <ToolButton
           label="Row+"
           title="Add row below"
-          disabled={disabled || !editor.can().addRowAfter()}
+          disabled={disabled || !state.canAddRow}
           onClick={() => chain().addRowAfter().run()}
         />
         <ToolButton
           label="Col+"
           title="Add column after"
-          disabled={disabled || !editor.can().addColumnAfter()}
+          disabled={disabled || !state.canAddColumn}
           onClick={() => chain().addColumnAfter().run()}
         />
         <ToolButton
           label="Del row"
           title="Delete row"
-          disabled={disabled || !editor.can().deleteRow()}
+          disabled={disabled || !state.canDeleteRow}
           onClick={() => chain().deleteRow().run()}
         />
         <ToolButton

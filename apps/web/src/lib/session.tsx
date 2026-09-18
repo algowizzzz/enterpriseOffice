@@ -70,10 +70,14 @@ export function SessionProvider({ children }: { children: ReactNode }): JSX.Elem
       signOut: async () => {
         try {
           await api.logout();
-        } finally {
-          setUser(null);
-          await refresh();
+        } catch {
+          // Swallowed on purpose. The person asked to sign out, so the page
+          // must honour that whether or not the server was reachable. Letting
+          // the failure escape here produced an unhandled rejection, because
+          // the button that calls this discards the promise.
         }
+        setUser(null);
+        await refresh();
       },
       refresh,
     }),

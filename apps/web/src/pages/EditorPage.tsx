@@ -232,6 +232,7 @@ export function EditorPage({ documentId, onBack }: EditorPageProps): JSX.Element
             className="share-form"
             onSubmit={async (event) => {
               event.preventDefault();
+              // Read the form before yielding: React clears currentTarget.
               const form = new FormData(event.currentTarget);
               const userId = String(form.get('userId') ?? '');
               const permission = String(form.get('permission') ?? 'view') as 'view' | 'edit';
