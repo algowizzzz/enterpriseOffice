@@ -1,5 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { loadConfig } from '../src/config.js';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { findWebRoot, loadConfig } from '../src/config.js';
 
 const KEYS = [
   'NODE_ENV',
@@ -35,10 +38,11 @@ describe('configuration', () => {
 
   it('uses safe defaults when nothing is set', () => {
     const config = loadConfig();
-    expect(config.host).toBe('0.0.0.0');
+    // Every interface is not a safe default: see the comment in config.ts.
+    expect(config.host).toBe('127.0.0.1');
     expect(config.port).toBe(8080);
     expect(config.sessionTtlSeconds).toBe(12 * 60 * 60);
-    expect(config.maxUploadBytes).toBe(25 * 1024 * 1024);
+    expect(config.maxUploadBytes).toBe(50 * 1024 * 1024);
     expect(config.loginRateLimit).toBe(10);
     expect(config.bootstrapAdminEmail).toBe('admin@localhost');
   });
@@ -102,5 +106,41 @@ describe('configuration', () => {
     expect(config.port).toBe(1234);
     expect(config.env).toBe('test');
     expect(config.bootstrapAdminEmail).toBe('a@b');
+  });
+
+  describe('finding the built client', () => {
+    let root: string;
+    beforeEach(() => {
+      root = mkdtempSync(join(tmpdir(), 'docforge-webroot-'));
+    });
+    afterEach(() => rmSync(root, { recursive: true, force: true }));
+
+    const page = (...parts: string[]): string => {
+      const dir = join(root, ...parts);
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(join(dir, 'index.html'), '<!doctype html>');
+      return dir;
+    };
+
+    it('serves the client when started from the repository root', () => {
+      // `npm start` from the root, exactly as the handover says, used to look
+      // for the client outside the repository and answer 404 for the page.
+      const client = page('apps', 'web', 'dist');
+      const bundleDir = join(root, 'apps', 'server', 'dist');
+      mkdirSync(bundleDir, { recursive: true });
+      expect(findWebRoot(root, bundleDir)).toBe(client);
+    });
+
+    it('serves the client from beside the bundle on a server', () => {
+      const client = page('web');
+      expect(findWebRoot('/', root)).toBe(client);
+    });
+
+    it('still serves the client when started from the server workspace', () => {
+      const client = page('apps', 'web', 'dist');
+      const workspace = join(root, 'apps', 'server');
+      mkdirSync(workspace, { recursive: true });
+      expect(findWebRoot(workspace, join(root, 'nowhere', 'deep', 'down'))).toBe(client);
+    });
   });
 });

@@ -18,7 +18,19 @@ export type AuditAction =
   | 'document.restored'
   | 'document.exported'
   | 'document.shared'
-  | 'document.unshared';
+  | 'document.unshared'
+  | 'document.transferred'
+  | 'document.locked'
+  | 'access.requested'
+  | 'access.approved'
+  | 'access.declined'
+  | 'document.unlocked'
+  | 'comment.added'
+  | 'comment.replied'
+  | 'comment.edited'
+  | 'comment.resolved'
+  | 'comment.reopened'
+  | 'comment.removed';
 
 export interface AuditEntry {
   actorId: string | null;

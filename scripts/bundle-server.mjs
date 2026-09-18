@@ -28,7 +28,10 @@ const result = await build({
   minify: false,
   legalComments: 'external',
   // Node's own modules stay external; everything else is inlined.
-  external: ['node:*'],
+  // The native canvas is an optional dependency of the PDF reader, wanted only
+  // to draw pages, which the server never does. It is left out so that the
+  // bundle stays free of native code; the reader copes without it.
+  external: ['node:*', '@napi-rs/canvas', 'canvas'],
   alias: {
     '@docforge/model': join(ROOT, 'packages/model/src/index.ts'),
   },

@@ -1,10 +1,18 @@
-import { useCallback, type JSX } from 'react';
+import { useCallback, useEffect, useRef, useState, type JSX } from 'react';
+import type { PMNode, StyleTable } from '@docforge/model';
+import type { SpellLanguage } from './spellcheck';
 import { useEditorState, type Editor } from '@tiptap/react';
 import { FONT_FAMILIES, FONT_SIZES } from './editorExtensions';
 
 interface ToolbarProps {
   editor: Editor;
   disabled?: boolean;
+  /** The document's own paragraph styles, offered in the styles list. */
+  styles?: StyleTable | null;
+  onFind?: () => void;
+  /** Spelling: off, or the dictionary in use. */
+  spelling?: SpellLanguage | null;
+  onSpelling?: (language: SpellLanguage | null) => void;
 }
 
 interface ButtonProps {
@@ -33,6 +41,76 @@ function ToolButton({ label, title, active, disabled, onClick }: ButtonProps): J
 }
 
 const ALIGNMENTS = ['left', 'center', 'right', 'justify'] as const;
+const LINE_SPACINGS = ['1', '1.15', '1.5', '2', '2.5', '3'];
+const HIGHLIGHTS = [
+  ['Yellow', '#ffff00'],
+  ['Green', '#00ff00'],
+  ['Turquoise', '#00ffff'],
+  ['Pink', '#ff00ff'],
+  ['Red', '#ff0000'],
+  ['Grey', '#c0c0c0'],
+] as const;
+/** The marks that are formatting, and so are what the format painter carries. */
+const PAINTED = new Set(['bold', 'italic', 'underline', 'strike', 'superscript', 'subscript', 'textStyle', 'highlight']);
+/** Half an inch, in the twentieths of a point Word measures indents in. */
+const INDENT_STEP = 720;
+
+const text = (value: string): PMNode[] => (value ? [{ type: 'text', text: value }] : []);
+const cell = (value: string, header = false): PMNode => ({
+  type: header ? 'tableHeader' : 'tableCell',
+  attrs: { colspan: 1, rowspan: 1 },
+  content: [{ type: 'paragraph', content: text(value) }],
+});
+const row = (values: string[], header = false): PMNode => ({
+  type: 'tableRow',
+  content: values.map((value) => cell(value, header)),
+});
+
+/**
+ * The tables every controlled document carries, ready to fill in. Kept as plain
+ * documents so that they are ordinary tables once inserted, not a special kind
+ * of thing that needs its own editor.
+ */
+export const TABLE_TEMPLATES: Record<string, { label: string; build: () => PMNode[] }> = {
+  versions: {
+    label: 'Version history table',
+    build: () => [
+      {
+        type: 'table',
+        content: [
+          row(['Version', 'Date', 'Author', 'Summary of changes'], true),
+          row(['0.1', '', '', 'First draft']),
+          row(['', '', '', '']),
+          row(['', '', '', '']),
+        ],
+      },
+      { type: 'paragraph' },
+    ],
+  },
+  metadata: {
+    label: 'Document details table',
+    build: () => [
+      {
+        type: 'table',
+        content: [
+          'Document title', 'Document type', 'Owner', 'Approver', 'Classification',
+          'Version', 'Effective date', 'Next review date',
+        ].map((label) => ({ type: 'tableRow', content: [cell(label, true), cell('')] })),
+      },
+      { type: 'paragraph' },
+    ],
+  },
+  approvals: {
+    label: 'Approvals table',
+    build: () => [
+      {
+        type: 'table',
+        content: [row(['Name', 'Role', 'Decision', 'Date'], true), row(['', '', '', '']), row(['', '', '', ''])],
+      },
+      { type: 'paragraph' },
+    ],
+  },
+};
 const HEADING_LEVELS = [1, 2, 3, 4, 5, 6] as const;
 
 /**
@@ -44,7 +122,14 @@ const HEADING_LEVELS = [1, 2, 3, 4, 5, 6] as const;
  * bold and plain text did not update the buttons, and the table controls stayed
  * disabled after a table was inserted until something else forced a render.
  */
-export function Toolbar({ editor, disabled = false }: ToolbarProps): JSX.Element {
+export function Toolbar({
+  editor,
+  disabled = false,
+  styles = null,
+  onFind,
+  spelling = null,
+  onSpelling,
+}: ToolbarProps): JSX.Element {
   const state = useEditorState({
     editor,
     selector: ({ editor: instance }) => {
@@ -72,11 +157,107 @@ export function Toolbar({ editor, disabled = false }: ToolbarProps): JSX.Element
         canAddRow: instance.can().addRowAfter(),
         canAddColumn: instance.can().addColumnAfter(),
         canDeleteRow: instance.can().deleteRow(),
+        canMerge: instance.can().mergeCells(),
+        canSplit: instance.can().splitCell(),
+        inTable: instance.isActive('table'),
+        inList: instance.isActive('listItem'),
+        styleId:
+          ((instance.getAttributes('heading')['styleId'] ?? instance.getAttributes('paragraph')['styleId']) as
+            | string
+            | undefined) ?? '',
+        lineHeight: String(
+          instance.getAttributes('paragraph')['lineHeight'] ?? instance.getAttributes('heading')['lineHeight'] ?? '',
+        ),
+        indentLeft: Number(
+          instance.getAttributes('paragraph')['indentLeft'] ?? instance.getAttributes('heading')['indentLeft'] ?? 0,
+        ),
       };
     },
   });
 
   const chain = useCallback(() => editor.chain().focus(), [editor]);
+
+  /** Set an attribute on whichever kind of text block the cursor is in. */
+  const setBlockAttribute = useCallback(
+    (attributes: Record<string, unknown>) => {
+      const type = editor.isActive('heading') ? 'heading' : 'paragraph';
+      editor.chain().focus().updateAttributes(type, attributes).run();
+    },
+    [editor],
+  );
+
+  const indent = useCallback(
+    (direction: 1 | -1) => {
+      // In a list, indenting means going a level deeper, as it does in Word.
+      if (state.inList) {
+        if (direction === 1) editor.chain().focus().sinkListItem('listItem').run();
+        else editor.chain().focus().liftListItem('listItem').run();
+        return;
+      }
+      const next = Math.max(0, Math.min(state.indentLeft + direction * INDENT_STEP, 10 * INDENT_STEP));
+      setBlockAttribute({ indentLeft: next === 0 ? null : next });
+    },
+    [editor, setBlockAttribute, state.inList, state.indentLeft],
+  );
+
+  const applyStyle = useCallback(
+    (styleId: string) => {
+      if (styleId === '') {
+        setBlockAttribute({ styleId: null });
+        return;
+      }
+      const entry = styles?.paragraph[styleId];
+      const named = /^heading\s*([1-6])$/iu.exec(entry?.name ?? '');
+      const outline = entry?.props.outlineLevel;
+      const level = named ? Number(named[1]) : outline !== undefined && outline <= 5 ? outline + 1 : null;
+      const attributes = { ...editor.getAttributes(editor.isActive('heading') ? 'heading' : 'paragraph'), styleId };
+      // A heading style makes the paragraph a heading, so that it appears in
+      // the contents table and the outline, and the other way about.
+      if (level !== null) editor.chain().focus().setNode('heading', { ...attributes, level }).run();
+      else editor.chain().focus().setNode('paragraph', attributes).run();
+    },
+    [editor, setBlockAttribute, styles],
+  );
+
+  // The format painter: pick up the formatting under the cursor, then the next
+  // stretch of text that is selected takes it on. One use, as in Word.
+  const [painting, setPainting] = useState(false);
+  const picked = useRef<{ type: string; attrs: Record<string, unknown> }[]>([]);
+  useEffect(() => {
+    if (!painting) return undefined;
+    const apply = (): void => {
+      const { from, to, empty } = editor.state.selection;
+      if (empty) return;
+      const transaction = editor.state.tr;
+      // Formatting only. A comment, a tracked change or kept Word properties
+      // belong to the words they are on and are not something to paint about.
+      for (const [name, type] of Object.entries(editor.state.schema.marks)) {
+        if (PAINTED.has(name)) transaction.removeMark(from, to, type);
+      }
+      for (const mark of picked.current) {
+        const type = editor.state.schema.marks[mark.type];
+        if (type) transaction.addMark(from, to, type.create(mark.attrs));
+      }
+      editor.view.dispatch(transaction);
+      setPainting(false);
+    };
+    editor.on('selectionUpdate', apply);
+    return () => {
+      editor.off('selectionUpdate', apply);
+    };
+  }, [editor, painting]);
+
+  const togglePainter = useCallback(() => {
+    if (painting) {
+      setPainting(false);
+      return;
+    }
+    const marks = editor.state.storedMarks ?? editor.state.selection.$from.marks();
+    picked.current = marks
+      .filter((mark) => PAINTED.has(mark.type.name))
+      .map((mark) => ({ type: mark.type.name, attrs: { ...mark.attrs } }));
+    setPainting(true);
+  }, [editor, painting]);
 
   const setLink = useCallback(() => {
     const href = window.prompt('Link address', state.linkHref);
@@ -99,8 +280,8 @@ export function Toolbar({ editor, disabled = false }: ToolbarProps): JSX.Element
     input.onchange = () => {
       const file = input.files?.[0];
       if (!file) return;
-      if (file.size > 2 * 1024 * 1024) {
-        window.alert('Images must be smaller than 2 MB.');
+      if (file.size > 10 * 1024 * 1024) {
+        window.alert('Images must be smaller than 10 MB.');
         return;
       }
       const reader = new FileReader();
@@ -159,6 +340,32 @@ export function Toolbar({ editor, disabled = false }: ToolbarProps): JSX.Element
             </option>
           ))}
         </select>
+
+        {styles && Object.keys(styles.paragraph).length > 0 ? (
+          <>
+            <label className="visually-hidden" htmlFor="tb-docstyle">
+              Document style
+            </label>
+            <select
+              id="tb-docstyle"
+              className="tool-select"
+              title="The styles this document came with. Choosing one keeps the document consistent with its template"
+              disabled={disabled}
+              value={state.styleId}
+              onChange={(event) => applyStyle(event.target.value)}
+            >
+              <option value="">Document styles</option>
+              {Object.entries(styles.paragraph)
+                .sort((a, b) => a[1].name.localeCompare(b[1].name))
+                .slice(0, 200)
+                .map(([id, entry]) => (
+                  <option key={id} value={id}>
+                    {entry.name}
+                  </option>
+                ))}
+            </select>
+          </>
+        ) : null}
 
         <label className="visually-hidden" htmlFor="tb-font">
           Font
@@ -254,6 +461,29 @@ export function Toolbar({ editor, disabled = false }: ToolbarProps): JSX.Element
           disabled={disabled}
           onClick={() => chain().toggleHighlight().run()}
         />
+        <label className="visually-hidden" htmlFor="tb-highlight">
+          Highlight colour
+        </label>
+        <select
+          id="tb-highlight"
+          className="tool-select tool-select-narrow"
+          title="Highlight the selected text"
+          disabled={disabled}
+          value=""
+          onChange={(event) => {
+            const value = event.target.value;
+            if (value === 'none') chain().unsetHighlight().run();
+            else if (value) chain().setHighlight({ color: value }).run();
+          }}
+        >
+          <option value="">Colour</option>
+          {HIGHLIGHTS.map(([name, colour]) => (
+            <option key={colour} value={colour}>
+              {name}
+            </option>
+          ))}
+          <option value="none">No highlight</option>
+        </select>
         <label className="tool-color" title="Text colour">
           <span className="visually-hidden">Text colour</span>
           <input
@@ -263,6 +493,13 @@ export function Toolbar({ editor, disabled = false }: ToolbarProps): JSX.Element
             onChange={(event) => chain().setColor(event.target.value).run()}
           />
         </label>
+        <ToolButton
+          label="Painter"
+          title="Format painter: copies the formatting where the cursor is. Then select the text to give it to"
+          active={painting}
+          disabled={disabled}
+          onClick={togglePainter}
+        />
         <ToolButton
           label="Clear"
           title="Clear formatting"
@@ -310,6 +547,39 @@ export function Toolbar({ editor, disabled = false }: ToolbarProps): JSX.Element
           disabled={disabled}
           onClick={() => chain().toggleBlockquote().run()}
         />
+        <ToolButton
+          label="Indent-"
+          title="Decrease indent (in a list: up a level)"
+          disabled={disabled || (!state.inList && state.indentLeft <= 0)}
+          onClick={() => indent(-1)}
+        />
+        <ToolButton
+          label="Indent+"
+          title="Increase indent (in a list: down a level)"
+          disabled={disabled}
+          onClick={() => indent(1)}
+        />
+        <label className="visually-hidden" htmlFor="tb-spacing">
+          Line spacing
+        </label>
+        <select
+          id="tb-spacing"
+          className="tool-select tool-select-narrow"
+          title="Line spacing"
+          disabled={disabled}
+          value={LINE_SPACINGS.includes(state.lineHeight) ? state.lineHeight : ''}
+          onChange={(event) => {
+            const value = event.target.value;
+            setBlockAttribute({ lineHeight: value === '' ? null : Number(value), lineExact: null });
+          }}
+        >
+          <option value="">Spacing</option>
+          {LINE_SPACINGS.map((value) => (
+            <option key={value} value={value}>
+              {value}
+            </option>
+          ))}
+        </select>
       </div>
 
       <div className="tool-group">
@@ -340,6 +610,45 @@ export function Toolbar({ editor, disabled = false }: ToolbarProps): JSX.Element
           onClick={() => chain().deleteRow().run()}
         />
         <ToolButton
+          label="Del col"
+          title="Delete column"
+          disabled={disabled || !state.inTable}
+          onClick={() => chain().deleteColumn().run()}
+        />
+        <ToolButton
+          label="Merge"
+          title="Merge the selected cells"
+          disabled={disabled || !state.canMerge}
+          onClick={() => chain().mergeCells().run()}
+        />
+        <ToolButton
+          label="Split"
+          title="Split a merged cell"
+          disabled={disabled || !state.canSplit}
+          onClick={() => chain().splitCell().run()}
+        />
+        <ToolButton
+          label="Header"
+          title="Make the first row a header row, repeated at the top of each page in Word"
+          disabled={disabled || !state.inTable}
+          onClick={() => chain().toggleHeaderRow().run()}
+        />
+        <label className="tool-color" title="Cell shading">
+          <span className="visually-hidden">Cell shading</span>
+          <input
+            type="color"
+            disabled={disabled || !state.inTable}
+            defaultValue="#ffffff"
+            onChange={(event) => chain().setCellAttribute('background', event.target.value).run()}
+          />
+        </label>
+        <ToolButton
+          label="Del table"
+          title="Delete the whole table"
+          disabled={disabled || !state.inTable}
+          onClick={() => chain().deleteTable().run()}
+        />
+        <ToolButton
           label="Rule"
           title="Horizontal rule"
           disabled={disabled}
@@ -358,6 +667,72 @@ export function Toolbar({ editor, disabled = false }: ToolbarProps): JSX.Element
               .run()
           }
         />
+        <ToolButton
+          label="Footnote"
+          title="Insert a footnote where the cursor is"
+          disabled={disabled}
+          onClick={() => {
+            const words = window.prompt('Wording of the footnote');
+            if (!words || words.trim() === '') return;
+            chain()
+              .insertContent({ type: 'wordInline', attrs: { kind: 'footnote', label: '', note: words.trim() } })
+              .run();
+          }}
+        />
+        <ToolButton
+          label="Contents"
+          title="Insert a table of contents built from the headings. It keeps itself up to date here, and Word updates its page numbers"
+          disabled={disabled}
+          onClick={() =>
+            chain()
+              .insertContent([{ type: 'wordBlock', attrs: { kind: 'toc', label: '' } }, { type: 'paragraph' }])
+              .run()
+          }
+        />
+        <label className="visually-hidden" htmlFor="tb-template">
+          Insert a standard table
+        </label>
+        <select
+          id="tb-template"
+          className="tool-select"
+          title="Insert one of the standard tables, ready to fill in"
+          disabled={disabled}
+          value=""
+          onChange={(event) => {
+            const template = TABLE_TEMPLATES[event.target.value];
+            if (template) chain().insertContent(template.build()).run();
+          }}
+        >
+          <option value="">Standard tables</option>
+          {Object.entries(TABLE_TEMPLATES).map(([key, template]) => (
+            <option key={key} value={key}>
+              {template.label}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      <div className="tool-group">
+        {onFind ? <ToolButton label="Find" title="Find and replace (Ctrl+F)" onClick={onFind} /> : null}
+        {onSpelling ? (
+          <>
+            <label className="visually-hidden" htmlFor="tb-spelling">
+              Spelling
+            </label>
+            <select
+              id="tb-spelling"
+              className="tool-select"
+              title="Check spelling with the dictionary that comes with the application. Right-click an underlined word for suggestions"
+              value={spelling ?? ''}
+              onChange={(event) => onSpelling((event.target.value || null) as SpellLanguage | null)}
+            >
+              <option value="">Spelling off</option>
+              <option value="en-GB">Spelling: British</option>
+              <option value="en-US">Spelling: American</option>
+            </select>
+          </>
+        ) : null}
+        <ToolButton label="Print" title="Print, or save as PDF from the print dialog" onClick={() => window.print()} />
       </div>
     </div>
   );

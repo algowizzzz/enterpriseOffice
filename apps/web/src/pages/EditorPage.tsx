@@ -5,11 +5,19 @@ import {
   ApiError,
   downloadExport,
   type DocumentDetail,
+  type ExportFormat,
+  type ExportOptions,
   type ShareEntry,
   type User,
   type VersionSummary,
 } from '../lib/api';
+import type { Editor } from '@tiptap/react';
 import { DocumentEditor, type SaveState } from '../components/DocumentEditor';
+import { CommentsPanel } from '../components/CommentsPanel';
+import { ReviewPanel } from '../components/ReviewPanel';
+import { AccessRequests } from '../components/AccessRequests';
+import { setTracking } from '../components/trackChanges';
+import { joinShared, othersPresent, type Presence, type SharedSession } from '../lib/collab';
 import { useSession } from '../lib/session';
 import { textField } from '../lib/forms';
 
@@ -24,6 +32,7 @@ const SAVE_LABEL: Record<SaveState, string> = {
   saving: 'Saving…',
   error: 'Save failed',
   conflict: 'Someone else saved first',
+  offline: 'Offline: your changes are kept and will be sent when the connection returns',
 };
 
 export function EditorPage({ documentId, onBack }: EditorPageProps): JSX.Element {
@@ -36,6 +45,31 @@ export function EditorPage({ documentId, onBack }: EditorPageProps): JSX.Element
   const [versions, setVersions] = useState<VersionSummary[] | null>(null);
   const [shares, setShares] = useState<ShareEntry[] | null>(null);
   const [setupOpen, setSetupOpen] = useState(false);
+  const [side, setSide] = useState<'comments' | 'review' | null>(null);
+  const commentsOpen = side === 'comments';
+  const setCommentsOpen = (next: boolean | ((open: boolean) => boolean)): void =>
+    setSide((current) => {
+      const open = typeof next === 'function' ? next(current === 'comments') : next;
+      return open ? 'comments' : current === 'comments' ? null : current;
+    });
+  // Which text is on the page: the document, the file as it was first
+  // uploaded, or what has changed between the two.
+  const [view, setView] = useState<'document' | 'original' | 'redline'>('document');
+  const [shown, setShown] = useState<PMNode | null>(null);
+  // Live co-editing. Null while it is being set up, and when it is not on offer
+  // or the network will not carry it, in which case saving works as it always did.
+  const [session, setSession] = useState<SharedSession | null>(null);
+  const [sharedReady, setSharedReady] = useState(false);
+  const [sharedFailed, setSharedFailed] = useState(false);
+  const [present, setPresent] = useState<Presence[]>([]);
+  const [reopen, setReopen] = useState(0);
+  const settle = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [reminder, setReminder] = useState(() => window.localStorage.getItem('docforge-reminder') !== 'dismissed');
+  const [tracking, setTrackingOn] = useState(
+    () => window.localStorage.getItem(`docforge-track-${documentId}`) === '1',
+  );
+  const [openComments, setOpenComments] = useState<number | null>(null);
+  const [editor, setEditor] = useState<Editor | null>(null);
   const [directory, setDirectory] = useState<User[]>([]);
   const revision = useRef(0);
   // One save at a time, with the next one waiting its turn.
@@ -45,6 +79,7 @@ export function EditorPage({ documentId, onBack }: EditorPageProps): JSX.Element
   // won, the second was rejected as a conflict, and because the revision was
   // only updated on success the editor then failed every later save while the
   // person carried on typing into text that would never be stored again.
+  const liveRef = useRef(false);
   const inFlight = useRef(false);
   const queued = useRef<{ content?: PMNode; title?: string; pageSetup?: PageSetup } | null>(null);
   // Keystrokes that have happened but have not yet been handed over.
@@ -82,9 +117,57 @@ export function EditorPage({ documentId, onBack }: EditorPageProps): JSX.Element
     return () => {
       cancelled = true;
     };
-  }, [documentId]);
+  }, [documentId, reopen]);
 
-  const readOnly = document?.access === 'view';
+  const readOnly = document?.access === 'view' || document?.locked === true;
+  const epoch = document?.collab?.epoch;
+  const userName = user?.name ?? 'Somebody';
+
+  // Join the shared document once it is known which one to join.
+  useEffect(() => {
+    if (epoch === undefined || typeof WebSocket === 'undefined' || sharedFailed) return undefined;
+    setSharedReady(false);
+    const joined = joinShared(documentId, epoch, userName, {
+      onConnection: (state) =>
+        setSaveState((current) =>
+          state === 'live' ? (current === 'offline' ? 'saved' : current) : state === 'offline' ? 'offline' : current,
+        ),
+      // Somebody restored a version, or the text was replaced from outside the
+      // editor. This browser's history no longer applies: fetch and join afresh.
+      onReplaced: () => setReopen((count) => count + 1),
+    });
+    const showPresent = (): void => setPresent(othersPresent(joined));
+    joined.provider.awareness.on('change', showPresent);
+    const synced = (isSynced: boolean): void => {
+      if (!isSynced) return;
+      setSharedReady(true);
+      setSurface((count) => count + 1);
+    };
+    joined.provider.on('sync', synced);
+    // Some networks do not carry WebSockets at all. Rather than leave somebody
+    // looking at a spinner, fall back to saving the ordinary way and say so.
+    const giveUp = setTimeout(() => {
+      if (joined.provider.synced) return;
+      joined.close();
+      setSession(null);
+      setSharedFailed(true);
+      setNotice(
+        'Live co-editing is not available on this connection, so this document is being saved the ordinary way. If somebody else edits it at the same time, the second save will be refused rather than merged.',
+      );
+      setSurface((count) => count + 1);
+    }, 8000);
+    setSession(joined);
+    return () => {
+      clearTimeout(giveUp);
+      joined.provider.awareness.off('change', showPresent);
+      joined.close();
+      setSession(null);
+      setPresent([]);
+    };
+  }, [documentId, epoch, userName, sharedFailed]);
+
+  const live = session !== null && sharedReady && !sharedFailed;
+  liveRef.current = live;
 
   const persist = useCallback(
     async (payload: { content?: PMNode; title?: string; pageSetup?: PageSetup }) => {
@@ -104,7 +187,10 @@ export function EditorPage({ documentId, onBack }: EditorPageProps): JSX.Element
           try {
             const { document: saved } = await api.saveDocument(documentId, {
               ...next,
-              expectedRevision: revision.current,
+              // While the text is shared, the server moves the revision on as
+              // people type, so a title saved against the revision this browser
+              // last saw would be refused every time.
+              ...(liveRef.current ? {} : { expectedRevision: revision.current }),
             });
             if (generation.current !== startedAt) {
               // The document was replaced while this was on its way, so its
@@ -161,9 +247,9 @@ export function EditorPage({ documentId, onBack }: EditorPageProps): JSX.Element
   }, [saveState]);
 
   /** A failed download used to be an unhandled rejection with nothing on screen. */
-  const download = async (format: 'docx' | 'txt'): Promise<void> => {
+  const download = async (format: ExportFormat, options?: ExportOptions): Promise<void> => {
     try {
-      await downloadExport(documentId, format);
+      await (options ? downloadExport(documentId, format, options) : downloadExport(documentId, format));
     } catch (caught) {
       setError(caught instanceof ApiError ? caught.message : 'Could not download this document.');
     }
@@ -223,6 +309,10 @@ export function EditorPage({ documentId, onBack }: EditorPageProps): JSX.Element
       // The message belonged to the content that has just been replaced.
       setNotice(null);
       setSurface((count) => count + 1);
+      // The shared document was started afresh by the restore, so it has to be
+      // joined again. A document one person has to themselves has nothing to
+      // rejoin, and fetching it again would race the restored text.
+      if (liveRef.current) setReopen((count) => count + 1);
     } catch (caught) {
       setError(caught instanceof ApiError ? caught.message : 'Could not restore that version.');
     }
@@ -242,6 +332,38 @@ export function EditorPage({ documentId, onBack }: EditorPageProps): JSX.Element
       setDirectory(users.filter((candidate) => candidate.id !== user?.id));
     } catch (caught) {
       setError(caught instanceof ApiError ? caught.message : 'Could not load the sharing list.');
+    }
+  };
+
+  // Tracking is a property of how this person is working on this document, so
+  // it is remembered here and handed to the editor whenever there is one.
+  useEffect(() => {
+    if (!editor || editor.isDestroyed || view !== 'document') return;
+    setTracking(editor, tracking && !readOnly, user?.name ?? 'Unknown');
+  }, [editor, tracking, readOnly, user?.name, view]);
+
+  const changeTracking = (enabled: boolean): void => {
+    setTrackingOn(enabled);
+    window.localStorage.setItem(`docforge-track-${documentId}`, enabled ? '1' : '0');
+  };
+
+  const show = async (next: 'document' | 'original' | 'redline'): Promise<void> => {
+    if (next === 'document') {
+      setShown(null);
+      setView('document');
+      setSurface((count) => count + 1);
+      return;
+    }
+    try {
+      const content =
+        next === 'original'
+          ? (await api.getVersion(documentId, 1)).content
+          : (await api.compare(documentId, 1)).content;
+      setShown(content);
+      setView(next);
+      setSurface((count) => count + 1);
+    } catch (caught) {
+      setError(caught instanceof ApiError ? caught.message : 'Could not load that view.');
     }
   };
 
@@ -277,6 +399,26 @@ export function EditorPage({ documentId, onBack }: EditorPageProps): JSX.Element
             if (event.key === 'Enter') event.currentTarget.blur();
           }}
         />
+        {present.length > 0 ? (
+          <span className="presence" aria-label="Also editing">
+            {present.slice(0, 5).map((person) => (
+              <span key={person.name} className="presence-chip" style={{ background: person.color }} title={`${person.name} has this document open`}>
+                {person.name
+                  .split(/\s+/u)
+                  .map((word) => word[0] ?? '')
+                  .join('')
+                  .slice(0, 2)
+                  .toUpperCase()}
+              </span>
+            ))}
+            {present.length > 5 ? <span className="muted">+{present.length - 5}</span> : null}
+          </span>
+        ) : null}
+        {document.locked ? (
+          <span className="badge" title="Locked by its owner: it can be read and commented on, and not changed">
+            Locked: comments only
+          </span>
+        ) : null}
         <span className={`save-state save-${saveState}`}>{SAVE_LABEL[saveState]}</span>
         {saveState === 'conflict' ? (
           <button
@@ -293,8 +435,40 @@ export function EditorPage({ documentId, onBack }: EditorPageProps): JSX.Element
           <button type="button" onClick={() => { void download('docx'); }}>
             Export .docx
           </button>
+          <button
+            type="button"
+            title="A paginated PDF with the header, the footer and page numbers"
+            onClick={() => { void download('pdf'); }}
+          >
+            Export .pdf
+          </button>
           <button type="button" onClick={() => { void download('txt'); }}>
             Export .txt
+          </button>
+          {document.origin === 'import' ? (
+            <button
+              type="button"
+              title="Download the file exactly as it was uploaded"
+              onClick={() => { void download('original'); }}
+            >
+              Original
+            </button>
+          ) : null}
+          <button
+            type="button"
+            title="Track changes as you type, and accept or reject them"
+            aria-pressed={side === 'review'}
+            onClick={() => setSide((current) => (current === 'review' ? null : 'review'))}
+          >
+            Review{tracking ? ' (tracking)' : ''}
+          </button>
+          <button
+            type="button"
+            title="Comment on the selected words, reply, and resolve"
+            aria-pressed={commentsOpen}
+            onClick={() => setCommentsOpen((open) => !open)}
+          >
+            Comments{openComments ? ` (${openComments})` : ''}
           </button>
           <button type="button" onClick={() => setSetupOpen((open) => !open)}>
             Page setup
@@ -302,6 +476,50 @@ export function EditorPage({ documentId, onBack }: EditorPageProps): JSX.Element
           <button type="button" onClick={() => void openVersions()}>
             History
           </button>
+          {document.access === 'view' && !document.locked && user?.role !== 'viewer' ? (
+            <button
+              type="button"
+              title="Ask the owner of this document to let you edit it"
+              onClick={() => {
+                const note = window.prompt('Tell the owner why you need to edit this document (optional)');
+                if (note === null) return;
+                void api
+                  .requestEdit(documentId, note)
+                  .then(() => setNotice('Your request has gone to the owner of this document.'))
+                  .catch((caught: unknown) =>
+                    setError(caught instanceof ApiError ? caught.message : 'Could not send the request.'),
+                  );
+              }}
+            >
+              Ask to edit
+            </button>
+          ) : null}
+          {document.access === 'owner' ? (
+            <button
+              type="button"
+              title={
+                document.locked
+                  ? 'Release the document so that it can be edited again'
+                  : 'Hold the document still while it is approved. Everybody, you included, can read and comment and nobody can change it'
+              }
+              aria-pressed={document.locked === true}
+              onClick={() => {
+                void (async () => {
+                  try {
+                    const { document: next } = await api.setLocked(documentId, !document.locked);
+                    setDocument((current) => (current ? { ...current, ...next } : next));
+                    // The shared document was started afresh for everybody.
+                    if (liveRef.current) setReopen((count) => count + 1);
+                    else setSurface((count) => count + 1);
+                  } catch (caught) {
+                    setError(caught instanceof ApiError ? caught.message : 'Could not change the lock.');
+                  }
+                })();
+              }}
+            >
+              {document.locked ? 'Unlock' : 'Lock'}
+            </button>
+          ) : null}
           {document.access === 'owner' ? (
             <button type="button" onClick={() => void openSharing()}>
               Share
@@ -313,6 +531,23 @@ export function EditorPage({ documentId, onBack }: EditorPageProps): JSX.Element
       {error ? (
         <p className="error" role="alert">
           {error}
+        </p>
+      ) : null}
+
+      {reminder ? (
+        <p className="notice" role="note">
+          This is a working copy. The Word file you export is the record: check it before it is approved or issued.
+          {document.origin === 'import' ? ' The file as it was uploaded is always available under Original.' : ''}
+          <button
+            type="button"
+            className="link"
+            onClick={() => {
+              window.localStorage.setItem('docforge-reminder', 'dismissed');
+              setReminder(false);
+            }}
+          >
+            Do not show again
+          </button>
         </p>
       ) : null}
 
@@ -393,6 +628,7 @@ export function EditorPage({ documentId, onBack }: EditorPageProps): JSX.Element
       {shares ? (
         <aside className="panel">
           <h2>Sharing</h2>
+          <AccessRequests documentId={documentId} onChanged={() => void api.listShares(documentId).then(({ shares: updated }) => setShares(updated))} />
           {shares.length === 0 ? <p className="muted">Not shared with anyone yet.</p> : null}
           <ul className="version-list">
             {shares.map((share) => (
@@ -400,6 +636,24 @@ export function EditorPage({ documentId, onBack }: EditorPageProps): JSX.Element
                 <span>
                   {share.name} can {share.permission}
                 </span>
+                <button
+                  type="button"
+                  title="Hand this document over. You keep edit access"
+                  onClick={() => {
+                    if (!window.confirm(`Make ${share.name} the owner of this document? You will keep edit access.`)) return;
+                    void (async () => {
+                      try {
+                        const { document: handed } = await api.transferOwnership(documentId, share.userId);
+                        setDocument((current) => (current ? { ...current, ...handed } : handed));
+                        setShares(null);
+                      } catch (caught) {
+                        setError(caught instanceof ApiError ? caught.message : 'Could not hand the document over.');
+                      }
+                    })();
+                  }}
+                >
+                  Make owner
+                </button>
                 <button
                   type="button"
                   className="danger"
@@ -467,13 +721,71 @@ export function EditorPage({ documentId, onBack }: EditorPageProps): JSX.Element
         </aside>
       ) : null}
 
+      <nav className="view-tabs" aria-label="What is shown">
+        {(
+          [
+            ['document', 'Document', 'The document as it stands, for editing'],
+            ['original', 'Original', 'The document as it was first created or uploaded'],
+            ['redline', 'Redline', 'Everything that has changed since the original: removed text struck out, new text underlined'],
+          ] as const
+        ).map(([name, label, hint]) => (
+          <button
+            key={name}
+            type="button"
+            title={hint}
+            className={`view-tab${view === name ? ' is-active' : ''}`}
+            aria-pressed={view === name}
+            onClick={() => void show(name)}
+          >
+            {label}
+          </button>
+        ))}
+        {view === 'redline' ? (
+          <button
+            type="button"
+            className="link"
+            title="Download this comparison as a Word file with revision marks that can be accepted or rejected in Word"
+            onClick={() => void download('docx', { compare: '1' })}
+          >
+            Export redline to Word
+          </button>
+        ) : null}
+        {view === 'document' ? (
+          <button
+            type="button"
+            className="link"
+            title="Download the document with every tracked change accepted"
+            onClick={() => void download('docx', { changes: 'accepted' })}
+          >
+            Export with changes accepted
+          </button>
+        ) : null}
+      </nav>
+      <div className={`editor-with-side${side ? ' has-side' : ''} view-${view}`}>
+      {epoch !== undefined && !sharedFailed && !live && view === 'document' ? (
+        <p className="muted page-wrap">Joining the document…</p>
+      ) : (
       <DocumentEditor
-        key={surface}
-        initialContent={document.content}
+        key={`${surface}-${live && view === 'document' ? 'shared' : 'own'}`}
+        shared={live && view === 'document' && session ? session : undefined}
+        onReady={setEditor}
+        initialContent={view === 'document' || !shown ? document.content : shown}
         header={document.pageSetup?.header ?? ''}
         footer={document.pageSetup?.footer ?? ''}
-        readOnly={readOnly ?? false}
+        styles={document.styles ?? null}
+        readOnly={(readOnly ?? false) || view !== 'document'}
         onDirty={() => {
+          if (live) {
+            // Sent as it is typed and stored by the server. There is no reply
+            // to wait for, so "saved" is shown once the line has gone quiet.
+            setSaveState((current) => (current === 'offline' ? current : 'saving'));
+            if (settle.current) clearTimeout(settle.current);
+            settle.current = setTimeout(
+              () => setSaveState((current) => (current === 'saving' ? 'saved' : current)),
+              1200,
+            );
+            return;
+          }
           typedSinceQueued.current = true;
           setSaveState((current) => (current === 'conflict' ? current : 'dirty'));
         }}
@@ -489,6 +801,25 @@ export function EditorPage({ documentId, onBack }: EditorPageProps): JSX.Element
           setNotice((current) => (current === message ? current : message));
         }}
       />
+      )}
+      {side === 'review' ? (
+        <ReviewPanel
+          editor={editor}
+          readOnly={(readOnly ?? false) || view !== 'document'}
+          tracking={tracking}
+          onTracking={changeTracking}
+          onClose={() => setSide(null)}
+        />
+      ) : null}
+      {commentsOpen ? (
+        <CommentsPanel
+          documentId={documentId}
+          editor={editor}
+          onClose={() => setCommentsOpen(false)}
+          onCount={setOpenComments}
+        />
+      ) : null}
+      </div>
     </div>
   );
 }

@@ -1,4 +1,6 @@
-import { resolve } from 'node:path';
+import { existsSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 function int(name: string, fallback: number): number {
   const raw = process.env[name];
@@ -23,6 +25,12 @@ export interface Config {
   webRoot: string;
   /** Maximum accepted upload size in bytes. */
   maxUploadBytes: number;
+  /**
+   * Where to look for fonts when a PDF is written. The fonts every PDF reader
+   * has cover Western European text; anything else needs a font file, and an
+   * air-gapped server has only the ones somebody put on it.
+   */
+  fontDirs: string[];
   sessionTtlSeconds: number;
   /** Secure cookie flag. Off by default outside production so plain HTTP works on a laptop. */
   secureCookies: boolean;
@@ -43,15 +51,55 @@ export interface Config {
   bootstrapAdminPassword: string;
 }
 
+/**
+ * Where the built client is, when nobody has said.
+ *
+ * The default used to be `../web/dist` from the working directory, which is
+ * right from `apps/server` and wrong from everywhere else. The documented way
+ * to run the build is `npm start` from the repository root, where that path
+ * points outside the repository: the server started, answered its health check
+ * and served a 404 for the page. Every deployment set `DOCFORGE_WEB_ROOT`, so
+ * only the person following the instructions for the first time ever saw it.
+ *
+ * So look where a client could actually be, relative to this file as well as to
+ * the working directory, and take the first that holds a page:
+ *
+ *   beside the bundle      /opt/docforge/server.mjs  and  /opt/docforge/web
+ *   in the repository      apps/server/dist/server.mjs  and  apps/web/dist
+ *   from the source tree   apps/server/src/config.ts    and  apps/web/dist
+ */
+export function findWebRoot(cwd = process.cwd(), here = dirname(fileURLToPath(import.meta.url))): string {
+  const candidates = [
+    join(here, 'web'),
+    join(here, '../../web/dist'),
+    resolve(cwd, 'apps/web/dist'),
+    resolve(cwd, '../web/dist'),
+    resolve(cwd, 'web'),
+  ];
+  // Nothing found is not an error: the API is usable without the client, and
+  // `app.ts` already copes with a web root that is not there.
+  return candidates.find((path) => existsSync(join(path, 'index.html'))) ?? resolve(cwd, '../web/dist');
+}
+
 export function loadConfig(overrides: Partial<Config> = {}): Config {
   const env = (process.env['NODE_ENV'] as Config['env']) ?? 'development';
   return {
     env,
-    host: process.env['DOCFORGE_HOST'] ?? '0.0.0.0',
+    // Loopback unless told otherwise. The default was every interface, so a
+    // build started on a laptop to try it out was also offered to the whole
+    // network it happened to be on. Each deployment shape states its own host:
+    // the container and the systemd unit say 0.0.0.0, behind a proxy.
+    host: process.env['DOCFORGE_HOST'] ?? '127.0.0.1',
     port: int('DOCFORGE_PORT', 8080),
     databaseFile: process.env['DOCFORGE_DB'] ?? resolve(process.cwd(), 'data/docforge.db'),
-    webRoot: process.env['DOCFORGE_WEB_ROOT'] ?? resolve(process.cwd(), '../web/dist'),
-    maxUploadBytes: int('DOCFORGE_MAX_UPLOAD_BYTES', 25 * 1024 * 1024),
+    webRoot: process.env['DOCFORGE_WEB_ROOT'] ?? findWebRoot(),
+    // Fifty megabytes: a policy with a scanned appendix is routinely past
+    // twenty-five, and a refused upload is the first thing anybody would meet.
+    maxUploadBytes: int('DOCFORGE_MAX_UPLOAD_BYTES', 50 * 1024 * 1024),
+    fontDirs: (process.env['DOCFORGE_FONT_DIRS'] ?? '')
+      .split(process.platform === 'win32' ? ';' : ':')
+      .map((dir) => dir.trim())
+      .filter(Boolean),
     sessionTtlSeconds: int('DOCFORGE_SESSION_TTL', 12 * 60 * 60),
     secureCookies: bool('DOCFORGE_SECURE_COOKIES', env === 'production'),
     loginRateLimit: int('DOCFORGE_LOGIN_RATE_LIMIT', 10),

@@ -1,4 +1,4 @@
-import type { PageSetup, PMNode } from '@docforge/model';
+import type { CommentAnchor, PageSetup, PMNode, StyleTable } from '@docforge/model';
 
 export type Role = 'admin' | 'editor' | 'viewer';
 export type UserStatus = 'active' | 'disabled';
@@ -27,12 +27,49 @@ export interface DocumentSummary {
   createdAt: string;
   updatedAt: string;
   access: Access;
+  /** Framework, policy, standard, procedure: chosen at upload. */
+  docType?: DocumentType | null;
+  /** Held still for approval: open to comments, not to edits. */
+  locked?: boolean;
 }
 
 export interface DocumentDetail extends DocumentSummary {
   content: PMNode;
   /** The running header, the running footer and the orientation of the page. */
   pageSetup: PageSetup;
+  /** The document's own styles, when it was uploaded from Word. */
+  styles?: StyleTable | null;
+  /** Which shared document to join, when the server offers live co-editing. */
+  collab?: { epoch: number };
+}
+
+export interface DocumentComment {
+  id: string;
+  parentId: string | null;
+  authorId: string | null;
+  authorName: string;
+  body: string;
+  anchor: CommentAnchor | null;
+  createdAt: string;
+  updatedAt: string;
+  resolvedAt: string | null;
+  /** Whether the person signed in may change or remove it. */
+  mine: boolean;
+}
+
+export interface CommentThread extends DocumentComment {
+  replies: DocumentComment[];
+}
+
+export interface AccessRequestEntry {
+  id: string;
+  documentId: string | null;
+  documentTitle: string | null;
+  name: string;
+  email: string;
+  wanted: 'account' | 'view' | 'edit';
+  note: string;
+  createdAt: string;
 }
 
 export interface VersionSummary {
@@ -162,8 +199,11 @@ export const api = {
   deleteDocument: (id: string) =>
     request<{ ok: boolean }>(`/documents/${id}`, { method: 'DELETE' }),
 
-  importDocx: (file: File) => {
+  importDocx: (file: File, options: UploadOptions = {}) => {
     const form = new FormData();
+    // Fields first: the server reads them as it reaches the file.
+    if (options.docType) form.append('docType', options.docType);
+    if (options.stripRunning) form.append('stripRunning', '1');
     form.append('file', file, file.name);
     return request<{ document: DocumentDetail; messages: string[] }>('/documents/import', {
       method: 'POST',
@@ -187,17 +227,87 @@ export const api = {
       ...json({ userId, permission }),
     }),
 
+  /** Hold the document still for approval, or release it. Its owner only. */
+  setLocked: (id: string, locked: boolean) =>
+    request<{ document: DocumentDetail }>(`/documents/${id}/lock`, { method: 'PUT', ...json({ locked }) }),
+
+  /** Hand the document to somebody else. */
+  transferOwnership: (id: string, userId: string) =>
+    request<{ document: DocumentDetail }>(`/documents/${id}/owner`, { method: 'PUT', ...json({ userId }) }),
+
   unshare: (id: string, userId: string) =>
     request<{ shares: ShareEntry[] }>(`/documents/${id}/shares/${userId}`, { method: 'DELETE' }),
 
+  /** What changed between two revisions, as a document with tracked changes. */
+  compare: (id: string, from: number, to?: number) =>
+    request<{ from: number; to: number; content: PMNode }>(
+      `/documents/${id}/compare?from=${from}${to === undefined ? '' : `&to=${to}`}`,
+    ),
+
+  getVersion: (id: string, revision: number) =>
+    request<{ content: PMNode }>(`/documents/${id}/versions/${revision}`),
+
+  /** The signed-in person's own additions to the spelling dictionary. */
+  listWords: () => request<{ words: string[] }>('/me/words'),
+  addWord: (word: string) => request<{ ok: true }>('/me/words', { method: 'POST', ...json({ word }) }),
+
+  requestAccount: (input: { name: string; email: string; note: string }) =>
+    request<{ ok: true }>('/access-requests/account', { method: 'POST', ...json(input) }),
+
+  requestEdit: (id: string, note: string) =>
+    request<{ ok: true }>(`/documents/${id}/access-requests`, { method: 'POST', ...json({ note }) }),
+
+  listAccessRequests: () => request<{ requests: AccessRequestEntry[] }>('/access-requests'),
+
+  decideAccessRequest: (requestId: string, approve: boolean) =>
+    request<{ ok: true }>(`/access-requests/${requestId}`, { method: 'POST', ...json({ approve }) }),
+
+  listComments: (id: string) => request<{ threads: CommentThread[] }>(`/documents/${id}/comments`),
+
+  addComment: (id: string, input: { body: string; parentId?: string; anchor?: CommentAnchor }) =>
+    request<{ comment: DocumentComment }>(`/documents/${id}/comments`, { method: 'POST', ...json(input) }),
+
+  updateComment: (id: string, commentId: string, patch: { body?: string; resolved?: boolean }) =>
+    request<{ comment: DocumentComment }>(`/documents/${id}/comments/${commentId}`, {
+      method: 'PATCH',
+      ...json(patch),
+    }),
+
+  removeComment: (id: string, commentId: string) =>
+    request<{ ok: true }>(`/documents/${id}/comments/${commentId}`, { method: 'DELETE' }),
+
   /** The export endpoint returns a file, so it is fetched directly rather than as JSON. */
-  exportUrl: (id: string, format: 'docx' | 'txt') =>
-    `/api/documents/${id}/export?format=${format}`,
+  exportUrl: (id: string, format: ExportFormat, options: ExportOptions = {}) =>
+    `/api/documents/${id}/export?format=${format}${options.changes ? `&changes=${options.changes}` : ''}${
+      options.compare ? `&compare=${options.compare}` : ''
+    }`,
 };
 
 /** Trigger a browser download without leaving the page. */
-export async function downloadExport(id: string, format: 'docx' | 'txt'): Promise<void> {
-  const response = await fetch(api.exportUrl(id, format), { credentials: 'same-origin' });
+export const DOCUMENT_TYPES = ['Framework', 'Policy', 'Standard', 'Procedure', 'Guideline', 'Other'] as const;
+export type DocumentType = (typeof DOCUMENT_TYPES)[number];
+
+export interface UploadOptions {
+  docType?: DocumentType;
+  /** Leave the uploaded file's own header and footer out, so the approved ones can go in. */
+  stripRunning?: boolean;
+}
+
+export type ExportFormat = 'docx' | 'pdf' | 'txt' | 'original';
+
+export interface ExportOptions {
+  /** Tracked changes as they stand, all accepted, or all rejected. */
+  changes?: 'accepted' | 'rejected';
+  /** A redline against an earlier revision: "1" or "1:7". */
+  compare?: string;
+}
+
+export async function downloadExport(
+  id: string,
+  format: ExportFormat,
+  options: ExportOptions = {},
+): Promise<void> {
+  const response = await fetch(api.exportUrl(id, format, options), { credentials: 'same-origin' });
   if (!response.ok) throw new ApiError(response.status, 'EXPORT_FAILED', 'The export failed.');
   const disposition = response.headers.get('content-disposition') ?? '';
   const blob = await response.blob();

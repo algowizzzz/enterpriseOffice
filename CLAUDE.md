@@ -23,6 +23,9 @@ npm run build && npm start   # the built server, serving the built client
 node scripts/fidelity/run.mjs          # 50-document Word round trip, scored
 node scripts/fidelity/run.mjs --shots  # the same, photographing each document
 node scripts/ui-walkthrough.mjs        # drive the built portal in a browser
+npm run try -- <files or folders>      # round trip your own Word documents
+sh scripts/fidelity/wide/make_all.sh data/wide-corpus   # 35 documents from three other producers
+npm run release                        # the air-gapped archive
 ```
 
 `npm run verify` is the gate. It must pass before any commit. It takes about
@@ -41,7 +44,10 @@ Break any of these and something real breaks with it.
    remote URL in the browser bundle, and the end-to-end run fails if the server
    opens a socket beyond loopback. If you need an asset, vendor it.
 2. **Licences stay clean.** MIT, BSD, Apache-2.0, ISC, MPL-2.0 and SIL OFL only.
-   No GPL or AGPL, at any depth. That rules out OnlyOffice, CKEditor 5 and
+   No GPL or AGPL, at any depth. `npm run notices` enforces it. The two spelling
+   dictionaries are under the SCOWL word-list terms, which are permissive but not
+   an SPDX identifier; they are allowed by name in that script, with what the
+   text says. Nothing else may be added there without reading what it ships. That rules out OnlyOffice, CKEditor 5 and
    TinyMCE's collaboration features, which is why this exists at all.
 3. **A validation rule is only half a change.** The other half is whatever makes
    real content satisfy it. Three separate rounds of this project shipped a
@@ -58,6 +64,19 @@ Break any of these and something real breaks with it.
    the server. Importer, exporter, editor and validator all speak it. A node or
    mark that exists in one and not the others is a document that opens blank.
    `apps/web/test/editor.test.tsx` asserts the vocabularies match.
+
+7. **Preserve by default, edit what we understand.** The Word export patches the
+   file that was uploaded: only `word/document.xml`, the comments parts and
+   what the writer adds are touched. The reader keeps every node's Word
+   identity (style, numbering, raw properties) by reference, and turns what the
+   model has no node for into an opaque object. Do not "simplify" the writer
+   into building a file from nothing: that is how a letterhead, a chart and a
+   corporate style sheet were lost on every export. See `docs/10` section 3.
+8. **Comments are not in the text.** They are anchored by quotation, so that a
+   comment is never an edit. Do not move them into marks.
+9. **The stored JSON is the truth; the shared document is how people reach the
+   next one.** Everything reads the snapshot. A room writes it through the same
+   repair and validation as any save.
 
 ## Conventions
 

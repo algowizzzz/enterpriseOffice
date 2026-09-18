@@ -253,10 +253,51 @@ try {
 
   const rejectedUpload = await (async () => {
     const bad = new FormData();
-    bad.append('file', new Blob(['not a docx at all'], { type: 'application/pdf' }), 'notes.pdf');
+    bad.append('file', new Blob(['a,b,c'], { type: 'text/csv' }), 'figures.csv');
     return call('/api/documents/import', { method: 'POST', body: bad });
   })();
-  check('a file that is not a .docx is rejected', rejectedUpload.status === 415);
+  check('a file that is neither Word nor PDF is rejected', rejectedUpload.status === 415);
+
+  console.log('\nOriginal, PDF, comments and comparison');
+  const importedId = imported.document?.id;
+  const original = await call(`/api/documents/${importedId}/export?format=original`);
+  const originalBytes = Buffer.from(await original.arrayBuffer());
+  check('the file that was uploaded can be downloaded again, byte for byte', originalBytes.equals(Buffer.from(docxBytes)));
+
+  const asPdf = await call(`/api/documents/${importedId}/export?format=pdf`);
+  const pdfBytes = Buffer.from(await asPdf.arrayBuffer());
+  check('the document exports as a PDF', asPdf.ok && pdfBytes.subarray(0, 5).toString() === '%PDF-');
+
+  const pdfForm = new FormData();
+  pdfForm.append('file', new Blob([pdfBytes], { type: 'application/pdf' }), 'Round trip.pdf');
+  const fromPdf = await asJson(await call('/api/documents/import', { method: 'POST', body: pdfForm }));
+  check(
+    'a PDF uploads as a document that can be edited',
+    JSON.stringify(fromPdf.document?.content ?? {}).includes('A bullet point'),
+  );
+  // Removed again, so that the checks further down still count what they expect.
+  if (fromPdf.document?.id) await call(`/api/documents/${fromPdf.document.id}`, { method: 'DELETE' });
+
+  const commented = await call(`/api/documents/${importedId}/comments`, {
+    method: 'POST',
+    body: JSON.stringify({ body: 'Checked by the smoke test.' }),
+  });
+  const threads = await asJson(await call(`/api/documents/${importedId}/comments`));
+  check('a comment is kept and listed', commented.status === 201 && threads.threads?.length === 1);
+
+  const current = await asJson(await call(`/api/documents/${importedId}`));
+  const changed = JSON.parse(JSON.stringify(current.document.content));
+  changed.content.push({ type: 'paragraph', content: [{ type: 'text', text: 'Added since the original.' }] });
+  await call(`/api/documents/${importedId}`, {
+    method: 'PUT',
+    body: JSON.stringify({ content: changed, expectedRevision: current.document.revision }),
+  });
+  const redline = await asJson(await call(`/api/documents/${importedId}/compare?from=1`));
+  check(
+    'a comparison with the original marks what was added',
+    JSON.stringify(redline.content ?? {}).includes('"insertion"'),
+  );
+  check('the document says which shared session to join', Number(current.document?.collab?.epoch) >= 1);
 
   console.log('\nAccess control');
   const writerCookie = cookie;

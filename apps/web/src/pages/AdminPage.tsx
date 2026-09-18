@@ -1,3 +1,4 @@
+import { AccessRequests } from '../components/AccessRequests';
 import { useCallback, useEffect, useState, type FormEvent, type JSX } from 'react';
 import { api, ApiError, type AuditEntry, type Role, type User } from '../lib/api';
 import { useSession } from '../lib/session';
@@ -77,6 +78,7 @@ export function AdminPage(): JSX.Element {
   return (
     <div className="page-wrap">
       <h1>Administration</h1>
+      <AccessRequests />
 
       {error ? (
         <p className="error" role="alert">

@@ -1,5 +1,12 @@
 import { useCallback, useEffect, useRef, useState, type JSX } from 'react';
-import { api, ApiError, downloadExport, type DocumentSummary } from '../lib/api';
+import {
+  api,
+  ApiError,
+  downloadExport,
+  DOCUMENT_TYPES,
+  type DocumentSummary,
+  type DocumentType,
+} from '../lib/api';
 import { useSession } from '../lib/session';
 
 interface DocumentsPageProps {
@@ -49,12 +56,19 @@ export function DocumentsPage({ onOpen }: DocumentsPageProps): JSX.Element {
     }
   };
 
+  const [docType, setDocType] = useState<DocumentType | ''>('');
+  const [stripRunning, setStripRunning] = useState(false);
+  const [helpOpen, setHelpOpen] = useState(false);
+
   const upload = async (file: File): Promise<void> => {
     setBusy(true);
     setNotice(null);
     setError(null);
     try {
-      const { document, messages } = await api.importDocx(file);
+      const options = { ...(docType ? { docType } : {}), ...(stripRunning ? { stripRunning } : {}) };
+      const { document, messages } = await (Object.keys(options).length > 0
+        ? api.importDocx(file, options)
+        : api.importDocx(file));
       if (messages.length > 0) setNotice(messages.join(' '));
       onOpen(document.id);
     } catch (caught) {
@@ -92,7 +106,7 @@ export function DocumentsPage({ onOpen }: DocumentsPageProps): JSX.Element {
       <header className="page-header">
         <div>
           <h1>Documents</h1>
-          <p className="muted">Create a document, or upload a Word file to keep working on it.</p>
+          <p className="muted">Create a document, or upload a Word file or a PDF to keep working on it.</p>
         </div>
         <div className="actions">
           <button
@@ -110,12 +124,12 @@ export function DocumentsPage({ onOpen }: DocumentsPageProps): JSX.Element {
             onClick={() => fileInput.current?.click()}
             disabled={busy || !canCreate}
           >
-            Upload .docx
+            Upload Word or PDF
           </button>
           <input
             ref={fileInput}
             type="file"
-            accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            accept=".docx,.pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/pdf"
             hidden
             onChange={(event) => {
               const file = event.target.files?.[0];
@@ -124,6 +138,58 @@ export function DocumentsPage({ onOpen }: DocumentsPageProps): JSX.Element {
           />
         </div>
       </header>
+
+      {canCreate ? (
+        <div className="upload-options">
+          <label title="Recorded with the document and shown beside its name">
+            Type of document for the next upload
+            <select value={docType} onChange={(event) => setDocType(event.target.value as DocumentType | '')}>
+              <option value="">Not stated</option>
+              {DOCUMENT_TYPES.map((type) => (
+                <option key={type} value={type}>
+                  {type}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label title="Leave the uploaded file's own header and footer out, so that the approved ones can be applied. The original file is kept either way">
+            <input type="checkbox" checked={stripRunning} onChange={(event) => setStripRunning(event.target.checked)} />{' '}
+            Remove the file&rsquo;s header and footer
+          </label>
+          <button type="button" className="link" aria-expanded={helpOpen} onClick={() => setHelpOpen((open) => !open)}>
+            {helpOpen ? 'Hide the guide' : 'How this works'}
+          </button>
+        </div>
+      ) : null}
+      {helpOpen ? (
+        <section className="panel guide" aria-label="How this works">
+          <h2>How this works</h2>
+          <ol>
+            <li>
+              <strong>Upload</strong> a Word file. It opens looking as it did in Word: its own styles, numbering, tables,
+              pictures, header and footer. The file you uploaded is kept untouched and can be downloaded again with
+              <em> Original</em>.
+            </li>
+            <li>
+              <strong>Edit</strong> it here. Several people can type in the same document at once and see each other.
+              Anything Word holds that cannot be edited here (a chart, a text box, a footnote mark) is shown as a
+              placeholder and goes back out exactly as it came in.
+            </li>
+            <li>
+              <strong>Review</strong>. Switch on <em>Track changes</em> to propose edits, comment on selected words, reply
+              and resolve. People with view access can comment. <em>Redline</em> shows everything that has changed since
+              the original.
+            </li>
+            <li>
+              <strong>Export</strong> to Word at any time, with tracked changes as they stand or all accepted, or as a
+              redline other people can accept and reject in Word.
+            </li>
+          </ol>
+          <p className="hint">
+            Hover over any button for a description. Ctrl+F finds and replaces. Every save is kept under History.
+          </p>
+        </section>
+      ) : null}
 
       {!canCreate ? (
         <p className="hint">Your account can read documents shared with you, but not create them.</p>
@@ -140,7 +206,7 @@ export function DocumentsPage({ onOpen }: DocumentsPageProps): JSX.Element {
       ) : documents.length === 0 ? (
         <div className="empty">
           <p>You have no documents yet.</p>
-          <p className="muted">Start a blank one, or upload a .docx file.</p>
+          <p className="muted">Start a blank one, or upload a Word file or a PDF.</p>
         </div>
       ) : (
         <table className="grid">
@@ -163,6 +229,7 @@ export function DocumentsPage({ onOpen }: DocumentsPageProps): JSX.Element {
                   <button type="button" className="link" onClick={() => onOpen(document.id)}>
                     {document.title}
                   </button>
+                  {document.docType ? <span className="badge badge-type">{document.docType}</span> : null}
                   {document.origin === 'import' ? (
                     <span className="badge" title={document.sourceName ?? ''}>
                       imported

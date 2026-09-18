@@ -472,3 +472,69 @@ describe('docx import, rejection', () => {
     await expect(importDocx(notWord)).rejects.toThrow(/Could not read that \.docx file/u);
   });
 });
+
+describe('docx round trip, links', () => {
+  const linked = (href: string): PMNode =>
+    doc({
+      type: 'paragraph',
+      content: [
+        { type: 'text', text: 'See ' },
+        { type: 'text', text: 'the standard', marks: [{ type: 'link', attrs: { href } }] },
+        { type: 'text', text: ' for detail.' },
+      ],
+    });
+
+  const hrefsIn = (node: PMNode, found: string[] = []): string[] => {
+    for (const mark of node.marks ?? []) {
+      if (mark.type === 'link') found.push(String(mark.attrs?.['href']));
+    }
+    for (const child of node.content ?? []) hrefsIn(child, found);
+    return found;
+  };
+
+  it('keeps where a link goes, not only how it looks', async () => {
+    // The writer underlined a link and dropped its address. The exported file
+    // looked right in Word and every reference in it went nowhere; an uploaded
+    // policy lost all of its links on the first export.
+    const back = await roundTrip(linked('https://policies.example.invalid/standards/access'));
+    expect(hrefsIn(back)).toEqual(['https://policies.example.invalid/standards/access']);
+    expect(toPlainText(back)).toContain('See the standard for detail.');
+  });
+
+  it('keeps a mail link', async () => {
+    const back = await roundTrip(linked('mailto:owner@example.invalid'));
+    expect(hrefsIn(back)).toEqual(['mailto:owner@example.invalid']);
+  });
+
+  it('keeps the words of a link Word could not follow', async () => {
+    // "/documents/12" means something in a browser and nothing inside a file.
+    const back = await roundTrip(linked('/documents/12'));
+    expect(toPlainText(back)).toContain('See the standard for detail.');
+  });
+});
+
+describe('a contents table made in the editor', () => {
+  const withContents = doc(
+    { type: 'wordBlock', attrs: { kind: 'toc', label: '' } },
+    { type: 'heading', attrs: { level: 1 }, content: [{ type: 'text', text: 'Purpose' }] },
+    paragraph('Body text.'),
+    { type: 'heading', attrs: { level: 2 }, content: [{ type: 'text', text: 'Scope & limits' }] },
+  );
+
+  it('is written as the field Word builds its own contents from, listing the headings', async () => {
+    const { strFromU8, unzipSync } = await import('fflate');
+    const xml = strFromU8(unzipSync(new Uint8Array(await exportDocx(withContents, { title: 'T' })))['word/document.xml']!);
+    // A field, so that Word can fill in page numbers, and marked as needing it.
+    expect(xml).toMatch(/w:fldCharType="begin" w:dirty="true"/u);
+    expect(xml).toMatch(/TOC \\o "1-3"/u);
+    const field = xml.slice(xml.indexOf('fldCharType="begin"'), xml.indexOf('fldCharType="end"'));
+    expect(field).toContain('Purpose');
+    expect(field).toContain('Scope &amp; limits');
+  });
+
+  it('comes back as a contents table, not as loose paragraphs', async () => {
+    const back = await roundTrip(withContents);
+    expect(collect(back, 'wordBlock').map((node) => node.attrs?.['kind'])).toEqual(['toc']);
+    expect(collect(back, 'heading')).toHaveLength(2);
+  });
+});

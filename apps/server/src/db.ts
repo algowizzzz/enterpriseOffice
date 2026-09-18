@@ -96,7 +96,149 @@ const MIGRATIONS: { id: string; sql: string }[] = [
     // one, and they are not content, so they sit beside the document.
     id: '0002_page_setup',
     sql: `ALTER TABLE documents ADD COLUMN page_setup TEXT NOT NULL DEFAULT '{}';`,
-  }
+  },
+  {
+    // The file a document was uploaded as, byte for byte, and what the reader
+    // kept from it: the markup it holds by reference, the styles resolved for
+    // drawing, and the page setup as it was read. The export patches this file
+    // rather than building a new one, which is what keeps a letterhead, a chart
+    // or a corporate style sheet through a round trip. It is also the
+    // "original" that can be downloaded again at any time. One row per
+    // document and never rewritten, so it sits outside the versions table.
+    id: '0003_document_sources',
+    sql: `
+      CREATE TABLE document_sources (
+        document_id   TEXT PRIMARY KEY REFERENCES documents(id) ON DELETE CASCADE,
+        file_name     TEXT NOT NULL,
+        media_type    TEXT NOT NULL,
+        bytes         BLOB NOT NULL,
+        package       BLOB,
+        fragments     TEXT NOT NULL DEFAULT '{}',
+        styles        TEXT NOT NULL DEFAULT '{}',
+        page_setup    TEXT NOT NULL DEFAULT '{}',
+        created_at    TEXT NOT NULL
+      );
+    `,
+  },
+  {
+    // Comments sit beside the document, not in it. See CommentAnchor in the
+    // model for why: a comment must not be an edit. A reply names its parent;
+    // only the first comment of a thread has an anchor or can be resolved.
+    // `author_name` is what the comment is signed with: the account's name, or
+    // for a comment that arrived in a Word file, the name Word recorded, which
+    // belongs to nobody here.
+    id: '0004_comments',
+    sql: `
+      CREATE TABLE comments (
+        id           TEXT PRIMARY KEY,
+        document_id  TEXT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+        parent_id    TEXT REFERENCES comments(id) ON DELETE CASCADE,
+        author_id    TEXT REFERENCES users(id) ON DELETE SET NULL,
+        author_name  TEXT NOT NULL,
+        body         TEXT NOT NULL,
+        anchor       TEXT,
+        created_at   TEXT NOT NULL,
+        updated_at   TEXT NOT NULL,
+        resolved_at  TEXT,
+        resolved_by  TEXT REFERENCES users(id) ON DELETE SET NULL,
+        deleted_at   TEXT
+      );
+      CREATE INDEX idx_comments_document ON comments(document_id, created_at);
+    `,
+  },
+  {
+    // The shared (CRDT) form of a document that people have open together.
+    //
+    // `state` is the whole shared document, so somebody who was offline can
+    // reconnect after a restart and have their changes merged rather than
+    // duplicated. It only means anything while the stored content has not been
+    // replaced behind its back: `revision` says which revision it matches, and
+    // `epoch` is bumped whenever the shared document is started afresh (a
+    // version was restored, or content was written by something that is not the
+    // editor). A browser still holding an older epoch is told to reload instead
+    // of merging its history into a document that no longer shares it.
+    id: '0005_document_collab',
+    sql: `
+      CREATE TABLE document_collab (
+        document_id TEXT PRIMARY KEY REFERENCES documents(id) ON DELETE CASCADE,
+        epoch       INTEGER NOT NULL DEFAULT 1,
+        revision    INTEGER NOT NULL DEFAULT 0,
+        state       BLOB,
+        updated_at  TEXT NOT NULL
+      );
+    `,
+  },
+  {
+    // What kind of controlled document this is: a framework, a policy, a
+    // standard, a procedure. Chosen at upload and shown beside the name.
+    id: '0006_document_type',
+    sql: `ALTER TABLE documents ADD COLUMN doc_type TEXT;`,
+  },
+  {
+    // A locked document can be read and commented on and not changed, by
+    // anybody, until its owner unlocks it: what Word calls restricting editing
+    // to comments. It is how a document is held still while it is approved.
+    id: '0007_document_lock',
+    sql: `ALTER TABLE documents ADD COLUMN locked INTEGER NOT NULL DEFAULT 0;`,
+  },
+  {
+    // Asking for access, and being answered. With accounts made by hand there is
+    // no directory to look somebody up in, so the request has to be able to
+    // arrive from somebody with no account at all: `user_id` is null for those,
+    // and `document_id` is null for a request for an account rather than for a
+    // document. Requests are answered, never deleted, so that who let whom in
+    // stays on the record.
+    id: '0008_access_requests',
+    sql: `
+      CREATE TABLE access_requests (
+        id           TEXT PRIMARY KEY,
+        document_id  TEXT REFERENCES documents(id) ON DELETE CASCADE,
+        user_id      TEXT REFERENCES users(id) ON DELETE CASCADE,
+        name         TEXT NOT NULL,
+        email        TEXT NOT NULL,
+        wanted       TEXT NOT NULL CHECK (wanted IN ('account','view','edit')),
+        note         TEXT NOT NULL DEFAULT '',
+        status       TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','approved','declined')),
+        created_at   TEXT NOT NULL,
+        decided_at   TEXT,
+        decided_by   TEXT REFERENCES users(id) ON DELETE SET NULL
+      );
+      CREATE INDEX idx_access_requests_open ON access_requests(status, document_id);
+    `,
+  },
+  {
+    // Words somebody has told the spell check are right: a surname, a product,
+    // a term of art. Theirs, and with them wherever they sign in.
+    id: '0009_user_words',
+    sql: `
+      CREATE TABLE user_words (
+        user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        word       TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        PRIMARY KEY (user_id, word)
+      );
+    `,
+  },
+  {
+    // Pictures, kept beside the document they belong to rather than inside its
+    // text, under a hash of their bytes. A document with forty megabytes of
+    // pictures used to be forty megabytes of JSON on every save, and the editor
+    // capped what it would show at eight to stay usable. Rows go when the
+    // document goes; they are never removed while it exists, because an earlier
+    // version may still show the picture.
+    id: '0010_document_media',
+    sql: `
+      CREATE TABLE document_media (
+        document_id TEXT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+        hash        TEXT NOT NULL,
+        media_type  TEXT NOT NULL,
+        bytes       BLOB NOT NULL,
+        created_at  TEXT NOT NULL,
+        PRIMARY KEY (document_id, hash)
+      );
+      CREATE INDEX idx_document_media_hash ON document_media(hash);
+    `,
+  },
 ];
 
 export function openDatabase(file: string): Database {

@@ -222,8 +222,13 @@ describe('the budget for embedded pictures', () => {
       body += drawing(`rId${index}`);
     }
     const result = await importDocx(docxFixture({ body, relationships, media }));
-    const size = Buffer.byteLength(JSON.stringify(result.content), 'utf8');
+    // What is stored is the document with its pictures taken out into their own
+    // store, which is what keeps this true however many pictures there are.
+    const { takePicturesOut } = await import('../src/services/media.js');
+    const stored = takePicturesOut(result.content);
+    const size = Buffer.byteLength(JSON.stringify(stored.doc), 'utf8');
     expect(size).toBeLessThan(MAX_CONTENT_BYTES);
+    expect(stored.pictures).toHaveLength(1);
   });
 });
 

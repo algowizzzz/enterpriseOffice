@@ -702,3 +702,440 @@ main {
     padding: 0 0 12px;
   }
 }
+
+/* Things kept from the Word file that the editor carries and does not edit. */
+.word-inline {
+  background: #eef1f5;
+  border-radius: 2px;
+  padding: 0 2px;
+  white-space: pre-wrap;
+  cursor: default;
+}
+.word-inline-hidden {
+  display: inline-block;
+  width: 0;
+  padding: 0;
+  overflow: hidden;
+}
+.word-inline-footnote,
+.word-inline-endnote {
+  vertical-align: super;
+  font-size: 0.75em;
+  background: none;
+  color: #1f4e79;
+}
+.word-inline-symbol,
+.word-inline-tab {
+  background: none;
+  padding: 0;
+}
+.word-inline-textbox,
+.word-inline-shape,
+.word-inline-chart,
+.word-inline-diagram,
+.word-inline-object,
+.word-inline-picture,
+.word-inline-equation {
+  display: inline-block;
+  border: 1px dashed #8a97a8;
+  background: #f6f8fb;
+  padding: 2px 6px;
+  font-size: 0.85em;
+  color: #3b4757;
+  max-width: 100%;
+}
+.word-block {
+  border: 1px dashed #8a97a8;
+  background: #f6f8fb;
+  padding: 8px 12px;
+  margin: 8px 0;
+  color: #3b4757;
+}
+.word-block-title {
+  font-size: 0.75em;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #6b7785;
+  margin-bottom: 4px;
+}
+.word-block-line {
+  white-space: pre-wrap;
+}
+.ProseMirror-selectednode.word-inline,
+.ProseMirror-selectednode.word-block {
+  outline: 2px solid #2e75b6;
+}
+
+/* Comments: a column beside the page, and highlights on the words. */
+.editor-with-side {
+  display: flex;
+  align-items: flex-start;
+  min-height: 0;
+  flex: 1;
+}
+.editor-with-side > .editor {
+  flex: 1;
+  min-width: 0;
+}
+.comments-panel {
+  width: 320px;
+  flex: none;
+  align-self: stretch;
+  overflow-y: auto;
+  max-height: calc(100vh - 110px);
+  position: sticky;
+  top: 0;
+  border-left: 1px solid #d9dee5;
+  background: #fafbfc;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.comments-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+.comments-head h2 {
+  margin: 0;
+  font-size: 1rem;
+}
+.comment-thread {
+  border: 1px solid #d9dee5;
+  border-radius: 6px;
+  background: #fff;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.comment-thread-active {
+  border-color: #e0a800;
+  box-shadow: 0 0 0 2px rgba(224, 168, 0, 0.2);
+}
+.comment-thread-resolved {
+  opacity: 0.7;
+}
+.comment-quote {
+  margin: 0;
+  font-size: 0.85em;
+  color: #5b6673;
+  border-left: 3px solid #f2c94c;
+  padding-left: 8px;
+}
+.comment-meta {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  font-size: 0.85em;
+}
+.comment-body {
+  margin: 2px 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.comment-reply {
+  border-top: 1px solid #eef0f3;
+  padding-top: 6px;
+  margin-left: 10px;
+}
+.comment-actions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+.comments-panel textarea {
+  width: 100%;
+  min-height: 64px;
+  resize: vertical;
+  font: inherit;
+  padding: 6px;
+  box-sizing: border-box;
+}
+.danger-link {
+  color: #b3261e;
+}
+.comment-mark {
+  background: rgba(242, 201, 76, 0.45);
+  border-bottom: 2px solid #e0a800;
+  cursor: pointer;
+}
+.comment-mark-resolved {
+  background: rgba(160, 170, 180, 0.25);
+  border-bottom-color: #a0aab4;
+}
+.comment-mark-active {
+  background: rgba(242, 153, 74, 0.55);
+}
+@media print {
+  .comments-panel {
+    display: none;
+  }
+  .comment-mark {
+    background: none;
+    border: none;
+  }
+}
+
+/* Tracked changes, drawn as Word draws them. */
+.tracked-insertion {
+  color: #b3261e;
+  text-decoration: underline;
+  text-decoration-color: #b3261e;
+  background: none;
+}
+.tracked-deletion {
+  color: #b3261e;
+  text-decoration: line-through;
+}
+/* The redline view: what is unchanged steps back so the changes stand out. */
+.view-redline .page {
+  color: #7a8490;
+}
+.view-redline .page .tracked {
+  color: #b3261e;
+}
+.view-tabs {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  padding: 6px 16px 0;
+  border-bottom: 1px solid #d9dee5;
+}
+.view-tab {
+  border: 1px solid transparent;
+  border-bottom: none;
+  border-radius: 6px 6px 0 0;
+  background: none;
+  padding: 6px 14px;
+  margin-bottom: -1px;
+}
+.view-tab.is-active {
+  border-color: #d9dee5;
+  background: #fff;
+  font-weight: 600;
+}
+.view-tabs .link {
+  margin-left: 12px;
+}
+.track-toggle {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-weight: 600;
+}
+.change-kind {
+  font-size: 0.75em;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 1px 5px;
+  border-radius: 3px;
+}
+.change-kind-insertion {
+  background: #e6f4ea;
+  color: #1e6b34;
+}
+.change-kind-deletion {
+  background: #fce8e6;
+  color: #b3261e;
+}
+
+/* Who else has the document open, and their cursors in the text. */
+.presence {
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+}
+.presence-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  color: #fff;
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+.save-offline {
+  color: #b3261e;
+}
+.collaboration-carets__caret,
+.collaboration-cursor__caret {
+  position: relative;
+  margin-left: -1px;
+  margin-right: -1px;
+  border-left: 1px solid;
+  border-right: 1px solid;
+  word-break: normal;
+  pointer-events: none;
+}
+.collaboration-carets__label,
+.collaboration-cursor__label {
+  position: absolute;
+  top: -1.4em;
+  left: -1px;
+  padding: 1px 5px;
+  border-radius: 3px 3px 3px 0;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: normal;
+  white-space: nowrap;
+  user-select: none;
+}
+
+/* Find and replace. */
+.find-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  padding: 6px 12px;
+  border-bottom: 1px solid #d9dee5;
+  background: #f6f8fb;
+}
+.find-bar input[type='text'],
+.find-bar input:not([type]) {
+  padding: 4px 8px;
+  min-width: 180px;
+}
+.find-count {
+  min-width: 64px;
+}
+.search-hit {
+  background: #fff3a3;
+}
+.search-hit-current {
+  background: #ffb74d;
+}
+@media print {
+  .find-bar,
+  .view-tabs,
+  .editor-header,
+  .toolbar,
+  .status-bar {
+    display: none !important;
+  }
+}
+
+.upload-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  align-items: center;
+  margin: 8px 0 12px;
+  font-size: 0.9rem;
+}
+.upload-options select {
+  margin-left: 8px;
+}
+.badge-type {
+  background: #e7eef8;
+  color: #1f4e79;
+  margin-left: 8px;
+}
+.guide ol {
+  padding-left: 20px;
+  display: grid;
+  gap: 8px;
+}
+
+.page-notes {
+  border-top: 1px solid #b8c0cc;
+  margin: 24px 72px 0;
+  padding-top: 8px;
+  font-size: 0.85em;
+  color: #3b4757;
+}
+.page-notes p {
+  margin: 2px 0;
+}
+.word-inline-control {
+  border: 1px solid #8a97a8;
+  border-radius: 3px;
+  background: #fff;
+  padding: 0 4px;
+}
+
+/* Clause numbers, worked out as Word works them out, not typed. */
+.heading-number {
+  user-select: none;
+  color: inherit;
+}
+
+/* Spelling. */
+.spell-error {
+  text-decoration: underline wavy #d93025;
+  text-decoration-skip-ink: none;
+  text-underline-offset: 2px;
+}
+.spell-menu {
+  position: fixed;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  min-width: 200px;
+  padding: 4px;
+  background: #fff;
+  border: 1px solid #c5ccd6;
+  border-radius: 6px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.15);
+}
+.spell-menu button {
+  border: none;
+  background: none;
+  text-align: left;
+  padding: 6px 10px;
+  border-radius: 4px;
+}
+.spell-menu button:hover {
+  background: #eef2f7;
+}
+.spell-menu-add {
+  border-top: 1px solid #e3e7ec !important;
+  color: #3b4757;
+}
+@media print {
+  .spell-error {
+    text-decoration: none;
+  }
+}
+
+/* Footnote and endnote marks number themselves by where they are in the text,
+   so a note added in the middle renumbers the ones after it, as Word does. */
+.page {
+  counter-reset: footnote endnote;
+}
+.word-inline-footnote::before {
+  counter-increment: footnote;
+  content: counter(footnote);
+}
+.word-inline-endnote::before {
+  counter-increment: endnote;
+  content: counter(endnote, lower-roman);
+}
+.word-inline-control select,
+.word-inline-control input {
+  font: inherit;
+  border: none;
+  background: transparent;
+}
+.page-notes .link {
+  margin-left: 8px;
+}
+
+/* A tracked change to the paragraph mark: Enter pressed, or a join. */
+.page [data-pm-change]::after {
+  content: '\00b6';
+  color: #b3261e;
+  margin-left: 2px;
+  user-select: none;
+}
+.page [data-pm-change='insertion']::after {
+  text-decoration: underline;
+}
+.page [data-pm-change='deletion']::after {
+  text-decoration: line-through;
+}
