@@ -94,21 +94,36 @@ interface MammothParagraph {
   styleName?: string | null;
 }
 
-interface MammothLike {
-  transforms: { paragraph: (fn: (p: MammothParagraph) => MammothParagraph) => unknown };
+type ParagraphTransform = (paragraph: MammothParagraph) => MammothParagraph;
+
+/**
+ * Mammoth exposes `transforms` at run time but leaves it out of its published
+ * type declarations, so the part of the shape this file relies on is written
+ * out here rather than reached for with a bare cast at the call site.
+ */
+interface MammothTransforms {
+  paragraph: (transform: ParagraphTransform) => (element: unknown) => unknown;
+}
+
+/** What a paragraph becomes once its alignment has been folded into its style. */
+export function markParagraph(paragraph: MammothParagraph): MammothParagraph {
+  const alignment = normalizeAlignment(paragraph.alignment);
+  if (!alignment) return paragraph;
+  const kind = kindForStyleName(paragraph.styleName);
+  if (!kind) return paragraph;
+  return { ...paragraph, styleId: null, styleName: markerFor(alignment, kind) };
 }
 
 /**
  * Rewrites an aligned paragraph's style name to a marker the style map knows.
  * A paragraph with no alignment, or with a style this importer does not model,
  * is returned untouched.
+ *
+ * If a future version of mammoth drops `transforms`, importing keeps working
+ * and only loses alignment, rather than failing outright.
  */
-export function alignmentTransform(mammoth: MammothLike): unknown {
-  return mammoth.transforms.paragraph((paragraph) => {
-    const alignment = normalizeAlignment(paragraph.alignment);
-    if (!alignment) return paragraph;
-    const kind = kindForStyleName(paragraph.styleName);
-    if (!kind) return paragraph;
-    return { ...paragraph, styleId: null, styleName: markerFor(alignment, kind) };
-  });
+export function alignmentTransform(mammoth: unknown): ((element: unknown) => unknown) | undefined {
+  const transforms = (mammoth as { transforms?: MammothTransforms } | null)?.transforms;
+  if (typeof transforms?.paragraph !== 'function') return undefined;
+  return transforms.paragraph(markParagraph);
 }

@@ -294,6 +294,21 @@ export async function importDocx(buffer: Buffer): Promise<ImportResult> {
     throw badRequest(`Could not read that .docx file: ${(error as Error).message}`);
   }
 
+  const converted = htmlToDocument(html);
+  for (const message of converted.messages) state.messages.add(message);
+  return { content: converted.content, messages: [...state.messages] };
+}
+
+/**
+ * Map HTML onto the editor's document model.
+ *
+ * Separated from the docx reading above so that the mapping can be exercised
+ * directly. Mammoth only ever emits a narrow, well-formed subset, which leaves
+ * the defensive branches here, the ones that matter for hostile or unusual
+ * input, unreachable from a docx fixture.
+ */
+export function htmlToDocument(html: string): ImportResult {
+  const state: ImportState = { images: 0, messages: new Set() };
   const root = parse(`<div>${html}</div>`, { blockTextElements: {} });
   const container = root.firstChild as HTMLElement;
   const blocks = blocksOf(container, state);
