@@ -11,6 +11,7 @@ export interface WordPackage {
   document: XmlElement;
   styles?: XmlElement;
   numbering?: XmlElement;
+  theme?: XmlElement;
   /** Relationship id to target, from word/_rels/document.xml.rels. */
   relationships: Map<string, { target: string; external: boolean }>;
   /** Picture bytes by part name, such as "media/image1.png". */
@@ -67,6 +68,7 @@ export function readPackage(buffer: Buffer): WordPackage {
     document: parseXml(main),
     styles: optional('word/styles.xml'),
     numbering: optional('word/numbering.xml'),
+    theme: optional('word/theme/theme1.xml'),
     relationships,
     media,
     headers: partsNamed(/^word\/header\d*\.xml$/u),

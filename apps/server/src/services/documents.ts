@@ -7,6 +7,8 @@ import {
   wordCount,
   type PageSetup,
   type PMNode,
+  styleTableFrom,
+  type StyleTable,
 } from '@docforge/model';
 import type { Database } from '../db.js';
 import { HttpError, badRequest, forbidden, notFound } from '../errors.js';
@@ -35,6 +37,89 @@ export interface DocumentDetail extends DocumentSummary {
   content: PMNode;
   /** The header, the footer and the orientation, which are not body content. */
   pageSetup: PageSetup;
+  /** The document's own styles, for drawing it as it looked in Word. */
+  styles?: StyleTable | null;
+}
+
+/** What is kept of the file a document was uploaded as. */
+export interface DocumentSource {
+  fileName: string;
+  mediaType: string;
+  /** The upload itself, untouched: what "export the original" returns. */
+  bytes: Buffer;
+  /**
+   * The Word package the export patches. The upload itself for a Word file; for
+   * a PDF, the Word file it was converted into.
+   */
+  package: Buffer;
+  fragments: Record<string, string>;
+  styles: StyleTable | null;
+  pageSetup: PageSetup;
+}
+
+export interface NewSource {
+  fileName: string;
+  mediaType: string;
+  bytes: Buffer;
+  package?: Buffer | undefined;
+  fragments: Record<string, string>;
+  styles: StyleTable | null;
+  pageSetup: PageSetup;
+}
+
+export function saveSource(db: Database, documentId: string, source: NewSource): void {
+  db.prepare(
+    `INSERT INTO document_sources (document_id, file_name, media_type, bytes, package, fragments, styles, page_setup, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).run(
+    documentId,
+    source.fileName.slice(0, 255),
+    source.mediaType,
+    source.bytes,
+    source.package ?? null,
+    JSON.stringify(source.fragments),
+    JSON.stringify(source.styles ?? {}),
+    JSON.stringify(source.pageSetup),
+    now(),
+  );
+}
+
+const parseJson = (raw: unknown): unknown => {
+  try {
+    return JSON.parse(typeof raw === 'string' ? raw : '{}');
+  } catch {
+    return {};
+  }
+};
+
+/** The source of a document the caller has already been allowed to read. */
+export function getSource(db: Database, documentId: string): DocumentSource | null {
+  const row = db
+    .prepare(
+      'SELECT file_name, media_type, bytes, package, fragments, styles, page_setup FROM document_sources WHERE document_id = ?',
+    )
+    .get(documentId) as Record<string, unknown> | undefined;
+  if (!row) return null;
+  const bytes = Buffer.from(row['bytes'] as Uint8Array);
+  const fragments = parseJson(row['fragments']);
+  return {
+    fileName: String(row['file_name']),
+    mediaType: String(row['media_type']),
+    bytes,
+    package: row['package'] ? Buffer.from(row['package'] as Uint8Array) : bytes,
+    fragments:
+      typeof fragments === 'object' && fragments !== null ? (fragments as Record<string, string>) : {},
+    styles: styleTableFrom(parseJson(row['styles'])),
+    pageSetup: pageSetupFrom(parseJson(row['page_setup'])),
+  };
+}
+
+/** Only the styles, which every open of a document needs and the bytes do not. */
+export function getSourceStyles(db: Database, documentId: string): StyleTable | null {
+  const row = db.prepare('SELECT styles FROM document_sources WHERE document_id = ?').get(documentId) as
+    | { styles?: string }
+    | undefined;
+  return row ? styleTableFrom(parseJson(row.styles)) : null;
 }
 
 interface DocRow extends Record<string, unknown> {
@@ -225,6 +310,7 @@ export function getDocument(
     ...rowToSummary(row, access, ownerName(db, row.owner_id)),
     content: parseContent(row.content),
     pageSetup: parsePageSetup(row.page_setup),
+    styles: getSourceStyles(db, id),
   };
 }
 

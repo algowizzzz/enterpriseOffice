@@ -1,4 +1,4 @@
-import type { PageSetup, PMNode } from '@docforge/model';
+import type { PageSetup, PMNode, StyleTable } from '@docforge/model';
 
 export type Role = 'admin' | 'editor' | 'viewer';
 export type UserStatus = 'active' | 'disabled';
@@ -33,6 +33,8 @@ export interface DocumentDetail extends DocumentSummary {
   content: PMNode;
   /** The running header, the running footer and the orientation of the page. */
   pageSetup: PageSetup;
+  /** The document's own styles, when it was uploaded from Word. */
+  styles?: StyleTable | null;
 }
 
 export interface VersionSummary {
@@ -191,12 +193,14 @@ export const api = {
     request<{ shares: ShareEntry[] }>(`/documents/${id}/shares/${userId}`, { method: 'DELETE' }),
 
   /** The export endpoint returns a file, so it is fetched directly rather than as JSON. */
-  exportUrl: (id: string, format: 'docx' | 'txt') =>
+  exportUrl: (id: string, format: ExportFormat) =>
     `/api/documents/${id}/export?format=${format}`,
 };
 
 /** Trigger a browser download without leaving the page. */
-export async function downloadExport(id: string, format: 'docx' | 'txt'): Promise<void> {
+export type ExportFormat = 'docx' | 'txt' | 'original';
+
+export async function downloadExport(id: string, format: ExportFormat): Promise<void> {
   const response = await fetch(api.exportUrl(id, format), { credentials: 'same-origin' });
   if (!response.ok) throw new ApiError(response.status, 'EXPORT_FAILED', 'The export failed.');
   const disposition = response.headers.get('content-disposition') ?? '';

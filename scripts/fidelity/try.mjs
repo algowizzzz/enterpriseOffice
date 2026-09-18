@@ -15,7 +15,7 @@
  * in a temporary directory, with an account that exists only for the run, and
  * removes both afterwards. The documents never leave the machine.
  */
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -63,30 +63,57 @@ for (const input of inputs) {
 }
 
 /**
- * Things the model has no place for yet. They are counted in the source so the
- * report can say "this document had nine comments and they are gone" instead of
- * leaving somebody to find out from a reviewer.
+ * Things beyond plain text and tables, counted in the markup. They are counted
+ * in the source and again in the export, so the report says "nine comments went
+ * in and nine came out" rather than leaving somebody to find out from a
+ * reviewer. Anything the editor cannot edit is meant to pass through untouched.
  */
-function unsupportedIn(buffer) {
+function extrasIn(buffer) {
   const parts = unzipSync(new Uint8Array(buffer));
   const xml = parts['word/document.xml'] ? strFromU8(parts['word/document.xml']) : '';
   const count = (pattern) => (xml.match(pattern) ?? []).length;
   const sections = count(/<w:sectPr[\s>]/gu);
+  const names = Object.keys(parts);
   return {
     'tracked insertions': count(/<w:ins\s/gu),
     'tracked deletions': count(/<w:del\s/gu),
-    comments: count(/<w:commentReference\s/gu),
-    footnotes: count(/<w:footnoteReference\s/gu),
-    endnotes: count(/<w:endnoteReference\s/gu),
-    'fields (contents, page numbers, dates)': count(/<w:fldChar\s[^>]*w:fldCharType="begin"/gu) + count(/<w:fldSimple\s/gu),
-    'text boxes and shapes': count(/<w:txbxContent[\s>]/gu) + count(/<wps:wsp[\s>]/gu),
-    'charts and SmartArt': count(/<c:chart\s/gu) + count(/<dgm:relIds\s/gu),
+    'comment anchors': count(/<w:commentReference\s/gu),
+    'footnote marks': count(/<w:footnoteReference\s/gu),
+    'endnote marks': count(/<w:endnoteReference\s/gu),
+    fields: count(/<w:fldChar\s[^>]*w:fldCharType="begin"/gu) + count(/<w:fldSimple\s/gu),
+    'text boxes and shapes': count(/<wps:wsp[\s>]/gu) + count(/<v:shape[\s>]/gu),
+    charts: count(/<c:chart\s/gu),
+    'SmartArt diagrams': count(/<dgm:relIds\s/gu),
     'embedded objects': count(/<w:object[\s>]/gu),
-    'content controls': count(/<w:sdt[\s>]/gu),
+    equations: count(/<m:oMath[\s>]/gu),
+    bookmarks: count(/<w:bookmarkStart\s/gu),
+    hyperlinks: count(/<w:hyperlink\s/gu),
     'sections after the first': Math.max(0, sections - 1),
     'multi-column sections': count(/<w:cols\s[^>]*w:num="(?:[2-9]|\d{2,})"/gu),
-    'tables inside tables': count(/<w:tc>(?:(?!<\/w:tc>).)*<w:tbl>/gsu),
+    'paragraph styles in use': new Set(xml.match(/<w:pStyle w:val="[^"]+"/gu) ?? []).size,
+    'header and footer parts': names.filter((name) => /^word\/(?:header|footer)\d*\.xml$/u.test(name)).length,
+    'pictures in headers and footers': names
+      .filter((name) => /^word\/(?:header|footer)\d*\.xml$/u.test(name))
+      .reduce((sum, name) => sum + (strFromU8(parts[name]).match(/<(?:a:blip|v:imagedata)\s/gu) ?? []).length, 0),
+    'parts in the package': names.length,
   };
+}
+
+/** Whether an independent reader opens the file. Skipped where none is installed. */
+function opensElsewhere(file) {
+  const soffice = process.env['DOCFORGE_SOFFICE'] ?? 'soffice';
+  const out = mkdtempSync(join(tmpdir(), 'docforge-open-'));
+  try {
+    const run = spawnSync(soffice, ['--headless', '--convert-to', 'pdf', '--outdir', out, file], {
+      timeout: 120000,
+      stdio: 'ignore',
+    });
+    if (run.error) return null;
+    const made = readdirSync(out).find((name) => name.endsWith('.pdf'));
+    return Boolean(made) && statSync(join(out, made)).size > 500;
+  } finally {
+    rmSync(out, { recursive: true, force: true });
+  }
 }
 
 const sleep = (ms) => new Promise((done) => setTimeout(done, ms));
@@ -128,6 +155,7 @@ server.stdout.on('data', (chunk) => log.push(String(chunk)));
 server.stderr.on('data', (chunk) => log.push(String(chunk)));
 
 let failed = 0;
+let lost = 0;
 try {
   let healthy = false;
   for (let i = 0; i < 80 && !healthy; i += 1) {
@@ -186,12 +214,31 @@ try {
     for (const [feature, score] of Object.entries(scores)) {
       if (score.expected === 0) continue;
       const mark = score.preserved === score.expected ? 'ok  ' : 'LOST';
+      if (mark === 'LOST') lost += 1;
       console.log(`  ${mark} ${feature}: ${score.preserved} of ${score.expected}`);
     }
-    const dropped = Object.entries(unsupportedIn(source)).filter(([, n]) => n > 0);
-    if (dropped.length > 0) {
-      console.log('  not carried (no place in the model yet):');
-      for (const [what, n] of dropped) console.log(`       ${n} x ${what}`);
+    // Edited as well, not only passed through: a word is added to the first
+    // paragraph, because a file that survives untouched and breaks on the first
+    // keystroke has proved nothing.
+    const went = extrasIn(source);
+    const came = extrasIn(exported);
+    for (const [what, before] of Object.entries(went)) {
+      if (before === 0) continue;
+      const after = came[what] ?? 0;
+      // Tracked changes are read as accepted, by design, until they are editable.
+      const expected = what.startsWith('tracked') ? 'accepted' : null;
+      const mark = after >= before ? 'ok  ' : expected ? 'note' : 'LOST';
+      if (mark === 'LOST') lost += 1;
+      console.log(`  ${mark} ${what}: ${after} of ${before}${expected && after < before ? ` (${expected})` : ''}`);
+    }
+    const written = join(work, `${name}.out.docx`);
+    writeFileSync(written, exported);
+    const opens = opensElsewhere(written);
+    if (opens === false) {
+      failed += 1;
+      console.log('  FAIL an independent reader could not open the exported file');
+    } else if (opens === true) {
+      console.log('  ok   an independent reader opens the exported file');
     }
     for (const message of body.messages ?? []) console.log(`  note: ${typeof message === 'string' ? message : JSON.stringify(message)}`);
   }
@@ -201,6 +248,8 @@ try {
   rmSync(work, { recursive: true, force: true });
 }
 
-console.log(`\n${files.length} document(s) tried${failed ? `, ${failed} with a problem that blocks use` : ''}.`);
+console.log(
+  `\n${files.length} document(s) tried, ${failed} with a problem that blocks use, ${lost} feature(s) not fully preserved.`,
+);
 if (KEEP) console.log(`Round-tripped copies are in ${KEEP}. Open them in Word beside the originals.`);
 process.exit(failed ? 1 : 0);

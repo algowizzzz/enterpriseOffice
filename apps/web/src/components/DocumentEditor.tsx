@@ -1,8 +1,38 @@
 import { useEffect, useRef, useState, type JSX } from 'react';
 import { EditorContent, useEditor } from '@tiptap/react';
-import { repairDocument, type PMNode, type RepairResult } from '@docforge/model';
+import {
+  repairDocument,
+  styleSheetFor,
+  type PMNode,
+  type RepairResult,
+  type StyleTable,
+} from '@docforge/model';
 import { editorExtensions } from './editorExtensions';
 import { Toolbar } from './Toolbar';
+
+/**
+ * A document without the attributes the editor left at their default.
+ *
+ * Tiptap writes every attribute a node could have, and nearly all of them are
+ * null: a paragraph that says nothing about itself was stored as a dozen ways
+ * of saying nothing. On a long document that doubled what every autosave sent.
+ */
+export function withoutDefaults(node: PMNode): PMNode {
+  const clean: PMNode = { type: node.type };
+  if (node.attrs) {
+    const kept = Object.entries(node.attrs).filter(([, value]) => value !== null && value !== undefined);
+    if (kept.length > 0) clean.attrs = Object.fromEntries(kept);
+  }
+  if (node.marks) {
+    clean.marks = node.marks.map((mark) => {
+      const kept = Object.entries(mark.attrs ?? {}).filter(([, value]) => value !== null && value !== undefined);
+      return kept.length > 0 ? { type: mark.type, attrs: Object.fromEntries(kept) } : { type: mark.type };
+    });
+  }
+  if (node.text !== undefined) clean.text = node.text;
+  if (node.content) clean.content = node.content.map(withoutDefaults);
+  return clean;
+}
 
 export type SaveState = 'saved' | 'dirty' | 'saving' | 'error' | 'conflict';
 
@@ -22,6 +52,12 @@ interface DocumentEditorProps {
    */
   header?: string;
   footer?: string;
+  /**
+   * The document's own styles, read from the file it was uploaded as. Without
+   * them every heading is the editor's idea of a heading, and "my formatting
+   * changed" is the first thing anybody says.
+   */
+  styles?: StyleTable | null;
   /**
    * Called when the repair had to remove something, so the caller can say so.
    *
@@ -58,6 +94,7 @@ export function DocumentEditor({
   onRepair,
   header = '',
   footer = '',
+  styles = null,
 }: DocumentEditorProps): JSX.Element {
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [stats, setStats] = useState<DocumentStats>({ words: 0, characters: 0 });
@@ -94,7 +131,7 @@ export function DocumentEditor({
           // Repaired on the way out. Pasted markup can carry a remote image or
           // an odd hyperlink, and tightening a server rule without this made a
           // single paste enough to strand a document for ever.
-          const result = repairDocument(instance.getJSON() as PMNode);
+          const result = repairDocument(withoutDefaults(instance.getJSON() as PMNode));
           if (result.removed) report.current?.('save');
           onChange(result.doc);
         }, AUTOSAVE_DEBOUNCE_MS);
@@ -140,6 +177,8 @@ export function DocumentEditor({
 
   return (
     <div className="editor">
+      {/* Built from numbers and checked words only: see styleSheetFor. */}
+      {styles ? <style>{styleSheetFor(styles, '.page')}</style> : null}
       <Toolbar editor={editor} disabled={readOnly} />
       <div className="page-surface">
         <div className="page-frame">

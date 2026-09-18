@@ -1,4 +1,4 @@
-import { type PMNode } from '@docforge/model';
+import { type PMNode, type StyleTable } from '@docforge/model';
 import { badRequest } from '../errors.js';
 import { readPackage } from './ooxml/package.js';
 import { documentFromPackage, type DocumentMeta } from './ooxml/toDocument.js';
@@ -10,6 +10,10 @@ export interface ImportResult {
   messages: string[];
   /** What sits outside the body: the header, the footer and the page setup. */
   meta?: DocumentMeta;
+  /** Markup the writer puts back, keyed by the reference the model carries. */
+  fragments?: Record<string, string>;
+  /** The document's own styles, resolved for drawing. */
+  styles?: StyleTable;
 }
 
 /**
@@ -41,7 +45,13 @@ export async function importDocx(buffer: Buffer): Promise<ImportResult> {
 
   try {
     const result = documentFromPackage(readPackage(buffer));
-    return { content: result.content, messages: result.messages, meta: result.meta };
+    return {
+      content: result.content,
+      messages: result.messages,
+      meta: result.meta,
+      fragments: result.fragments,
+      styles: result.styles,
+    };
   } catch (error) {
     throw badRequest(`Could not read that .docx file: ${(error as Error).message}`);
   }

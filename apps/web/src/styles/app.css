@@ -702,3 +702,66 @@ main {
     padding: 0 0 12px;
   }
 }
+
+/* Things kept from the Word file that the editor carries and does not edit. */
+.word-inline {
+  background: #eef1f5;
+  border-radius: 2px;
+  padding: 0 2px;
+  white-space: pre-wrap;
+  cursor: default;
+}
+.word-inline-hidden {
+  display: inline-block;
+  width: 0;
+  padding: 0;
+  overflow: hidden;
+}
+.word-inline-footnote,
+.word-inline-endnote {
+  vertical-align: super;
+  font-size: 0.75em;
+  background: none;
+  color: #1f4e79;
+}
+.word-inline-symbol,
+.word-inline-tab {
+  background: none;
+  padding: 0;
+}
+.word-inline-textbox,
+.word-inline-shape,
+.word-inline-chart,
+.word-inline-diagram,
+.word-inline-object,
+.word-inline-picture,
+.word-inline-equation {
+  display: inline-block;
+  border: 1px dashed #8a97a8;
+  background: #f6f8fb;
+  padding: 2px 6px;
+  font-size: 0.85em;
+  color: #3b4757;
+  max-width: 100%;
+}
+.word-block {
+  border: 1px dashed #8a97a8;
+  background: #f6f8fb;
+  padding: 8px 12px;
+  margin: 8px 0;
+  color: #3b4757;
+}
+.word-block-title {
+  font-size: 0.75em;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #6b7785;
+  margin-bottom: 4px;
+}
+.word-block-line {
+  white-space: pre-wrap;
+}
+.ProseMirror-selectednode.word-inline,
+.ProseMirror-selectednode.word-block {
+  outline: 2px solid #2e75b6;
+}

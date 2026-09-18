@@ -211,3 +211,57 @@ export function textOf(element: XmlElement): string {
   walk(element);
   return text;
 }
+
+/**
+ * Characters XML 1.0 cannot carry at all, even escaped. One form feed pasted
+ * from a terminal is enough to make Word refuse the whole file as corrupt.
+ * Built from code points so that no control character sits in this source.
+ */
+const ILLEGAL_XML = new RegExp(
+  '[' +
+    [[0, 8], [11, 12], [14, 31], [0xfffe, 0xffff]]
+      .map(([from, to]) => `${String.fromCharCode(from as number)}-${String.fromCharCode(to as number)}`)
+      .join('') +
+    ']',
+  'g',
+);
+
+/** Text made safe to sit between tags. */
+export function escapeXmlText(value: string): string {
+  return value
+    .replace(ILLEGAL_XML, '')
+    .replace(/&/gu, '&amp;')
+    .replace(/</gu, '&lt;')
+    .replace(/>/gu, '&gt;');
+}
+
+/** Text made safe to sit inside a double-quoted attribute. */
+export function escapeXmlAttr(value: string): string {
+  return escapeXmlText(value).replace(/"/gu, '&quot;').replace(/\n/gu, '&#10;').replace(/\t/gu, '&#9;');
+}
+
+/**
+ * Write an element back out as markup.
+ *
+ * The reader keeps names with their prefixes and attributes as written, so what
+ * goes back out is what came in, as long as the part it lands in declares the
+ * same prefixes. That is what lets a chart, a shape or a field the editor has
+ * no node for leave exactly as it arrived.
+ */
+export function serializeXml(node: XmlNode): string {
+  if (!isElement(node)) return escapeXmlText(node.text);
+  const attrs = Object.entries(node.attrs)
+    .map(([name, value]) => ` ${name}="${escapeXmlAttr(value)}"`)
+    .join('');
+  if (node.children.length === 0) return `<${node.name}${attrs}/>`;
+  return `<${node.name}${attrs}>${node.children.map(serializeXml).join('')}</${node.name}>`;
+}
+
+/** A new element, for building markup rather than reading it. */
+export function el(
+  name: string,
+  attrs: Record<string, string> = {},
+  children: XmlNode[] = [],
+): XmlElement {
+  return { name, attrs, children };
+}

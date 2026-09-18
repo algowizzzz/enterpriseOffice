@@ -17,6 +17,9 @@ export default tseslint.config(
       '**/dist/**',
       '**/coverage/**',
       '**/node_modules/**',
+      // Built archives, which `npm run release` leaves here.
+      'release/**',
+      'data/**',
       'apps/web/vite.config.ts',
       'apps/web/vitest.config.ts',
       'apps/server/vitest.config.ts',

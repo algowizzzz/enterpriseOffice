@@ -96,7 +96,30 @@ const MIGRATIONS: { id: string; sql: string }[] = [
     // one, and they are not content, so they sit beside the document.
     id: '0002_page_setup',
     sql: `ALTER TABLE documents ADD COLUMN page_setup TEXT NOT NULL DEFAULT '{}';`,
-  }
+  },
+  {
+    // The file a document was uploaded as, byte for byte, and what the reader
+    // kept from it: the markup it holds by reference, the styles resolved for
+    // drawing, and the page setup as it was read. The export patches this file
+    // rather than building a new one, which is what keeps a letterhead, a chart
+    // or a corporate style sheet through a round trip. It is also the
+    // "original" that can be downloaded again at any time. One row per
+    // document and never rewritten, so it sits outside the versions table.
+    id: '0003_document_sources',
+    sql: `
+      CREATE TABLE document_sources (
+        document_id   TEXT PRIMARY KEY REFERENCES documents(id) ON DELETE CASCADE,
+        file_name     TEXT NOT NULL,
+        media_type    TEXT NOT NULL,
+        bytes         BLOB NOT NULL,
+        package       BLOB,
+        fragments     TEXT NOT NULL DEFAULT '{}',
+        styles        TEXT NOT NULL DEFAULT '{}',
+        page_setup    TEXT NOT NULL DEFAULT '{}',
+        created_at    TEXT NOT NULL
+      );
+    `,
+  },
 ];
 
 export function openDatabase(file: string): Database {

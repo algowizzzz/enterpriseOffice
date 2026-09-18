@@ -28,6 +28,13 @@ export const NODE = {
   tableCell: 'tableCell',
   tableHeader: 'tableHeader',
   image: 'image',
+  /**
+   * Something Word holds that the editor has no node for: a chart, a shape, a
+   * field, a footnote mark, a bookmark, an equation. It carries a reference to
+   * its own markup, kept beside the document, and goes back out untouched.
+   */
+  wordInline: 'wordInline',
+  wordBlock: 'wordBlock',
 } as const;
 
 export const MARK = {
@@ -40,6 +47,8 @@ export const MARK = {
   textStyle: 'textStyle',
   highlight: 'highlight',
   link: 'link',
+  /** The run properties Word wrote that no other mark stands for. */
+  wordRun: 'wordRun',
 } as const;
 
 export type NodeName = (typeof NODE)[keyof typeof NODE];
@@ -154,7 +163,7 @@ const ALIGNMENTS = new Set(['left', 'center', 'right', 'justify']);
 /** Attribute values long enough to be a problem on their own. */
 const MAX_ATTR_LENGTH = 4096;
 /** An embedded image is a data URI, so it needs far more room than a label. */
-const MAX_SRC_LENGTH = 4 * 1024 * 1024;
+const MAX_SRC_LENGTH = 16 * 1024 * 1024;
 
 /**
  * A link target that cannot execute anything. The editor restricts what can be
@@ -291,7 +300,12 @@ const MAX_NODES = 500_000;
 const MAX_DEPTH = 100;
 
 /** Nodes that sit inside a paragraph rather than beside one. */
-const INLINE_NODES: ReadonlySet<string> = new Set([NODE.text, NODE.hardBreak, NODE.image]);
+const INLINE_NODES: ReadonlySet<string> = new Set([
+  NODE.text,
+  NODE.hardBreak,
+  NODE.image,
+  NODE.wordInline,
+]);
 
 /**
  * Nodes the editor's schema requires at least one block inside.
@@ -767,4 +781,182 @@ export function pageSetupFrom(value: unknown): PageSetup {
 /** Whether a page setup is the default, which is what a blank document has. */
 export function isDefaultPageSetup(setup: PageSetup): boolean {
   return setup.header === '' && setup.footer === '' && setup.orientation === 'portrait';
+}
+
+/**
+ * What a style looks like, resolved. Measurements are in twips (twentieths of a
+ * point), as Word states them, and sizes in points.
+ */
+export interface StyleProps {
+  fontFamily?: string | undefined;
+  fontSize?: number;
+  color?: string;
+  bold?: boolean;
+  italic?: boolean;
+  underline?: boolean;
+  strike?: boolean;
+  caps?: boolean;
+  smallCaps?: boolean;
+  textAlign?: Alignment | undefined;
+  indentLeft?: number;
+  indentRight?: number;
+  /** Negative for a hanging indent. */
+  indentFirstLine?: number;
+  spacingBefore?: number;
+  spacingAfter?: number;
+  /** A multiple of the line, such as 1.15. */
+  lineHeight?: number;
+  /** An exact line height, in twips. */
+  lineExact?: number;
+  background?: string;
+  outlineLevel?: number;
+}
+
+export interface StyleEntry {
+  name: string;
+  props: StyleProps;
+}
+
+/** A document's own styles, as read from the file it came from. */
+export interface StyleTable {
+  defaults: StyleProps;
+  paragraph: Record<string, StyleEntry>;
+  character: Record<string, StyleEntry>;
+  defaultParagraph?: string;
+}
+
+/**
+ * Fonts a machine with no Office installed will not have, and what to draw
+ * instead. The metric-compatible replacements are tried first, so lines break
+ * where they broke in Word.
+ */
+const FONT_FALLBACKS: Record<string, string> = {
+  calibri: 'Carlito, "Segoe UI", Arial, sans-serif',
+  aptos: '"Segoe UI", Carlito, Arial, sans-serif',
+  cambria: 'Caladea, Georgia, serif',
+  arial: '"Liberation Sans", Helvetica, sans-serif',
+  'times new roman': '"Liberation Serif", Times, serif',
+  'courier new': '"Liberation Mono", Courier, monospace',
+};
+
+/** A font name that is safe to write into a stylesheet. */
+export function cssFontFamily(name: unknown): string | null {
+  if (typeof name !== 'string') return null;
+  const clean = name.replace(/[^\p{L}\p{N} _.-]/gu, '').trim().slice(0, 80);
+  if (clean.length === 0) return null;
+  const fallback = FONT_FALLBACKS[clean.toLowerCase()] ?? 'sans-serif';
+  return `"${clean}", ${fallback}`;
+}
+
+const CSS_COLOUR = /^#[0-9a-f]{6}$/iu;
+const twipsToPx = (twips: number): number => Math.round((twips / 15) * 100) / 100;
+const bounded = (value: unknown, min: number, max: number): number | null =>
+  typeof value === 'number' && Number.isFinite(value) && value >= min && value <= max ? value : null;
+
+/**
+ * The declarations that draw a set of style properties.
+ *
+ * Every value is rebuilt from a number, a fixed word or a checked pattern, and
+ * nothing from the file is copied into the stylesheet as it stands: a style
+ * name is attacker-controlled text, and a stylesheet is a place text can do
+ * harm.
+ */
+export function cssDeclarations(props: StyleProps): string[] {
+  const css: string[] = [];
+  const family = cssFontFamily(props.fontFamily);
+  if (family) css.push(`font-family: ${family}`);
+  const size = bounded(props.fontSize, 1, 400);
+  if (size !== null) css.push(`font-size: ${size}pt`);
+  if (typeof props.color === 'string' && CSS_COLOUR.test(props.color)) css.push(`color: ${props.color}`);
+  if (props.bold !== undefined) css.push(`font-weight: ${props.bold ? '700' : '400'}`);
+  if (props.italic !== undefined) css.push(`font-style: ${props.italic ? 'italic' : 'normal'}`);
+  const lines = [props.underline ? 'underline' : '', props.strike ? 'line-through' : ''].filter(Boolean);
+  if (lines.length > 0) css.push(`text-decoration: ${lines.join(' ')}`);
+  else if (props.underline === false || props.strike === false) css.push('text-decoration: none');
+  if (props.caps) css.push('text-transform: uppercase');
+  if (props.smallCaps) css.push('font-variant: small-caps');
+  if (props.textAlign && ALIGNMENTS.has(props.textAlign)) css.push(`text-align: ${props.textAlign}`);
+  const left = bounded(props.indentLeft, -20000, 20000);
+  if (left !== null) css.push(`margin-left: ${twipsToPx(left)}px`);
+  const right = bounded(props.indentRight, -20000, 20000);
+  if (right !== null) css.push(`margin-right: ${twipsToPx(right)}px`);
+  const first = bounded(props.indentFirstLine, -20000, 20000);
+  if (first !== null) css.push(`text-indent: ${twipsToPx(first)}px`);
+  const before = bounded(props.spacingBefore, 0, 20000);
+  if (before !== null) css.push(`margin-top: ${twipsToPx(before)}px`);
+  const after = bounded(props.spacingAfter, 0, 20000);
+  if (after !== null) css.push(`margin-bottom: ${twipsToPx(after)}px`);
+  const height = bounded(props.lineHeight, 0.5, 10);
+  const exact = bounded(props.lineExact, 20, 20000);
+  if (height !== null) css.push(`line-height: ${Math.round(height * 1.2 * 100) / 100}`);
+  else if (exact !== null) css.push(`line-height: ${twipsToPx(exact)}px`);
+  if (typeof props.background === 'string' && CSS_COLOUR.test(props.background)) {
+    css.push(`background-color: ${props.background}`);
+  }
+  return css;
+}
+
+/** A style id as it may appear in an attribute selector. */
+export function cssStyleId(id: unknown): string | null {
+  return typeof id === 'string' && /^[\w .-]{1,120}$/u.test(id) ? id : null;
+}
+
+/** Read a style table from anything, keeping only what is shaped like one. */
+export function styleTableFrom(value: unknown): StyleTable | null {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return null;
+  const source = value as Partial<StyleTable>;
+  const entries = (group: unknown): Record<string, StyleEntry> => {
+    const kept: Record<string, StyleEntry> = {};
+    if (typeof group !== 'object' || group === null) return kept;
+    for (const [id, entry] of Object.entries(group as Record<string, unknown>).slice(0, 2000)) {
+      if (!cssStyleId(id) || typeof entry !== 'object' || entry === null) continue;
+      const { name, props } = entry as Partial<StyleEntry>;
+      kept[id] = {
+        name: typeof name === 'string' ? name.slice(0, 120) : id,
+        props: typeof props === 'object' && props !== null ? props : {},
+      };
+    }
+    return kept;
+  };
+  return {
+    defaults: typeof source.defaults === 'object' && source.defaults !== null ? source.defaults : {},
+    paragraph: entries(source.paragraph),
+    character: entries(source.character),
+    ...(cssStyleId(source.defaultParagraph) ? { defaultParagraph: source.defaultParagraph as string } : {}),
+  };
+}
+
+/**
+ * The stylesheet that draws a document's own styles inside `scope`.
+ *
+ * The defaults go on the page, each paragraph style on the blocks that name it,
+ * each character style on the runs that name it. Direct formatting is written
+ * inline by the editor and so still wins, as it does in Word.
+ */
+export function styleSheetFor(table: StyleTable | null, scope = '.page'): string {
+  if (!table) return '';
+  const rules: string[] = [];
+  const rule = (selector: string, props: StyleProps): void => {
+    const css = cssDeclarations(props);
+    if (css.length > 0) rules.push(`${selector} { ${css.join('; ')}; }`);
+  };
+  const base = table.defaultParagraph ? table.paragraph[table.defaultParagraph]?.props : undefined;
+  // The page takes the look of the default style, but not its indent: that
+  // belongs to each paragraph, and on the page it would shift every table too.
+  const { indentLeft: _left, indentRight: _right, indentFirstLine: _first, ...page } = {
+    ...table.defaults,
+    ...(base ?? {}),
+  };
+  rule(scope, page);
+  rule(`${scope} p, ${scope} h1, ${scope} h2, ${scope} h3, ${scope} h4, ${scope} h5, ${scope} h6`, {
+    spacingBefore: base?.spacingBefore ?? table.defaults.spacingBefore ?? 0,
+    spacingAfter: base?.spacingAfter ?? table.defaults.spacingAfter ?? 0,
+  });
+  for (const [id, entry] of Object.entries(table.paragraph)) {
+    if (cssStyleId(id)) rule(`${scope} [data-style="${id}"]`, entry.props);
+  }
+  for (const [id, entry] of Object.entries(table.character)) {
+    if (cssStyleId(id)) rule(`${scope} [data-run-style="${id}"]`, entry.props);
+  }
+  return rules.join('\n');
 }

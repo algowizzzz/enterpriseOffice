@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { toPlainText } from '@docforge/model';
-import { badRequest, payloadTooLarge, unsupportedMedia } from '../errors.js';
+import { badRequest, notFound, payloadTooLarge, unsupportedMedia } from '../errors.js';
 import { exportDocx, safeFileName } from '../docx/export.js';
 import { importDocx, titleFromFileName } from '../docx/import.js';
 import { recordAudit } from '../services/audit.js';
@@ -9,11 +9,13 @@ import {
   createDocument,
   deleteDocument,
   getDocument,
+  getSource,
   getVersionContent,
   listDocuments,
   listShares,
   listVersions,
   restoreVersion,
+  saveSource,
   shareDocument,
   unshareDocument,
   updateDocument,
@@ -83,8 +85,8 @@ export async function registerDocumentRoutes(app: FastifyInstance): Promise<void
       }
       if (buffer.length === 0) throw badRequest('That file is empty');
 
-      const { content, messages, meta } = await importDocx(buffer);
-      const document = createDocument(app.db, user, {
+      const { content, messages, meta, fragments, styles } = await importDocx(buffer);
+      const created = createDocument(app.db, user, {
         title: titleFromFileName(file.filename ?? 'Imported document'),
         content,
         // The header, the footer and the orientation the file arrived with.
@@ -92,6 +94,17 @@ export async function registerDocumentRoutes(app: FastifyInstance): Promise<void
         origin: 'import',
         sourceName: file.filename,
       });
+      // The file itself, kept so the export can patch it rather than rebuild
+      // it, and so the original can be downloaded again.
+      saveSource(app.db, created.id, {
+        fileName: file.filename ?? 'document.docx',
+        mediaType: DOCX_MIME,
+        bytes: buffer,
+        fragments: fragments ?? {},
+        styles: styles ?? null,
+        pageSetup: created.pageSetup,
+      });
+      const document = { ...created, styles: styles ?? null };
       recordAudit(app.db, {
         actorId: user.id,
         action: 'document.imported',
@@ -162,7 +175,7 @@ export async function registerDocumentRoutes(app: FastifyInstance): Promise<void
       const user = await app.authenticate(request);
       const { id } = idParam.parse(request.params);
       const { format } = z
-        .object({ format: z.enum(['docx', 'txt']).default('docx') })
+        .object({ format: z.enum(['docx', 'txt', 'original']).default('docx') })
         .parse(request.query ?? {});
       const document = getDocument(app.db, user, id);
 
@@ -183,10 +196,24 @@ export async function registerDocumentRoutes(app: FastifyInstance): Promise<void
           .send(toPlainText(document.content));
       }
 
+      const source = getSource(app.db, id);
+      if (format === 'original') {
+        // The upload, byte for byte, under the name it arrived with.
+        if (!source) throw notFound('This document was not uploaded, so it has no original file.');
+        return reply
+          .header('Content-Type', source.mediaType)
+          .header('Content-Disposition', contentDisposition(safeFileName(source.fileName.replace(/\.[^.]+$/u, ''), source.fileName.split('.').pop() ?? 'docx')))
+          .header('Content-Length', String(source.bytes.length))
+          .send(source.bytes);
+      }
+
       const buffer = await exportDocx(document.content, {
         title: document.title,
         author: user.name,
         pageSetup: document.pageSetup,
+        source: source?.package,
+        fragments: source?.fragments,
+        originalSetup: source?.pageSetup,
       });
       const fileName = safeFileName(document.title, 'docx');
       return reply

@@ -28,6 +28,7 @@ import {
   type PMNode,
 } from '@docforge/model';
 import { measureImage } from './imageSize.js';
+import { writeDocx } from './ooxml/write.js';
 
 const HEADING_BY_LEVEL: Record<number, (typeof HeadingLevel)[keyof typeof HeadingLevel]> = {
   1: HeadingLevel.HEADING_1,
@@ -319,10 +320,43 @@ export interface ExportOptions {
   author?: string;
   /** The running header, the running footer and the orientation of the page. */
   pageSetup?: PageSetup;
+  /** The file this document was uploaded as, which the export patches. */
+  source?: Buffer | undefined;
+  /** Markup the reader kept by reference, which the writer puts back. */
+  fragments?: Record<string, string> | undefined;
+  /** The page setup as it was read, so an untouched header is left alone. */
+  originalSetup?: PageSetup | undefined;
 }
 
-/** Serialize a document to a .docx file. */
+/**
+ * Serialize a document to a .docx file.
+ *
+ * The file it was uploaded as is patched, so everything the model does not
+ * hold leaves as it arrived. A document that was never a Word file starts from
+ * a template built by the `docx` library and takes the same path: see
+ * `ooxml/write.ts` for why there is one writer and what it does.
+ */
 export async function exportDocx(doc: PMNode, options: ExportOptions): Promise<Buffer> {
+  const pageSetup = options.pageSetup ?? defaultPageSetup();
+  if (options.source) {
+    return writeDocx(doc, {
+      base: options.source,
+      fragments: options.fragments ?? {},
+      pageSetup,
+      originalSetup: options.originalSetup,
+    });
+  }
+  const template = await templatePackage({ type: NODE.doc, content: [] }, { ...options, pageSetup: defaultPageSetup() });
+  return writeDocx(doc, {
+    base: template,
+    fragments: options.fragments ?? {},
+    pageSetup,
+    originalSetup: defaultPageSetup(),
+  });
+}
+
+/** A package with styles, settings and properties, and nothing in its body. */
+async function templatePackage(doc: PMNode, options: ExportOptions): Promise<Buffer> {
   const blocks = convertBlocks(doc.content ?? []);
   const setup = options.pageSetup ?? defaultPageSetup();
   const document = new Document({

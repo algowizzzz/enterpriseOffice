@@ -5,6 +5,7 @@ import {
   ApiError,
   downloadExport,
   type DocumentDetail,
+  type ExportFormat,
   type ShareEntry,
   type User,
   type VersionSummary,
@@ -161,7 +162,7 @@ export function EditorPage({ documentId, onBack }: EditorPageProps): JSX.Element
   }, [saveState]);
 
   /** A failed download used to be an unhandled rejection with nothing on screen. */
-  const download = async (format: 'docx' | 'txt'): Promise<void> => {
+  const download = async (format: ExportFormat): Promise<void> => {
     try {
       await downloadExport(documentId, format);
     } catch (caught) {
@@ -296,6 +297,15 @@ export function EditorPage({ documentId, onBack }: EditorPageProps): JSX.Element
           <button type="button" onClick={() => { void download('txt'); }}>
             Export .txt
           </button>
+          {document.origin === 'import' ? (
+            <button
+              type="button"
+              title="Download the file exactly as it was uploaded"
+              onClick={() => { void download('original'); }}
+            >
+              Original
+            </button>
+          ) : null}
           <button type="button" onClick={() => setSetupOpen((open) => !open)}>
             Page setup
           </button>
@@ -472,6 +482,7 @@ export function EditorPage({ documentId, onBack }: EditorPageProps): JSX.Element
         initialContent={document.content}
         header={document.pageSetup?.header ?? ''}
         footer={document.pageSetup?.footer ?? ''}
+        styles={document.styles ?? null}
         readOnly={readOnly ?? false}
         onDirty={() => {
           typedSinceQueued.current = true;

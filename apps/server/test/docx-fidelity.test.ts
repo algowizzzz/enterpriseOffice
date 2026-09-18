@@ -196,12 +196,15 @@ describe('images in formats Word cannot be given back', () => {
       media: { [name]: PNG_BYTES },
     });
 
-  it('refuses one on import, and says why', async () => {
-    // Word files often carry EMF, WMF or TIFF pictures. Accepting one and then
-    // dropping it silently on export is worse than refusing it with a reason.
+  it('does not draw one, keeps it in the file, and says so', async () => {
+    // Word files often carry EMF, WMF or TIFF pictures. A browser cannot draw
+    // them. They were once refused, because the export could not write them;
+    // the export now patches the uploaded file, so the picture goes back out
+    // untouched and only the editor shows a placeholder for it.
     const result = await importDocx(withPicture('image1.emf'));
     expect(collect(result.content, 'image')).toHaveLength(0);
-    expect(result.messages.join(' ')).toMatch(/cannot be saved back to Word/u);
+    expect(collect(result.content, 'wordInline')).toHaveLength(1);
+    expect(result.messages.join(' ')).toMatch(/kept in the file but not drawn/u);
     expect(toPlainText(result.content)).toContain('Text stays');
   });
 
