@@ -163,3 +163,47 @@ describe('tracked changes through Word', () => {
     expect(JSON.stringify(back.content)).toContain('"author":"Rae Reviewer"');
   });
 });
+
+describe('tracked changes to the paragraph mark', () => {
+  const who2 = { pmAuthor: 'Rae Reviewer', pmDate: '2026-09-18T10:00:00Z' };
+  // "One. Two." was split into two paragraphs with Enter, and "Three." and
+  // "Four." were joined, both while changes were being tracked.
+  const tracked = doc(
+    { type: 'paragraph', attrs: { pmChange: 'insertion', ...who2 }, content: [{ type: 'text', text: 'One.' }] },
+    p(' Two.'),
+    { type: 'paragraph', attrs: { pmChange: 'deletion', ...who2, textAlign: 'center' }, content: [{ type: 'text', text: 'Three.' }] },
+    p(' Four.'),
+  );
+
+  it('accepting keeps the split and makes the join', () => {
+    const accepted = acceptAllChanges(tracked);
+    expect(toPlainText(accepted)).toBe('One.\n Two.\nThree. Four.');
+    expect(JSON.stringify(accepted)).not.toContain('pmChange');
+    // The joined paragraph is still the paragraph it was.
+    expect(accepted.content?.[2]?.attrs).toEqual({ textAlign: 'center' });
+  });
+
+  it('rejecting undoes the split and leaves the two paragraphs apart', () => {
+    const rejected = rejectAllChanges(tracked);
+    expect(toPlainText(rejected)).toBe('One. Two.\nThree.\n Four.');
+    expect(JSON.stringify(rejected)).not.toContain('pmChange');
+  });
+
+  it('counts each as a change, and both ways leave a document that saves', () => {
+    expect(countChanges(tracked)).toBe(2);
+    for (const settled of [acceptAllChanges(tracked), rejectAllChanges(tracked)]) expect(validateDoc(settled).ok).toBe(true);
+  });
+
+  it('goes to Word as a change to the paragraph mark, and comes back as one', async () => {
+    const { exportDocx } = await import('../src/docx/export.js');
+    const { importDocx } = await import('../src/docx/import.js');
+    const { strFromU8, unzipSync } = await import('fflate');
+    const file = await exportDocx(tracked, { title: 'T' });
+    const xml = strFromU8(unzipSync(new Uint8Array(file))['word/document.xml']!);
+    expect(xml).toMatch(/<w:pPr><w:rPr><w:ins [^>]*w:author="Rae Reviewer"[^>]*\/><\/w:rPr><\/w:pPr><w:r><w:t[^>]*>One\.</u);
+    expect(xml).toMatch(/<w:rPr><w:del [^>]*w:author="Rae Reviewer"/u);
+    const back = await importDocx(file);
+    expect(toPlainText(acceptAllChanges(back.content))).toBe('One.\n Two.\nThree. Four.');
+    expect(toPlainText(rejectAllChanges(back.content))).toBe('One. Two.\nThree.\n Four.');
+  });
+});

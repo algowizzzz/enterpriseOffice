@@ -69,7 +69,7 @@ function settle(node: PMNode, remove: string, keep: string): PMNode | null {
     return has(node, keep) ? without(node, keep) : node;
   }
   const hadContent = node.content.length > 0;
-  const content = node.content
+  const content = settleParagraphMarks(node.content, remove)
     .map((inner) => settle(inner, remove, keep))
     .filter((inner): inner is PMNode => inner !== null);
 
@@ -84,6 +84,48 @@ function settle(node: PMNode, remove: string, keep: string): PMNode | null {
   }
   const { content: _old, ...rest } = node;
   return content.length > 0 ? { ...rest, content } : rest;
+}
+
+const isTextBlock = (node: PMNode | undefined): node is PMNode =>
+  node !== undefined && (node.type === NODE.paragraph || node.type === NODE.heading);
+
+/** The attributes that say a paragraph's own mark, the break at its end, was changed. */
+const PARAGRAPH_CHANGE = ['pmChange', 'pmAuthor', 'pmDate'] as const;
+
+function withoutParagraphChange(node: PMNode, from?: PMNode): PMNode {
+  const attrs: Record<string, unknown> = { ...(node.attrs ?? {}) };
+  for (const name of PARAGRAPH_CHANGE) {
+    delete attrs[name];
+    // Joined to the paragraph after it, a paragraph ends with that one's mark.
+    if (from?.attrs?.[name] !== undefined && from.attrs[name] !== null) attrs[name] = from.attrs[name];
+  }
+  const { attrs: _old, ...rest } = node;
+  return Object.keys(attrs).length > 0 ? { ...rest, attrs } : rest;
+}
+
+/**
+ * Settle changes to paragraph marks among a run of sibling blocks.
+ *
+ * Word tracks pressing Enter, and joining two paragraphs, as an insertion or a
+ * deletion of the paragraph mark at the end of the first. A mark of the kind
+ * being removed goes, which joins its paragraph to the next; a mark of the kind
+ * being kept simply stops being a change.
+ */
+function settleParagraphMarks(blocks: PMNode[], remove: string): PMNode[] {
+  const out: PMNode[] = [];
+  for (let index = 0; index < blocks.length; index += 1) {
+    let block = blocks[index] as PMNode;
+    while (isTextBlock(block) && block.attrs?.['pmChange'] === remove && isTextBlock(blocks[index + 1])) {
+      const next = blocks[index + 1] as PMNode;
+      const content = [...(block.content ?? []), ...(next.content ?? [])];
+      const joined = withoutParagraphChange(block, next);
+      const { content: _old, ...rest } = joined;
+      block = content.length > 0 ? { ...rest, content } : rest;
+      index += 1;
+    }
+    out.push(isTextBlock(block) && block.attrs?.['pmChange'] !== undefined ? withoutParagraphChange(block) : block);
+  }
+  return out;
 }
 
 export function acceptAllChanges(doc: PMNode): PMNode {
@@ -107,7 +149,10 @@ export function countChanges(doc: PMNode): number {
       return;
     }
     // A change does not run on from one block into the next.
-    if (node.type === NODE.paragraph || node.type === NODE.heading) previous = '';
+    if (node.type === NODE.paragraph || node.type === NODE.heading) {
+      previous = '';
+      if (node.attrs?.['pmChange'] === MARK.insertion || node.attrs?.['pmChange'] === MARK.deletion) count += 1;
+    }
     for (const inner of node.content) visit(inner);
   };
   visit(doc);

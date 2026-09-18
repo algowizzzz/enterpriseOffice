@@ -566,13 +566,31 @@ function paragraphFrom(paragraph: XmlElement, state: State, inList: boolean): PM
   // states over the top. A list item's numbering is left out, because the list
   // it sits in states that, and a paragraph lifted out of a list in the editor
   // must not stay numbered in Word.
-  const rest = (properties?.children ?? []).filter(
-    (node) =>
-      isElement(node) &&
-      !OWNED_PARAGRAPH_PROPERTIES.has(node.name) &&
-      !(inList && node.name === 'w:numPr'),
-  );
-  if (rest.length > 0) attrs['pprRef'] = keep(state, rest as XmlElement[]);
+  // A tracked change to the paragraph mark itself: Enter pressed, or two
+  // paragraphs joined, while changes were being tracked. Word writes it inside
+  // the mark's own run properties.
+  const markProperties = child(properties, 'w:rPr');
+  const markChange = child(markProperties, 'w:ins') ?? child(markProperties, 'w:del');
+  if (markChange) {
+    attrs['pmChange'] = markChange.name === 'w:ins' ? MARK.insertion : MARK.deletion;
+    attrs['pmAuthor'] = (markChange.attrs['w:author'] ?? 'Unknown').slice(0, 200);
+    const date = markChange.attrs['w:date'] ?? '';
+    if (/^\d{4}-\d{2}-\d{2}T/u.test(date)) attrs['pmDate'] = date;
+  }
+
+  const rest = (properties?.children ?? [])
+    .filter(
+      (node): node is XmlElement =>
+        isElement(node) && !OWNED_PARAGRAPH_PROPERTIES.has(node.name) && !(inList && node.name === 'w:numPr'),
+    )
+    .map((node) =>
+      // Kept without the change, which the attributes above now state.
+      node.name === 'w:rPr' && markChange
+        ? { ...node, children: node.children.filter((inner) => inner !== markChange) }
+        : node,
+    )
+    .filter((node) => node.name !== 'w:rPr' || node.children.some(isElement));
+  if (rest.length > 0) attrs['pprRef'] = keep(state, rest);
 
   const level = headingLevelOf(paragraph, state);
   if (level !== null) {

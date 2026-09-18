@@ -1125,3 +1125,17 @@ main {
 .page-notes .link {
   margin-left: 8px;
 }
+
+/* A tracked change to the paragraph mark: Enter pressed, or a join. */
+.page [data-pm-change]::after {
+  content: '\00b6';
+  color: #b3261e;
+  margin-left: 2px;
+  user-select: none;
+}
+.page [data-pm-change='insertion']::after {
+  text-decoration: underline;
+}
+.page [data-pm-change='deletion']::after {
+  text-decoration: line-through;
+}

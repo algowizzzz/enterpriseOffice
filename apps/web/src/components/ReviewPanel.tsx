@@ -61,7 +61,7 @@ export function ReviewPanel({ editor, readOnly, tracking, onTracking, onClose }:
       {changes.length === 0 ? <p className="muted">No tracked changes.</p> : null}
 
       {changes.map((change) => (
-        <section key={`${change.from}-${change.type}`} className="comment-thread" onClick={() => go(change)}>
+        <section key={`${change.from}-${change.type}-${change.paragraphAt ?? 't'}`} className="comment-thread" onClick={() => go(change)}>
           <div className="comment-meta">
             <strong>{change.author || 'Unknown'}</strong>
             <span className="muted">{when(change.date)}</span>
@@ -70,7 +70,11 @@ export function ReviewPanel({ editor, readOnly, tracking, onTracking, onClose }:
             <span className={`change-kind change-kind-${change.type}`}>
               {change.type === 'insertion' ? 'Inserted' : 'Deleted'}
             </span>{' '}
-            {change.text.length > 140 ? `${change.text.slice(0, 140)}…` : change.text}
+            {change.paragraphAt !== undefined
+              ? 'Paragraph break'
+              : change.text.length > 140
+                ? `${change.text.slice(0, 140)}…`
+                : change.text}
           </p>
           {readOnly ? null : (
             <div className="comment-actions">

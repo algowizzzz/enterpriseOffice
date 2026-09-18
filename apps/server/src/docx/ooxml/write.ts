@@ -716,6 +716,23 @@ function writeParagraph(ctx: Context, node: PMNode, block: BlockContext, breakBe
   }
   if (Object.keys(spacing).length > 0) properties.push(el('w:spacing', spacing));
 
+  // A tracked change to the paragraph mark goes inside the mark's own run
+  // properties, in front of whatever else they say.
+  const change = attrs['pmChange'];
+  if (change === MARK.insertion || change === MARK.deletion) {
+    ctx.changeId += 1;
+    const author = typeof attrs['pmAuthor'] === 'string' ? attrs['pmAuthor'] : 'Unknown';
+    const date = typeof attrs['pmDate'] === 'string' ? attrs['pmDate'].replace(/\.\d+Z$/u, 'Z') : '';
+    const tracked = el(change === MARK.insertion ? 'w:ins' : 'w:del', {
+      'w:id': String(ctx.changeId),
+      'w:author': author,
+      ...(date ? { 'w:date': date } : {}),
+    });
+    const existing = properties.find((element) => element.name === 'w:rPr');
+    if (existing) existing.children.unshift(tracked);
+    else properties.push(el('w:rPr', {}, [tracked]));
+  }
+
   const pPr = properties.length > 0 ? serializeXml(el('w:pPr', {}, inOrder(properties, PPR_ORDER))) : '';
   return `<w:p>${pPr}${writeInline(ctx, node.content ?? [])}</w:p>`;
 }

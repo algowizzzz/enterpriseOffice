@@ -63,7 +63,14 @@ export interface TrackedChange {
   from: number;
   to: number;
   text: string;
+  /** Set when the change is to a paragraph mark: where that paragraph starts. */
+  paragraphAt?: number;
 }
+
+/** The sign for a paragraph mark, which is what such a change is shown as. */
+export const PILCROW = String.fromCodePoint(0xb6);
+
+const PARAGRAPH_CHANGE = { pmChange: null, pmAuthor: null, pmDate: null };
 
 const changeMark = (node: PMNode): PMMark | undefined =>
   node.marks.find((mark) => mark.type.name === 'insertion' || mark.type.name === 'deletion');
@@ -72,6 +79,18 @@ const changeMark = (node: PMNode): PMMark | undefined =>
 export function listChanges(doc: PMNode): TrackedChange[] {
   const changes: TrackedChange[] = [];
   doc.descendants((node, position) => {
+    if (node.isTextblock && (node.attrs['pmChange'] === 'insertion' || node.attrs['pmChange'] === 'deletion')) {
+      // The mark at the end of the paragraph: Enter pressed, or a join.
+      changes.push({
+        type: node.attrs['pmChange'] as TrackedChange['type'],
+        author: typeof node.attrs['pmAuthor'] === 'string' ? node.attrs['pmAuthor'] : '',
+        date: typeof node.attrs['pmDate'] === 'string' ? node.attrs['pmDate'] : '',
+        from: position + node.nodeSize - 1,
+        to: position + node.nodeSize,
+        text: PILCROW,
+        paragraphAt: position,
+      });
+    }
     if (!node.isInline) return true;
     const mark = changeMark(node);
     if (!mark) return false;
@@ -81,7 +100,7 @@ export function listChanges(doc: PMNode): TrackedChange[] {
       author: String(mark.attrs['author'] ?? ''),
       date: String(mark.attrs['date'] ?? ''),
     };
-    if (last && last.to === position && last.type === entry.type && last.author === entry.author && last.date === entry.date) {
+    if (last && !last.paragraphAt && last.paragraphAt !== 0 && last.to === position && last.type === entry.type && last.author === entry.author && last.date === entry.date) {
       last.to = position + node.nodeSize;
       last.text += node.isText ? (node.text ?? '') : ' ';
     } else {
@@ -89,7 +108,7 @@ export function listChanges(doc: PMNode): TrackedChange[] {
     }
     return false;
   });
-  return changes;
+  return changes.sort((a, b) => a.from - b.from || a.to - b.to);
 }
 
 /**
@@ -109,6 +128,21 @@ export function settleChanges(editor: Editor, how: 'accept' | 'reject', range?: 
   if (changes.length === 0) return false;
   for (const entry of [...changes].reverse()) {
     const removes = (entry.type === 'insertion') === (how === 'reject');
+    if (entry.paragraphAt !== undefined) {
+      const node = transaction.doc.nodeAt(entry.paragraphAt);
+      if (!node) continue;
+      const next = transaction.doc.nodeAt(entry.paragraphAt + node.nodeSize);
+      if (removes && next?.isTextblock) {
+        // The mark goes, which joins this paragraph to the next. What it then
+        // ends with is the next paragraph's mark, so it says what that one said.
+        const inherited = { pmChange: next.attrs['pmChange'], pmAuthor: next.attrs['pmAuthor'], pmDate: next.attrs['pmDate'] };
+        transaction.join(entry.paragraphAt + node.nodeSize);
+        transaction.setNodeMarkup(entry.paragraphAt, null, { ...node.attrs, ...inherited });
+      } else {
+        transaction.setNodeMarkup(entry.paragraphAt, null, { ...node.attrs, ...PARAGRAPH_CHANGE });
+      }
+      continue;
+    }
     if (removes) transaction.delete(entry.from, entry.to);
     else transaction.removeMark(entry.from, entry.to, state.schema.marks[entry.type]);
   }
@@ -140,9 +174,11 @@ function keptPieces(slice: Slice, author: string): PMNode[] {
  * appended transaction, so every way of changing text (typing, pasting, cutting,
  * dragging, the ribbon) is covered without each having to know about it.
  *
- * Only text within one paragraph is tracked. Splitting or joining paragraphs,
- * and changes to the structure of a table, take effect directly: Word records
- * those on the paragraph mark, which the model does not hold.
+ * Pressing Enter and joining paragraphs are tracked as Word tracks them, as an
+ * insertion or a deletion of the paragraph mark at the end of the first. A
+ * deletion that runs over several paragraphs keeps them all, struck out. What
+ * is not tracked is a change to the structure of a list or a table: a deletion
+ * that crosses from one list item or cell into another takes effect directly.
  */
 export const TrackChanges = Extension.create({
   name: 'trackChanges',
@@ -213,9 +249,74 @@ export const TrackChanges = Extension.create({
                   repair.removeMark(start, end, deletion);
                 }
               }
+              // Enter: the paragraph that now ends here ends with a new mark.
+              if (from === to && slice.openStart > 0 && slice.openEnd > 0 && slice.content.textBetween(0, slice.content.size, '') === '') {
+                const $split = repair.doc.resolve(start);
+                const first = $split.parent;
+                if (first.isTextblock && $split.depth > 0 && !first.attrs['pmChange']) {
+                  repair.setNodeMarkup($split.before(), null, {
+                    ...first.attrs,
+                    pmChange: 'insertion',
+                    pmAuthor: stamp.author,
+                    pmDate: stamp.date,
+                  });
+                }
+              }
               if (to > from) {
                 const $from = before.resolve(from);
                 const $to = before.resolve(to);
+                const across =
+                  !$from.sameParent($to) &&
+                  $from.parent.isTextblock &&
+                  $to.parent.isTextblock &&
+                  $from.depth === $to.depth &&
+                  $from.node($from.depth - 1) === $to.node($to.depth - 1);
+                if (across) {
+                  const removed = before.slice(from, to);
+                  const ownBreak =
+                    removed.content.textBetween(0, removed.content.size, '') === '' &&
+                    $from.parent.attrs['pmChange'] === 'insertion' &&
+                    $from.parent.attrs['pmAuthor'] === tracking.author;
+                  const $joined = repair.doc.resolve(start);
+                  if (ownBreak) {
+                    // Taking back an Enter you pressed yourself: it simply goes,
+                    // and the paragraph ends with the mark of the one it joined.
+                    if ($joined.depth > 0) {
+                      repair.setNodeMarkup($joined.before(), null, {
+                        ...$joined.parent.attrs,
+                        pmChange: $to.parent.attrs['pmChange'] as string | null,
+                        pmAuthor: $to.parent.attrs['pmAuthor'] as string | null,
+                        pmDate: $to.parent.attrs['pmDate'] as string | null,
+                      });
+                    }
+                  } else {
+                    try {
+                      // Put back what was taken out, paragraph breaks and all, and
+                      // say of each piece that it is deleted.
+                      repair.replace(start, start, removed);
+                      const end = start + removed.size;
+                      repair.addMark(start, end, deletion.create(stamp));
+                      repair.doc.nodesBetween(start, end, (node, position) => {
+                        if (node.isTextblock && position + node.nodeSize <= end && position + node.nodeSize > start) {
+                          if (!node.attrs['pmChange']) {
+                            repair.setNodeMarkup(position, null, {
+                              ...node.attrs,
+                              pmChange: 'deletion',
+                              pmAuthor: stamp.author,
+                              pmDate: stamp.date,
+                            });
+                          }
+                        }
+                        return true;
+                      });
+                      const wasBackspace = slice.size === 0 && oldState.selection.empty && oldState.selection.head === to;
+                      cursor = wasBackspace ? start : end + slice.size;
+                    } catch {
+                      // What was removed does not fit back where it was (part of
+                      // a table, say). The deletion stands, untracked.
+                    }
+                  }
+                }
                 if ($from.sameParent($to) && $from.parent.isTextblock) {
                   const pieces = keptPieces(before.slice(from, to), tracking.author);
                   if (pieces.length > 0) {
