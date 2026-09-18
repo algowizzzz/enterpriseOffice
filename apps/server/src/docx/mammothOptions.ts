@@ -107,6 +107,12 @@ interface MammothTransforms {
 
 /** What a paragraph becomes once its alignment has been folded into its style. */
 export function markParagraph(paragraph: MammothParagraph): MammothParagraph {
+  // A file can name its own styles. One named like a marker would match the
+  // generated style map and pick its own formatting, so the name is taken away
+  // before anything else looks at it.
+  if (paragraph.styleName?.startsWith(MARKER_PREFIX)) {
+    return { ...paragraph, styleId: null, styleName: null };
+  }
   const alignment = normalizeAlignment(paragraph.alignment);
   if (!alignment) return paragraph;
   const kind = kindForStyleName(paragraph.styleName);

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { FastifyInstance } from 'fastify';
-import { authHeader, makeApp, registerFirstAdmin, type TestActor } from './helpers.js';
+import { authHeader, login, makeApp, registerFirstAdmin, type TestActor } from './helpers.js';
 
 describe('authentication', () => {
   let app: FastifyInstance;
@@ -133,8 +133,11 @@ describe('authentication', () => {
     expect(after.statusCode).toBe(401);
   });
 
-  it('changes a password and revokes existing sessions', async () => {
+  it('changes a password and signs the other devices out', async () => {
     const admin: TestActor = await registerFirstAdmin(app);
+    // A second device, signed in before the change.
+    const otherDevice = await login(app, 'admin@example.com', 'Correct-Horse-9');
+
     const change = await app.inject({
       method: 'POST',
       url: '/api/auth/password',
@@ -143,12 +146,12 @@ describe('authentication', () => {
     });
     expect(change.statusCode).toBe(200);
 
-    const oldSession = await app.inject({
+    const elsewhere = await app.inject({
       method: 'GET',
       url: '/api/auth/me',
-      headers: authHeader(admin),
+      headers: authHeader(otherDevice),
     });
-    expect(oldSession.statusCode).toBe(401);
+    expect(elsewhere.statusCode).toBe(401);
 
     const relogin = await app.inject({
       method: 'POST',
@@ -156,6 +159,24 @@ describe('authentication', () => {
       payload: { email: 'admin@example.com', password: 'Another-Horse-42' },
     });
     expect(relogin.statusCode).toBe(200);
+  });
+
+  it('leaves the device that changed the password signed in', async () => {
+    // Signing somebody out of the page they just typed their new password into
+    // is a surprise, not a protection.
+    const admin = await registerFirstAdmin(app);
+    await app.inject({
+      method: 'POST',
+      url: '/api/auth/password',
+      headers: authHeader(admin),
+      payload: { currentPassword: 'Correct-Horse-9', newPassword: 'Another-Horse-42' },
+    });
+    const stillHere = await app.inject({
+      method: 'GET',
+      url: '/api/auth/me',
+      headers: authHeader(admin),
+    });
+    expect(stillHere.statusCode).toBe(200);
   });
 
   it('rejects a password change with the wrong current password', async () => {

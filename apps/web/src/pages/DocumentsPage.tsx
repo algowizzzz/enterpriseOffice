@@ -65,6 +65,16 @@ export function DocumentsPage({ onOpen }: DocumentsPageProps): JSX.Element {
     }
   };
 
+  /** A failed download used to be an unhandled rejection with nothing on screen. */
+  const download = async (id: string, format: 'docx' | 'txt'): Promise<void> => {
+    setError(null);
+    try {
+      await downloadExport(id, format);
+    } catch (caught) {
+      setError(caught instanceof ApiError ? caught.message : 'Could not download that document.');
+    }
+  };
+
   const remove = async (document: DocumentSummary): Promise<void> => {
     if (!window.confirm(`Delete "${document.title}"? This cannot be undone.`)) return;
     try {
@@ -164,7 +174,7 @@ export function DocumentsPage({ onOpen }: DocumentsPageProps): JSX.Element {
                 <td>{formatWhen(document.updatedAt)}</td>
                 <td>{document.access}</td>
                 <td className="row-actions">
-                  <button type="button" onClick={() => void downloadExport(document.id, 'docx')}>
+                  <button type="button" onClick={() => { void download(document.id, 'docx'); }}>
                     Download
                   </button>
                   {document.access === 'owner' ? (

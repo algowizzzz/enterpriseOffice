@@ -146,42 +146,50 @@ export async function registerDocumentRoutes(app: FastifyInstance): Promise<void
   });
 
   /** Download the document as .docx or as plain text. */
-  app.get('/documents/:id/export', async (request, reply) => {
-    const user = await app.authenticate(request);
-    const { id } = idParam.parse(request.params);
-    const { format } = z
-      .object({ format: z.enum(['docx', 'txt']).default('docx') })
-      .parse(request.query ?? {});
-    const document = getDocument(app.db, user, id);
+  // Writing a Word file costs as much as reading one: the whole document is
+  // parsed, every picture is decoded, and the packer runs on the event loop.
+  // Leaving this unlimited let anyone with even a view share stall the instance
+  // by asking for the same large document over and over.
+  app.get(
+    '/documents/:id/export',
+    { config: { rateLimit: { max: 30, timeWindow: '1 minute' } } },
+    async (request, reply) => {
+      const user = await app.authenticate(request);
+      const { id } = idParam.parse(request.params);
+      const { format } = z
+        .object({ format: z.enum(['docx', 'txt']).default('docx') })
+        .parse(request.query ?? {});
+      const document = getDocument(app.db, user, id);
 
-    recordAudit(app.db, {
-      actorId: user.id,
-      action: 'document.exported',
-      targetType: 'document',
-      targetId: id,
-      detail: { format },
-      ip: request.ip,
-    });
+      recordAudit(app.db, {
+        actorId: user.id,
+        action: 'document.exported',
+        targetType: 'document',
+        targetId: id,
+        detail: { format },
+        ip: request.ip,
+      });
 
-    if (format === 'txt') {
-      const fileName = safeFileName(document.title, 'txt');
+      if (format === 'txt') {
+        const fileName = safeFileName(document.title, 'txt');
+        return reply
+          .header('Content-Type', 'text/plain; charset=utf-8')
+          .header('Content-Disposition', contentDisposition(fileName))
+          .send(toPlainText(document.content));
+      }
+
+      const buffer = await exportDocx(document.content, {
+        title: document.title,
+        author: user.name,
+      });
+      const fileName = safeFileName(document.title, 'docx');
       return reply
-        .header('Content-Type', 'text/plain; charset=utf-8')
+        .header('Content-Type', DOCX_MIME)
         .header('Content-Disposition', contentDisposition(fileName))
-        .send(toPlainText(document.content));
-    }
-
-    const buffer = await exportDocx(document.content, {
-      title: document.title,
-      author: user.name,
-    });
-    const fileName = safeFileName(document.title, 'docx');
-    return reply
-      .header('Content-Type', DOCX_MIME)
-      .header('Content-Disposition', contentDisposition(fileName))
-      .header('Content-Length', String(buffer.length))
-      .send(buffer);
-  });
+        .header('Content-Length', String(buffer.length))
+        .send(buffer);
+    },
+  );
 
   app.get('/documents/:id/versions', async (request) => {
     const user = await app.authenticate(request);

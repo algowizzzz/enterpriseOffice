@@ -161,10 +161,34 @@ const MAX_SRC_LENGTH = 4 * 1024 * 1024;
  * typed, but stored content can come from an uploaded file or a client that is
  * not the editor, so the rule is enforced here as well.
  */
-const SAFE_HREF = /^(?:https?:\/\/|mailto:|#|\/)/iu;
+const SAFE_HREF = /^(?:https?:\/\/[^/]|mailto:|#|\/(?!\/))/iu;
+
+/**
+ * What an image may point at. Only data embedded in the document itself: a
+ * remote address would make the page fetch something, which the air gap forbids
+ * and the content security policy blocks anyway. The rule belongs here too,
+ * because a document can be written by a client that is not the editor.
+ */
+const SAFE_SRC = /^data:image\/[a-z0-9.+-]+;base64,/iu;
 
 const isBoundedInteger = (value: unknown, min: number, max: number): boolean =>
   typeof value === 'number' && Number.isInteger(value) && value >= min && value <= max;
+
+/**
+ * An image dimension.
+ *
+ * Pasted markup carries CSS values such as "100%" or "auto", and the editor
+ * stores them as written. Refusing those made the whole document unsavable
+ * from the moment somebody pasted an image from a web page, with nothing on
+ * screen to say which element was at fault. A count is bounded; anything else
+ * is kept as a short string, which the exporter ignores in favour of measuring
+ * the picture itself.
+ */
+const isDimension = (value: unknown): boolean => {
+  if (value === null) return true;
+  if (typeof value === 'number') return isBoundedInteger(value, 1, 20000);
+  return typeof value === 'string' && value.length <= 32;
+};
 
 /**
  * Checks for the attributes that reach a serializer. Anything not listed is
@@ -178,10 +202,12 @@ const ATTR_CHECKS: Record<string, (value: unknown) => boolean> = {
   textAlign: (value) => value === null || (typeof value === 'string' && ALIGNMENTS.has(value)),
   colspan: (value) => value === null || isBoundedInteger(value, 1, 1000),
   rowspan: (value) => value === null || isBoundedInteger(value, 1, 1000),
-  width: (value) => value === null || isBoundedInteger(value, 1, 20000),
-  height: (value) => value === null || isBoundedInteger(value, 1, 20000),
-  href: (value) => typeof value === 'string' && value.length <= MAX_ATTR_LENGTH && SAFE_HREF.test(value),
-  src: (value) => typeof value === 'string' && value.length <= MAX_SRC_LENGTH,
+  width: isDimension,
+  height: isDimension,
+  href: (value) =>
+    typeof value === 'string' && value.length <= MAX_ATTR_LENGTH && SAFE_HREF.test(value),
+  src: (value) =>
+    typeof value === 'string' && value.length <= MAX_SRC_LENGTH && SAFE_SRC.test(value),
 };
 
 /** A value that can be written into a document without carrying structure. */

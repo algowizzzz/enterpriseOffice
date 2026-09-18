@@ -45,6 +45,17 @@ export function EditorPage({ documentId, onBack }: EditorPageProps): JSX.Element
   // person carried on typing into text that would never be stored again.
   const inFlight = useRef(false);
   const queued = useRef<{ content?: PMNode; title?: string } | null>(null);
+  // Keystrokes that have happened but have not yet been handed over.
+  //
+  // The editor waits a moment after typing stops before reporting a change, so
+  // "nothing queued" is not the same as "nothing unsaved". Treating them as the
+  // same showed "All changes saved" while recent keystrokes were still sitting
+  // in that gap, and the warning shown when closing the tab is keyed on the
+  // same state, so a tab closed in that window lost them without a word.
+  const typedSinceQueued = useRef(false);
+  // Bumped when the document is replaced wholesale, so an answer from before
+  // the replacement is recognised and ignored.
+  const generation = useRef(0);
   // Bumped to remount the editing surface. The editor takes its content once,
   // when it is created, so replacing the text wholesale means giving it a new
   // instance. This used to reload the whole page, which threw away the scroll
@@ -76,9 +87,13 @@ export function EditorPage({ documentId, onBack }: EditorPageProps): JSX.Element
   const persist = useCallback(
     async (payload: { content?: PMNode; title?: string }) => {
       queued.current = { ...(queued.current ?? {}), ...payload };
+      // The editor only hands over content once it has gone quiet, so at this
+      // point everything typed so far is accounted for.
+      if (payload.content !== undefined) typedSinceQueued.current = false;
       if (inFlight.current) return;
 
       inFlight.current = true;
+      const startedAt = generation.current;
       try {
         while (queued.current) {
           const next = queued.current;
@@ -89,11 +104,13 @@ export function EditorPage({ documentId, onBack }: EditorPageProps): JSX.Element
               ...next,
               expectedRevision: revision.current,
             });
+            if (generation.current !== startedAt) return;
             revision.current = saved.revision;
             setDocument((current) => (current ? { ...current, ...saved } : saved));
             setError(null);
-            if (!queued.current) setSaveState('saved');
+            if (!queued.current) setSaveState(typedSinceQueued.current ? 'dirty' : 'saved');
           } catch (caught) {
+            if (generation.current !== startedAt) return;
             // Put the work back so it is not lost, whatever went wrong.
             queued.current = { ...next, ...(queued.current ?? {}) };
             if (caught instanceof ApiError && caught.status === 409) {
@@ -129,6 +146,16 @@ export function EditorPage({ documentId, onBack }: EditorPageProps): JSX.Element
     return () => window.removeEventListener('beforeunload', handler);
   }, [saveState]);
 
+  /** A failed download used to be an unhandled rejection with nothing on screen. */
+  const download = async (format: 'docx' | 'txt'): Promise<void> => {
+    try {
+      await downloadExport(documentId, format);
+      setError(null);
+    } catch (caught) {
+      setError(caught instanceof ApiError ? caught.message : 'Could not download this document.');
+    }
+  };
+
   const saveTitle = async (): Promise<void> => {
     if (!document || title === document.title) return;
     await persist({ title });
@@ -153,6 +180,12 @@ export function EditorPage({ documentId, onBack }: EditorPageProps): JSX.Element
     }
     try {
       const { document: restored } = await api.restoreVersion(documentId, target);
+      // Abandon any save still in flight or waiting. Its answer would put the
+      // revision and the document back to where they were before the restore,
+      // while the editor showed the restored text.
+      generation.current += 1;
+      queued.current = null;
+      typedSinceQueued.current = false;
       revision.current = restored.revision;
       setDocument(restored);
       setTitle(restored.title);
@@ -227,10 +260,10 @@ export function EditorPage({ documentId, onBack }: EditorPageProps): JSX.Element
           </button>
         ) : null}
         <div className="actions">
-          <button type="button" onClick={() => void downloadExport(documentId, 'docx')}>
+          <button type="button" onClick={() => { void download('docx'); }}>
             Export .docx
           </button>
-          <button type="button" onClick={() => void downloadExport(documentId, 'txt')}>
+          <button type="button" onClick={() => { void download('txt'); }}>
             Export .txt
           </button>
           <button type="button" onClick={() => void openVersions()}>
@@ -352,15 +385,10 @@ export function EditorPage({ documentId, onBack }: EditorPageProps): JSX.Element
         key={surface}
         initialContent={document.content}
         readOnly={readOnly ?? false}
-        onDirty={() =>
-          setSaveState((current) => {
-            // Typing during a save used to leave the badge reading "All changes
-            // saved" once that save finished, although the new keystrokes were
-            // not in it. The save loop above clears this once nothing is queued.
-            if (current === 'conflict') return current;
-            return 'dirty';
-          })
-        }
+        onDirty={() => {
+          typedSinceQueued.current = true;
+          setSaveState((current) => (current === 'conflict' ? current : 'dirty'));
+        }}
         onChange={(content) => void persist({ content })}
       />
     </div>

@@ -51,8 +51,12 @@ interface ImportState {
  */
 const MAX_HTML_DEPTH = 80;
 
-/** Everything a document may carry in pictures put together. */
-const MAX_TOTAL_IMAGE_BYTES = 16 * 1024 * 1024;
+/**
+ * Everything a document may carry in pictures put together. Kept below the
+ * limit on a stored document, so an image-heavy file is refused here with a
+ * message about images rather than later with one about the document's size.
+ */
+const MAX_TOTAL_IMAGE_BYTES = 8 * 1024 * 1024;
 
 /**
  * What an uploaded archive may expand to. The converter reads the whole file
@@ -152,7 +156,10 @@ function inline(node: HtmlNode, marks: PMMark[], state: ImportState, depth = 0):
       break;
     case 'a': {
       const href = node.getAttribute('href');
-      if (href && /^(https?:|mailto:|#|\/)/iu.test(href)) {
+      // The same rule the model applies on save. "//host/path" inherits the
+      // page's scheme and leaves the site, which a content security policy does
+      // not stop for a navigation, and a bare "https:" names no host at all.
+      if (href && /^(?:https?:\/\/[^/]|mailto:|#|\/(?!\/))/iu.test(href)) {
         next.push({ type: MARK.link, attrs: { href } });
       }
       break;
@@ -196,7 +203,9 @@ function inline(node: HtmlNode, marks: PMMark[], state: ImportState, depth = 0):
           type: NODE.image,
           attrs: {
             src,
-            alt: node.getAttribute('alt') ?? null,
+            // Trimmed rather than stored whole: a caption longer than the limit
+            // on an attribute would have the entire upload refused over it.
+            alt: shortened(node.getAttribute('alt')),
             title: null,
             // Carrying the real size means the picture comes back the size it
             // went in, rather than at a fixed default.
@@ -429,6 +438,14 @@ export function htmlToDocument(html: string): ImportResult {
     content: blocks.length > 0 ? blocks : [{ type: NODE.paragraph }],
   };
   return { content, messages: [...state.messages] };
+}
+
+/** Alternative text that fits in an attribute, or nothing. */
+function shortened(value: string | undefined | null, limit = 1000): string | null {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  if (trimmed.length === 0) return null;
+  return trimmed.length <= limit ? trimmed : `${trimmed.slice(0, limit - 1)}\u2026`;
 }
 
 /** Strip the extension from an uploaded file name to use as a document title. */

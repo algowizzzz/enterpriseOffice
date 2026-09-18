@@ -193,7 +193,9 @@ function convertBlock(node: PMNode, list?: ListContext, indentLeft = 0): (Paragr
                 new TableCell({
                   columnSpan: positiveInt(cell.attrs?.['colspan'], MAX_SPAN) ?? 1,
                   rowSpan: positiveInt(cell.attrs?.['rowspan'], MAX_SPAN) ?? 1,
-                  children: (cell.content ?? []).flatMap((child) => convertBlock(child)),
+                  children: (cell.content ?? []).flatMap((child) =>
+                    convertBlock(child, undefined, indentLeft),
+                  ),
                 }),
             ),
           }),

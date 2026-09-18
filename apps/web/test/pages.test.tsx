@@ -641,6 +641,110 @@ describe('editor page', () => {
     expect(mocked['saveDocument'].mock.calls.length).toBe(attempts);
   });
 
+  it('does not claim everything is saved while keystrokes are still pending', async () => {
+    // Regression: the editor waits a moment after typing stops before handing
+    // content over, so "nothing queued" is not "nothing unsaved". Treating them
+    // as the same showed "All changes saved" while recent keystrokes sat in that
+    // gap, and the warning shown when closing the tab is keyed on the same
+    // state, so a tab closed then lost them without a word.
+    mocked['getDocument'].mockResolvedValue({ document: detail() });
+
+    let release: () => void = () => {};
+    mocked['saveDocument'].mockImplementation(async () => {
+      await new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      return { document: detail({ revision: 4 }) };
+    });
+
+    const user = userEvent.setup();
+    const { container } = await renderSignedIn(<EditorPage documentId="doc-1" onBack={() => {}} />);
+
+    // Start a save by renaming, then type into the body while it is in flight.
+    const title = await screen.findByLabelText('Document title');
+    await user.clear(title);
+    await user.type(title, 'Renamed');
+    await user.tab();
+    await screen.findByText('Saving…');
+
+    const body = container.querySelector('[aria-label="Document body"]') as HTMLElement;
+    await user.click(body);
+    await user.keyboard('more words');
+
+    release();
+
+    // The save finishes, but what was typed after it started is not in it.
+    await waitFor(() => expect(screen.getByText('Unsaved changes')).toBeInTheDocument());
+    expect(screen.queryByText('All changes saved')).not.toBeInTheDocument();
+  });
+
+  it('ignores the answer to a save that a restore has already replaced', async () => {
+    // A save in flight across the restore would otherwise put the revision and
+    // the document back to where they were, while the editor showed the
+    // restored text, and the next save would fail against a revision that no
+    // longer matched.
+    mocked['getDocument'].mockResolvedValue({ document: detail() });
+    mocked['listVersions'].mockResolvedValue({
+      versions: [
+        { revision: 3, title: 'Q', authorName: 'E', createdAt: '2026-01-02T10:30:00.000Z' },
+        { revision: 1, title: 'Q', authorName: 'E', createdAt: '2026-01-02T09:30:00.000Z' },
+      ],
+    });
+
+    let release: () => void = () => {};
+    mocked['saveDocument'].mockImplementation(async () => {
+      await new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      return { document: detail({ revision: 4, title: 'From the stale save' }) };
+    });
+    mocked['restoreVersion'].mockResolvedValue({
+      document: detail({
+        revision: 9,
+        title: 'Restored',
+        content: {
+          type: 'doc',
+          content: [{ type: 'paragraph', content: [{ type: 'text', text: 'The older wording' }] }],
+        },
+      }),
+    });
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+
+    const user = userEvent.setup();
+    await renderSignedIn(<EditorPage documentId="doc-1" onBack={() => {}} />);
+
+    const title = await screen.findByLabelText('Document title');
+    await user.clear(title);
+    await user.type(title, 'Renamed');
+    await user.tab();
+    await screen.findByText('Saving…');
+
+    await user.click(await screen.findByRole('button', { name: 'History' }));
+    await user.click(await restoreButtonFor(1));
+    await waitFor(() => expect(screen.getByLabelText('Document title')).toHaveValue('Restored'));
+
+    // The stale save answers only now.
+    release();
+
+    await waitFor(() =>
+      expect(screen.getByRole('textbox', { name: 'Document body' })).toHaveTextContent(
+        'The older wording',
+      ),
+    );
+    expect(screen.getByLabelText('Document title')).toHaveValue('Restored');
+  });
+
+  it('reports a download that failed rather than saying nothing', async () => {
+    mocked['getDocument'].mockResolvedValue({ document: detail() });
+    (downloadExport as unknown as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new ApiError(404, 'EXPORT_FAILED', 'The export failed.'),
+    );
+    const user = userEvent.setup();
+    await renderSignedIn(<EditorPage documentId="doc-1" onBack={() => {}} />);
+    await user.click(await screen.findByRole('button', { name: 'Export .docx' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('The export failed.');
+  });
+
   it('offers no reload button while saving is healthy', async () => {
     mocked['getDocument'].mockResolvedValue({ document: detail() });
     await renderSignedIn(<EditorPage documentId="doc-1" onBack={() => {}} />);

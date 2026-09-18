@@ -13,6 +13,7 @@ import {
   getUser,
   markLogin,
   revokeAllSessions,
+  revokeOtherSessions,
   setPassword,
 } from '../services/users.js';
 
@@ -159,8 +160,14 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
       const problems = passwordProblems(body.newPassword);
       if (problems.length > 0) throw badRequest(problems.join(' '));
       await setPassword(app.db, user.id, body.newPassword);
-      // Force every other device to sign in again with the new password.
-      revokeAllSessions(app.db, user.id);
+      // Every other device has to sign in again with the new password. This
+      // one keeps its session: signing the person out of the page they just
+      // used would be a surprise, not a protection.
+      if (request.sessionToken) {
+        revokeOtherSessions(app.db, user.id, request.sessionToken);
+      } else {
+        revokeAllSessions(app.db, user.id);
+      }
       recordAudit(app.db, {
         actorId: user.id,
         action: 'user.password_changed',

@@ -1,7 +1,7 @@
 import type { Database } from '../db.js';
 import { conflict, notFound } from '../errors.js';
 import { transaction } from '../db.js';
-import { newId, now } from '../lib/ids.js';
+import { hashToken, newId, now } from '../lib/ids.js';
 import { hashPassword } from '../lib/password.js';
 
 export type Role = 'admin' | 'editor' | 'viewer';
@@ -88,11 +88,13 @@ export async function createFirstAdmin(db: Database, input: CreateUserInput): Pr
 }
 
 export async function createUser(db: Database, input: CreateUserInput): Promise<User> {
-  const email = input.email.trim();
-  const lower = normalizeEmail(email);
-  if (findUserByEmail(db, lower)) throw conflict('An account with that email already exists');
+  // Hash before the transaction, then check and insert together. Hashing yields
+  // for about a tenth of a second, and two administrators adding the same
+  // address inside that window both passed the check; the second insert then
+  // broke the unique constraint and surfaced as an opaque server error instead
+  // of saying the account already exists.
   const hash = await hashPassword(input.password);
-  return insertUser(db, input, hash);
+  return transaction(db, () => insertUser(db, input, hash));
 }
 
 function insertUser(db: Database, input: CreateUserInput, hash: string): User {
@@ -180,6 +182,20 @@ export function revokeAllSessions(db: Database, userId: string): void {
     now(),
     userId,
   );
+}
+
+/**
+ * End every session for an account except the one asking.
+ *
+ * Changing your own password should sign out your other devices, not you. The
+ * blanket version revoked the caller's session too, so the page it was typed
+ * into was signed out on its next request.
+ */
+export function revokeOtherSessions(db: Database, userId: string, keepToken: string): void {
+  db.prepare(
+    `UPDATE sessions SET revoked_at = ?
+      WHERE user_id = ? AND revoked_at IS NULL AND token_hash != ?`,
+  ).run(now(), userId, hashToken(keepToken));
 }
 
 /** Admins are the only role that can manage users, so never allow the last one to be lost. */
