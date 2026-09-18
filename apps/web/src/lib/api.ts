@@ -35,6 +35,8 @@ export interface DocumentDetail extends DocumentSummary {
   pageSetup: PageSetup;
   /** The document's own styles, when it was uploaded from Word. */
   styles?: StyleTable | null;
+  /** Which shared document to join, when the server offers live co-editing. */
+  collab?: { epoch: number };
 }
 
 export interface DocumentComment {

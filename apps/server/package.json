@@ -17,12 +17,17 @@
     "@fastify/multipart": "^9.0.3",
     "@fastify/rate-limit": "^10.2.2",
     "@fastify/static": "^10.1.4",
+    "@fastify/websocket": "^11.3.1",
     "docx": "^9.5.1",
     "fastify": "^5.2.1",
+    "lib0": "^0.2.117",
+    "y-protocols": "^1.0.7",
+    "yjs": "^13.6.32",
     "zod": "^3.24.2"
   },
   "devDependencies": {
     "@types/node": "^22.13.10",
+    "@types/ws": "^8.18.1",
     "@vitest/coverage-v8": "^5.0.1",
     "esbuild": "^0.25.2",
     "fflate": "^0.8.3",

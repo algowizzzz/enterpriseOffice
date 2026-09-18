@@ -7,7 +7,7 @@ import {
   type RepairResult,
   type StyleTable,
 } from '@docforge/model';
-import { editorExtensions } from './editorExtensions';
+import { buildExtensions, editorExtensions, type SharedEditing } from './editorExtensions';
 import { Toolbar } from './Toolbar';
 
 /**
@@ -34,7 +34,7 @@ export function withoutDefaults(node: PMNode): PMNode {
   return clean;
 }
 
-export type SaveState = 'saved' | 'dirty' | 'saving' | 'error' | 'conflict';
+export type SaveState = 'saved' | 'dirty' | 'saving' | 'error' | 'conflict' | 'offline';
 
 interface DocumentEditorProps {
   initialContent: PMNode;
@@ -67,6 +67,12 @@ interface DocumentEditorProps {
    * empty quote, because nothing was lost and saying otherwise is untrue.
    */
   onRepair?: (when: 'open' | 'save') => void;
+  /**
+   * Set when several people hold this document at once. The text then comes
+   * from the shared document rather than from `initialContent`, and is stored by
+   * the server as they work, so `onChange` is not called.
+   */
+  shared?: SharedEditing | undefined;
   /** Hands the editor to the page, for the panels that work alongside it. */
   onReady?: (editor: Editor | null) => void;
 }
@@ -95,6 +101,7 @@ export function DocumentEditor({
   onDirty,
   onRepair,
   onReady,
+  shared,
   header = '',
   footer = '',
   styles = null,
@@ -115,8 +122,10 @@ export function DocumentEditor({
 
   const editor = useEditor(
     {
-      extensions: editorExtensions,
-      content: opened.current.doc,
+      extensions: shared ? buildExtensions(shared) : editorExtensions,
+      // A shared document brings its own text. Handing it this as well would
+      // insert the whole document a second time for everybody.
+      ...(shared ? {} : { content: opened.current.doc }),
       editable: !readOnly,
       editorProps: {
         attributes: {
@@ -130,6 +139,7 @@ export function DocumentEditor({
       onUpdate: ({ editor: instance }) => {
         if (readOnly) return;
         onDirty();
+        if (shared) return;
         if (timer.current) clearTimeout(timer.current);
         const handOver = (): void => {
           timer.current = null;

@@ -16,6 +16,7 @@ import { DocumentEditor, type SaveState } from '../components/DocumentEditor';
 import { CommentsPanel } from '../components/CommentsPanel';
 import { ReviewPanel } from '../components/ReviewPanel';
 import { setTracking } from '../components/trackChanges';
+import { joinShared, othersPresent, type Presence, type SharedSession } from '../lib/collab';
 import { useSession } from '../lib/session';
 import { textField } from '../lib/forms';
 
@@ -30,6 +31,7 @@ const SAVE_LABEL: Record<SaveState, string> = {
   saving: 'Saving…',
   error: 'Save failed',
   conflict: 'Someone else saved first',
+  offline: 'Offline: your changes are kept and will be sent when the connection returns',
 };
 
 export function EditorPage({ documentId, onBack }: EditorPageProps): JSX.Element {
@@ -53,6 +55,14 @@ export function EditorPage({ documentId, onBack }: EditorPageProps): JSX.Element
   // uploaded, or what has changed between the two.
   const [view, setView] = useState<'document' | 'original' | 'redline'>('document');
   const [shown, setShown] = useState<PMNode | null>(null);
+  // Live co-editing. Null while it is being set up, and when it is not on offer
+  // or the network will not carry it, in which case saving works as it always did.
+  const [session, setSession] = useState<SharedSession | null>(null);
+  const [sharedReady, setSharedReady] = useState(false);
+  const [sharedFailed, setSharedFailed] = useState(false);
+  const [present, setPresent] = useState<Presence[]>([]);
+  const [reopen, setReopen] = useState(0);
+  const settle = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [tracking, setTrackingOn] = useState(
     () => window.localStorage.getItem(`docforge-track-${documentId}`) === '1',
   );
@@ -67,6 +77,7 @@ export function EditorPage({ documentId, onBack }: EditorPageProps): JSX.Element
   // won, the second was rejected as a conflict, and because the revision was
   // only updated on success the editor then failed every later save while the
   // person carried on typing into text that would never be stored again.
+  const liveRef = useRef(false);
   const inFlight = useRef(false);
   const queued = useRef<{ content?: PMNode; title?: string; pageSetup?: PageSetup } | null>(null);
   // Keystrokes that have happened but have not yet been handed over.
@@ -104,9 +115,57 @@ export function EditorPage({ documentId, onBack }: EditorPageProps): JSX.Element
     return () => {
       cancelled = true;
     };
-  }, [documentId]);
+  }, [documentId, reopen]);
 
   const readOnly = document?.access === 'view';
+  const epoch = document?.collab?.epoch;
+  const userName = user?.name ?? 'Somebody';
+
+  // Join the shared document once it is known which one to join.
+  useEffect(() => {
+    if (epoch === undefined || typeof WebSocket === 'undefined' || sharedFailed) return undefined;
+    setSharedReady(false);
+    const joined = joinShared(documentId, epoch, userName, {
+      onConnection: (state) =>
+        setSaveState((current) =>
+          state === 'live' ? (current === 'offline' ? 'saved' : current) : state === 'offline' ? 'offline' : current,
+        ),
+      // Somebody restored a version, or the text was replaced from outside the
+      // editor. This browser's history no longer applies: fetch and join afresh.
+      onReplaced: () => setReopen((count) => count + 1),
+    });
+    const showPresent = (): void => setPresent(othersPresent(joined));
+    joined.provider.awareness.on('change', showPresent);
+    const synced = (isSynced: boolean): void => {
+      if (!isSynced) return;
+      setSharedReady(true);
+      setSurface((count) => count + 1);
+    };
+    joined.provider.on('sync', synced);
+    // Some networks do not carry WebSockets at all. Rather than leave somebody
+    // looking at a spinner, fall back to saving the ordinary way and say so.
+    const giveUp = setTimeout(() => {
+      if (joined.provider.synced) return;
+      joined.close();
+      setSession(null);
+      setSharedFailed(true);
+      setNotice(
+        'Live co-editing is not available on this connection, so this document is being saved the ordinary way. If somebody else edits it at the same time, the second save will be refused rather than merged.',
+      );
+      setSurface((count) => count + 1);
+    }, 8000);
+    setSession(joined);
+    return () => {
+      clearTimeout(giveUp);
+      joined.provider.awareness.off('change', showPresent);
+      joined.close();
+      setSession(null);
+      setPresent([]);
+    };
+  }, [documentId, epoch, userName, sharedFailed]);
+
+  const live = session !== null && sharedReady && !sharedFailed;
+  liveRef.current = live;
 
   const persist = useCallback(
     async (payload: { content?: PMNode; title?: string; pageSetup?: PageSetup }) => {
@@ -126,7 +185,10 @@ export function EditorPage({ documentId, onBack }: EditorPageProps): JSX.Element
           try {
             const { document: saved } = await api.saveDocument(documentId, {
               ...next,
-              expectedRevision: revision.current,
+              // While the text is shared, the server moves the revision on as
+              // people type, so a title saved against the revision this browser
+              // last saw would be refused every time.
+              ...(liveRef.current ? {} : { expectedRevision: revision.current }),
             });
             if (generation.current !== startedAt) {
               // The document was replaced while this was on its way, so its
@@ -245,6 +307,10 @@ export function EditorPage({ documentId, onBack }: EditorPageProps): JSX.Element
       // The message belonged to the content that has just been replaced.
       setNotice(null);
       setSurface((count) => count + 1);
+      // The shared document was started afresh by the restore, so it has to be
+      // joined again. A document one person has to themselves has nothing to
+      // rejoin, and fetching it again would race the restored text.
+      if (liveRef.current) setReopen((count) => count + 1);
     } catch (caught) {
       setError(caught instanceof ApiError ? caught.message : 'Could not restore that version.');
     }
@@ -331,6 +397,21 @@ export function EditorPage({ documentId, onBack }: EditorPageProps): JSX.Element
             if (event.key === 'Enter') event.currentTarget.blur();
           }}
         />
+        {present.length > 0 ? (
+          <span className="presence" aria-label="Also editing">
+            {present.slice(0, 5).map((person) => (
+              <span key={person.name} className="presence-chip" style={{ background: person.color }} title={`${person.name} has this document open`}>
+                {person.name
+                  .split(/\s+/u)
+                  .map((word) => word[0] ?? '')
+                  .join('')
+                  .slice(0, 2)
+                  .toUpperCase()}
+              </span>
+            ))}
+            {present.length > 5 ? <span className="muted">+{present.length - 5}</span> : null}
+          </span>
+        ) : null}
         <span className={`save-state save-${saveState}`}>{SAVE_LABEL[saveState]}</span>
         {saveState === 'conflict' ? (
           <button
@@ -587,8 +668,12 @@ export function EditorPage({ documentId, onBack }: EditorPageProps): JSX.Element
         ) : null}
       </nav>
       <div className={`editor-with-side${side ? ' has-side' : ''} view-${view}`}>
+      {epoch !== undefined && !sharedFailed && !live && view === 'document' ? (
+        <p className="muted page-wrap">Joining the document…</p>
+      ) : (
       <DocumentEditor
-        key={surface}
+        key={`${surface}-${live && view === 'document' ? 'shared' : 'own'}`}
+        shared={live && view === 'document' && session ? session : undefined}
         onReady={setEditor}
         initialContent={view === 'document' || !shown ? document.content : shown}
         header={document.pageSetup?.header ?? ''}
@@ -596,6 +681,17 @@ export function EditorPage({ documentId, onBack }: EditorPageProps): JSX.Element
         styles={document.styles ?? null}
         readOnly={(readOnly ?? false) || view !== 'document'}
         onDirty={() => {
+          if (live) {
+            // Sent as it is typed and stored by the server. There is no reply
+            // to wait for, so "saved" is shown once the line has gone quiet.
+            setSaveState((current) => (current === 'offline' ? current : 'saving'));
+            if (settle.current) clearTimeout(settle.current);
+            settle.current = setTimeout(
+              () => setSaveState((current) => (current === 'saving' ? 'saved' : current)),
+              1200,
+            );
+            return;
+          }
           typedSinceQueued.current = true;
           setSaveState((current) => (current === 'conflict' ? current : 'dirty'));
         }}
@@ -611,6 +707,7 @@ export function EditorPage({ documentId, onBack }: EditorPageProps): JSX.Element
           setNotice((current) => (current === message ? current : message));
         }}
       />
+      )}
       {side === 'review' ? (
         <ReviewPanel
           editor={editor}

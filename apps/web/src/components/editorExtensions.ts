@@ -13,6 +13,9 @@ import type { Extensions } from '@tiptap/react';
 import { WordNavigation } from './wordNavigation';
 import { CommentHighlights } from './commentHighlights';
 import { Deletion, Insertion, TrackChanges } from './trackChanges';
+import Collaboration from '@tiptap/extension-collaboration';
+import CollaborationCaret from '@tiptap/extension-collaboration-caret';
+import type { Doc as YDoc } from 'yjs';
 
 /**
  * Pictures must be embedded in the document itself.
@@ -355,6 +358,14 @@ export const WordRun = Mark.create({
   },
 });
 
+/** What the editor needs to join a shared document. */
+export interface SharedEditing {
+  document: YDoc;
+  /** The connection that carries everybody's cursors. */
+  provider: { awareness: unknown };
+  user: { name: string; color: string };
+}
+
 /**
  * The editor's extension set.
  *
@@ -362,53 +373,69 @@ export const WordRun = Mark.create({
  * because the server validates every save against that vocabulary and rejects
  * anything it does not recognise. Code and code blocks are switched off for
  * that reason: a word processor has no use for them and the model has no node.
+ *
+ * With `shared`, the text comes from a document several people hold at once,
+ * and undo belongs to that document, so that undoing takes back what you did
+ * and never what somebody else was typing at the same moment.
  */
-export const editorExtensions: Extensions = [
-  StarterKit.configure({
-    code: false,
-    codeBlock: false,
-    heading: { levels: [1, 2, 3, 4, 5, 6] },
-    // Replaced below by one that refuses targets the model will not store.
-    link: false,
-    trailingNode: false,
-  }),
-  StorableLink.configure({
-    openOnClick: false,
-    autolink: true,
-    // Only protocols that cannot execute script.
-    protocols: ['http', 'https', 'mailto'],
-    // Every other way a link is made, typing one, pasting one over a
-    // selection, the ribbon button, goes through this rather than through the
-    // parse rule below. Leaving it at the default meant typing an ftp address
-    // still produced a link the model strips on every save, which is the
-    // banner-after-every-keystroke this was meant to end.
-    isAllowedUri: (url: string) => isSafeHref(url),
-    HTMLAttributes: { rel: 'noopener noreferrer nofollow', target: '_blank' },
-  }),
-  PageBreak,
-  WordInline,
-  WordBlock,
-  WordRun,
-  ParagraphIdentity,
-  TextStyle,
-  Color,
-  FontFamily,
-  FontSize,
-  Highlight,
-  Superscript,
-  Subscript,
-  TextAlign.configure({ types: ['heading', 'paragraph'] }),
-  EmbeddedImage.configure({ inline: true, allowBase64: true }),
-  Table.configure({ resizable: true }),
-  TableRow,
-  ShadedTableHeader,
-  ShadedTableCell,
-  WordNavigation,
-  CommentHighlights,
-  Insertion,
-  Deletion,
-  TrackChanges,
-];
+export function buildExtensions(shared?: SharedEditing): Extensions {
+  return [
+    StarterKit.configure({
+      code: false,
+      codeBlock: false,
+      heading: { levels: [1, 2, 3, 4, 5, 6] },
+      // Replaced below by one that refuses targets the model will not store.
+      link: false,
+      trailingNode: false,
+      ...(shared ? { undoRedo: false as const } : {}),
+    }),
+    ...(shared
+      ? [
+          Collaboration.configure({ document: shared.document }),
+          CollaborationCaret.configure({ provider: shared.provider, user: shared.user }),
+        ]
+      : []),
+    StorableLink.configure({
+      openOnClick: false,
+      autolink: true,
+      // Only protocols that cannot execute script.
+      protocols: ['http', 'https', 'mailto'],
+      // Every other way a link is made, typing one, pasting one over a
+      // selection, the ribbon button, goes through this rather than through the
+      // parse rule below. Leaving it at the default meant typing an ftp address
+      // still produced a link the model strips on every save, which is the
+      // banner-after-every-keystroke this was meant to end.
+      isAllowedUri: (url: string) => isSafeHref(url),
+      HTMLAttributes: { rel: 'noopener noreferrer nofollow', target: '_blank' },
+    }),
+    PageBreak,
+    WordInline,
+    WordBlock,
+    WordRun,
+    ParagraphIdentity,
+    TextStyle,
+    Color,
+    FontFamily,
+    FontSize,
+    Highlight,
+    Superscript,
+    Subscript,
+    TextAlign.configure({ types: ['heading', 'paragraph'] }),
+    EmbeddedImage.configure({ inline: true, allowBase64: true }),
+    Table.configure({ resizable: true }),
+    TableRow,
+    ShadedTableHeader,
+    ShadedTableCell,
+    WordNavigation,
+    CommentHighlights,
+    Insertion,
+    Deletion,
+    TrackChanges,
+  ];
+}
+
+/** The set for a document one person has to themselves. */
+export const editorExtensions: Extensions = buildExtensions();
 
 /** Font families bundled with the application. No web fonts are fetched. */
 export const FONT_FAMILIES = [

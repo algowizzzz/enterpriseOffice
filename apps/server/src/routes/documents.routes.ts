@@ -12,6 +12,7 @@ import { exportDocx, safeFileName } from '../docx/export.js';
 import { importDocx, titleFromFileName } from '../docx/import.js';
 import { recordAudit } from '../services/audit.js';
 import { addComment, listThreads } from '../services/comments.js';
+import { collabEpoch } from '../collab/rooms.js';
 import {
   createDocument,
   deleteDocument,
@@ -162,7 +163,9 @@ export async function registerDocumentRoutes(app: FastifyInstance): Promise<void
   app.get('/documents/:id', async (request) => {
     const user = await app.authenticate(request);
     const { id } = idParam.parse(request.params);
-    return { document: getDocument(app.db, user, id) };
+    const document = getDocument(app.db, user, id);
+    // Which shared document to join, for the browser's collaboration socket.
+    return { document: { ...document, collab: { epoch: collabEpoch(app.db, id) } } };
   });
 
   app.put('/documents/:id', async (request) => {
@@ -180,6 +183,10 @@ export async function registerDocumentRoutes(app: FastifyInstance): Promise<void
       throw badRequest('Nothing to update');
     }
     const document = updateDocument(app.db, user, id, body);
+    // Content written here did not come through the shared document, so whoever
+    // has it open together is now looking at something else. The editor itself
+    // only sends the title and the page setup this way.
+    if (body.content !== undefined) app.rooms.reset(id);
     recordAudit(app.db, {
       actorId: user.id,
       action: body.content === undefined ? 'document.renamed' : 'document.updated',
@@ -333,6 +340,7 @@ export async function registerDocumentRoutes(app: FastifyInstance): Promise<void
       .object({ id: z.string().uuid(), revision: z.coerce.number().int().positive() })
       .parse(request.params);
     const document = restoreVersion(app.db, user, params.id, params.revision);
+    app.rooms.reset(params.id);
     recordAudit(app.db, {
       actorId: user.id,
       action: 'document.restored',

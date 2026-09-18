@@ -22,6 +22,9 @@ import { registerAuthRoutes } from './routes/auth.routes.js';
 import { registerUserRoutes } from './routes/users.routes.js';
 import { registerDocumentRoutes } from './routes/documents.routes.js';
 import { registerCommentRoutes } from './routes/comments.routes.js';
+import { registerCollabRoutes } from './routes/collab.routes.js';
+import websocket from '@fastify/websocket';
+import { Rooms } from './collab/rooms.js';
 import { purgeExpiredSessions } from './services/sessions.js';
 
 export const SESSION_COOKIE = 'docforge_session';
@@ -37,6 +40,8 @@ declare module 'fastify' {
   interface FastifyInstance {
     db: Database;
     config: Config;
+    /** The documents people have open together. */
+    rooms: Rooms;
     /** Rejects the request unless a valid session is present. */
     authenticate: (request: FastifyRequest) => Promise<AuthenticatedUser>;
     /** Rejects the request unless the caller is an administrator. */
@@ -96,6 +101,10 @@ export async function buildApp(options: BuildOptions = {}): Promise<FastifyInsta
 
   app.decorate('db', db);
   app.decorate('config', config);
+  app.decorate('rooms', new Rooms(db, app.log));
+  // One frame may carry a pasted picture, so the limit follows the largest
+  // document the server will store rather than the library's default.
+  await app.register(websocket, { options: { maxPayload: 24 * 1024 * 1024 } });
 
   await app.register(helmet, {
     // Everything is served from this origin. No CDN, no inline remote resources.
@@ -212,6 +221,7 @@ export async function buildApp(options: BuildOptions = {}): Promise<FastifyInsta
       await registerUserRoutes(instance);
       await registerDocumentRoutes(instance);
       await registerCommentRoutes(instance);
+      await registerCollabRoutes(instance);
     },
     { prefix: '/api' },
   );
@@ -239,6 +249,8 @@ export async function buildApp(options: BuildOptions = {}): Promise<FastifyInsta
   housekeeping.unref();
 
   app.addHook('onClose', async () => {
+    // Whatever people have typed since the last snapshot is written down first.
+    app.rooms.flush();
     clearInterval(housekeeping);
     db.close();
   });

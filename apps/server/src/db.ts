@@ -146,6 +146,28 @@ const MIGRATIONS: { id: string; sql: string }[] = [
       CREATE INDEX idx_comments_document ON comments(document_id, created_at);
     `,
   },
+  {
+    // The shared (CRDT) form of a document that people have open together.
+    //
+    // `state` is the whole shared document, so somebody who was offline can
+    // reconnect after a restart and have their changes merged rather than
+    // duplicated. It only means anything while the stored content has not been
+    // replaced behind its back: `revision` says which revision it matches, and
+    // `epoch` is bumped whenever the shared document is started afresh (a
+    // version was restored, or content was written by something that is not the
+    // editor). A browser still holding an older epoch is told to reload instead
+    // of merging its history into a document that no longer shares it.
+    id: '0005_document_collab',
+    sql: `
+      CREATE TABLE document_collab (
+        document_id TEXT PRIMARY KEY REFERENCES documents(id) ON DELETE CASCADE,
+        epoch       INTEGER NOT NULL DEFAULT 1,
+        revision    INTEGER NOT NULL DEFAULT 0,
+        state       BLOB,
+        updated_at  TEXT NOT NULL
+      );
+    `,
+  },
 ];
 
 export function openDatabase(file: string): Database {
