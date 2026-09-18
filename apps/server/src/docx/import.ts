@@ -3,10 +3,14 @@ import { buildStyleMap, alignmentTransform } from './mammothOptions.js';
 import { parse, NodeType, type HTMLElement, type Node as HtmlNode } from 'node-html-parser';
 import { NODE, MARK, type PMNode, type PMMark } from '@docforge/model';
 import { badRequest } from '../errors.js';
+import { measureImage } from './imageSize.js';
 
 /** Inline images larger than this are dropped rather than inlined as data URIs. */
 const MAX_IMAGE_BYTES = 2 * 1024 * 1024;
 const MAX_IMAGES = 100;
+
+/** The formats the exporter can write back into a Word file. */
+const SUPPORTED_IMAGE = /^data:image\/(png|jpe?g|gif|bmp);base64,/iu;
 
 export interface ImportResult {
   content: PMNode;
@@ -141,16 +145,33 @@ function inline(node: HtmlNode, marks: PMMark[], state: ImportState): PMNode[] {
         state.messages.add(`Only the first ${MAX_IMAGES} images were imported.`);
         return [];
       }
+      if (!SUPPORTED_IMAGE.test(src)) {
+        // Word files often carry EMF, WMF or TIFF pictures. Accepting one here
+        // only to drop it silently when the document is exported again is worse
+        // than refusing it now and saying so.
+        state.messages.add(
+          'An image in a format that cannot be saved back to Word was removed. PNG, JPEG, GIF and BMP are kept.',
+        );
+        return [];
+      }
       const base64 = src.slice(src.indexOf(',') + 1);
       if (Math.floor((base64.length * 3) / 4) > MAX_IMAGE_BYTES) {
         state.messages.add('An image larger than 2 MB was removed.');
         return [];
       }
       state.images += 1;
+      const measured = measureImage(src);
       return [
         {
           type: NODE.image,
-          attrs: { src, alt: node.getAttribute('alt') ?? null, title: null },
+          attrs: {
+            src,
+            alt: node.getAttribute('alt') ?? null,
+            title: null,
+            // Carrying the real size means the picture comes back the size it
+            // went in, rather than at a fixed default.
+            ...(measured ?? {}),
+          },
         },
       ];
     }
@@ -194,9 +215,32 @@ function listFrom(node: HTMLElement, state: ImportState): PMNode {
   return { type: ordered ? NODE.orderedList : NODE.bulletList, content: items };
 }
 
+/**
+ * The rows belonging to this table, and not to a table nested inside one of its
+ * cells. Asking the parser for every `tr` beneath the element pulled the inner
+ * table's rows up into the outer one, and the cell holding that table then
+ * converted it again, so a table inside a table imported with its rows doubled
+ * and the outer table's shape ragged.
+ */
+function rowsOf(table: HTMLElement): HTMLElement[] {
+  const rows: HTMLElement[] = [];
+  for (const child of table.childNodes) {
+    if (!isElement(child)) continue;
+    const tag = child.rawTagName?.toLowerCase();
+    if (tag === 'tr') {
+      rows.push(child);
+    } else if (tag === 'tbody' || tag === 'thead' || tag === 'tfoot') {
+      for (const inner of child.childNodes) {
+        if (isElement(inner) && inner.rawTagName?.toLowerCase() === 'tr') rows.push(inner);
+      }
+    }
+  }
+  return rows;
+}
+
 function tableFrom(node: HTMLElement, state: ImportState): PMNode {
   const rows: PMNode[] = [];
-  for (const tr of node.querySelectorAll('tr')) {
+  for (const tr of rowsOf(node)) {
     const cells: PMNode[] = [];
     for (const cell of tr.childNodes) {
       if (!isElement(cell)) continue;

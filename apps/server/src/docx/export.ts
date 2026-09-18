@@ -14,6 +14,7 @@ import {
   type ParagraphChild,
 } from 'docx';
 import { NODE, MARK, type PMMark, type PMNode } from '@docforge/model';
+import { measureImage } from './imageSize.js';
 
 const HEADING_BY_LEVEL: Record<number, (typeof HeadingLevel)[keyof typeof HeadingLevel]> = {
   1: HeadingLevel.HEADING_1,
@@ -34,6 +35,13 @@ const ALIGNMENT: Record<string, (typeof AlignmentType)[keyof typeof AlignmentTyp
 /** Read an attribute that is meant to be text, ignoring anything that is not. */
 const textAttr = (value: unknown, fallback = ''): string =>
   typeof value === 'string' ? value : fallback;
+
+/** Read an attribute that is meant to be a count, ignoring anything that is not. */
+function positiveInt(value: unknown, limit = 100000): number | null {
+  const parsed = typeof value === 'number' ? value : Number(value);
+  if (!Number.isInteger(parsed) || parsed <= 0 || parsed > limit) return null;
+  return parsed;
+}
 
 function markSet(marks: PMMark[] | undefined): Map<string, Record<string, unknown>> {
   const map = new Map<string, Record<string, unknown>>();
@@ -62,15 +70,22 @@ function runsOf(node: PMNode): ParagraphChild[] {
       continue;
     }
     if (child.type === NODE.image) {
-      const decoded = decodeDataUri(textAttr(child.attrs?.['src']));
+      const src = textAttr(child.attrs?.['src']);
+      const decoded = decodeDataUri(src);
       if (!decoded) continue;
+      // Prefer the size the document carries, fall back to reading it out of
+      // the picture, and only then to a default. Writing every image at a fixed
+      // size resized and distorted all of them on every round trip.
+      const declared = positiveInt(child.attrs?.['width']);
+      const declaredHeight = positiveInt(child.attrs?.['height']);
+      const measured = declared && declaredHeight ? null : measureImage(src);
       children.push(
         new ImageRun({
           data: decoded.data,
           type: decoded.type,
           transformation: {
-            width: Number(child.attrs?.['width'] ?? 400),
-            height: Number(child.attrs?.['height'] ?? 300),
+            width: declared ?? measured?.width ?? 400,
+            height: declaredHeight ?? measured?.height ?? 300,
           },
         }),
       );
@@ -113,11 +128,12 @@ interface ListContext {
   ordered: boolean;
 }
 
-function paragraphOptions(node: PMNode, list?: ListContext): IParagraphOptions {
+function paragraphOptions(node: PMNode, list?: ListContext, indentLeft = 0): IParagraphOptions {
   const align = textAttr(node.attrs?.['textAlign']);
   return {
     children: runsOf(node),
     ...(ALIGNMENT[align] ? { alignment: ALIGNMENT[align] } : {}),
+    ...(indentLeft > 0 ? { indent: { left: indentLeft } } : {}),
     ...(list
       ? list.ordered
         ? { numbering: { reference: 'docforge-ordered', level: list.level } }
@@ -126,22 +142,35 @@ function paragraphOptions(node: PMNode, list?: ListContext): IParagraphOptions {
   };
 }
 
-function convertBlock(node: PMNode, list?: ListContext): (Paragraph | Table)[] {
+/** One level of quote indentation, in twentieths of a point. */
+const QUOTE_INDENT = 720;
+
+/**
+ * A span larger than this is not a table Word will open. The value reaching
+ * here comes from stored content, which a non-browser client can write freely.
+ */
+const MAX_SPAN = 1000;
+
+function convertBlock(node: PMNode, list?: ListContext, indentLeft = 0): (Paragraph | Table)[] {
   switch (node.type) {
     case NODE.paragraph:
-      return [new Paragraph(paragraphOptions(node, list))];
+      return [new Paragraph(paragraphOptions(node, list, indentLeft))];
     case NODE.heading: {
       const level = Number(node.attrs?.['level'] ?? 1);
       return [
         new Paragraph({
-          ...paragraphOptions(node),
+          ...paragraphOptions(node, undefined, indentLeft),
           heading: HEADING_BY_LEVEL[level] ?? HeadingLevel.HEADING_1,
         }),
       ];
     }
     case NODE.blockquote:
-      return (node.content ?? []).map(
-        (child) => new Paragraph({ ...paragraphOptions(child), indent: { left: 720 } }),
+      // Each child is converted as itself and indented, rather than being
+      // flattened into a paragraph. Mapping everything through the paragraph
+      // path turned a quoted list into one run-on line with no bullets, and a
+      // quoted table into the same.
+      return (node.content ?? []).flatMap((child) =>
+        convertBlock(child, list, indentLeft + QUOTE_INDENT),
       );
     case NODE.bulletList:
     case NODE.orderedList: {
@@ -150,7 +179,7 @@ function convertBlock(node: PMNode, list?: ListContext): (Paragraph | Table)[] {
       const blocks: (Paragraph | Table)[] = [];
       for (const item of node.content ?? []) {
         for (const child of item.content ?? []) {
-          blocks.push(...convertBlock(child, { level, ordered }));
+          blocks.push(...convertBlock(child, { level, ordered }, indentLeft));
         }
       }
       return blocks;
@@ -162,8 +191,8 @@ function convertBlock(node: PMNode, list?: ListContext): (Paragraph | Table)[] {
             children: (row.content ?? []).map(
               (cell) =>
                 new TableCell({
-                  columnSpan: Number(cell.attrs?.['colspan'] ?? 1),
-                  rowSpan: Number(cell.attrs?.['rowspan'] ?? 1),
+                  columnSpan: positiveInt(cell.attrs?.['colspan'], MAX_SPAN) ?? 1,
+                  rowSpan: positiveInt(cell.attrs?.['rowspan'], MAX_SPAN) ?? 1,
                   children: (cell.content ?? []).flatMap((child) => convertBlock(child)),
                 }),
             ),
@@ -177,9 +206,15 @@ function convertBlock(node: PMNode, list?: ListContext): (Paragraph | Table)[] {
     case NODE.pageBreak:
       return [new Paragraph({ pageBreakBefore: true })];
     default:
-      return (node.content ?? []).flatMap((child) => convertBlock(child, list));
+      return (node.content ?? []).flatMap((child) => convertBlock(child, list, indentLeft));
   }
 }
+
+/**
+ * Numbering has to define every level a nested list can reach, or the deepest
+ * items reference a level the document never declared.
+ */
+const NUMBERING_LEVELS = [0, 1, 2, 3, 4, 5, 6, 7, 8];
 
 export interface ExportOptions {
   title: string;
@@ -197,7 +232,7 @@ export async function exportDocx(doc: PMNode, options: ExportOptions): Promise<B
       config: [
         {
           reference: 'docforge-ordered',
-          levels: [0, 1, 2, 3, 4].map((level) => ({
+          levels: NUMBERING_LEVELS.map((level) => ({
             level,
             format: 'decimal' as const,
             text: `%${level + 1}.`,

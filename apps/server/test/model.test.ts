@@ -24,6 +24,69 @@ describe('document model', () => {
     expect(toPlainText(docFromParagraphs(['first', 'second']))).toBe('first\nsecond');
   });
 
+  it('gives every list item its own line', () => {
+    // A list is one top-level block, so walking only the top level ran the
+    // items together and the plain-text export read "AlphaBeta".
+    const doc = {
+      type: 'doc',
+      content: [
+        {
+          type: 'bulletList',
+          content: ['Alpha', 'Beta'].map((text) => ({
+            type: 'listItem',
+            content: [{ type: 'paragraph', content: [{ type: 'text', text }] }],
+          })),
+        },
+      ],
+    };
+    expect(toPlainText(doc)).toBe('Alpha\nBeta');
+  });
+
+  it('gives every table cell its own line', () => {
+    const cell = (text: string) => ({
+      type: 'tableCell',
+      content: [{ type: 'paragraph', content: [{ type: 'text', text }] }],
+    });
+    const doc = {
+      type: 'doc',
+      content: [{ type: 'table', content: [{ type: 'tableRow', content: [cell('One'), cell('Two')] }] }],
+    };
+    expect(toPlainText(doc)).toBe('One\nTwo');
+  });
+
+  it('breaks a line where the document does', () => {
+    const doc = {
+      type: 'doc',
+      content: [
+        {
+          type: 'paragraph',
+          content: [
+            { type: 'text', text: 'first' },
+            { type: 'hardBreak' },
+            { type: 'text', text: 'second' },
+          ],
+        },
+      ],
+    };
+    expect(toPlainText(doc)).toBe('first\nsecond');
+  });
+
+  it('reads the paragraphs inside a quote as separate lines', () => {
+    const doc = {
+      type: 'doc',
+      content: [
+        {
+          type: 'blockquote',
+          content: [
+            { type: 'paragraph', content: [{ type: 'text', text: 'One' }] },
+            { type: 'paragraph', content: [{ type: 'text', text: 'Two' }] },
+          ],
+        },
+      ],
+    };
+    expect(toPlainText(doc)).toBe('One\nTwo');
+  });
+
   it('builds a heading outline', () => {
     const doc = {
       type: 'doc',

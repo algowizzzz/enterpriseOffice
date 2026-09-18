@@ -82,15 +82,44 @@ export function walk(node: PMNode, visit: (node: PMNode, depth: number) => void,
   for (const child of node.content ?? []) walk(child, visit, depth + 1);
 }
 
-/** Concatenated text content, with one newline per block boundary. */
+/** The nodes that end a line of plain text. Everything else is a container. */
+const LINE_NODES = new Set<string>([NODE.paragraph, NODE.heading]);
+
+/**
+ * The document as plain text, one line per paragraph or heading.
+ *
+ * Walking only the top level put every list item and table cell on one line,
+ * because a list is a single top-level block: a two-item list came out as
+ * "AlphaBeta". This walks to the paragraphs instead, wherever they sit, so a
+ * list, a quote and a table each read as separate lines.
+ */
 export function toPlainText(doc: PMNode): string {
-  const blocks: string[] = [];
-  const collect = (node: PMNode): string => {
-    if (node.type === NODE.text) return node.text ?? '';
-    return (node.content ?? []).map(collect).join('');
+  const lines: string[] = [];
+  let current = '';
+
+  const walk = (node: PMNode): void => {
+    if (node.type === NODE.text) {
+      current += node.text ?? '';
+      return;
+    }
+    if (node.type === NODE.hardBreak) {
+      lines.push(current);
+      current = '';
+      return;
+    }
+    if (LINE_NODES.has(node.type)) {
+      current = '';
+      for (const child of node.content ?? []) walk(child);
+      lines.push(current);
+      current = '';
+      return;
+    }
+    for (const child of node.content ?? []) walk(child);
   };
-  for (const child of doc.content ?? []) blocks.push(collect(child));
-  return blocks.join('\n');
+
+  for (const child of doc.content ?? []) walk(child);
+  if (current.length > 0) lines.push(current);
+  return lines.join('\n');
 }
 
 /** Word count using the same rule as most word processors: whitespace runs. */
