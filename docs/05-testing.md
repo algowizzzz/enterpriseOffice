@@ -19,8 +19,8 @@ Current state:
 
 | Suite | Tests | Statements | Branches |
 |---|---|---|---|
-| Server | 253 | 96% | 86% |
-| Client | 140 | 94% | 83% |
+| Server | 272 | 96% | 87% |
+| Client | 147 | 96% | 83% |
 | End to end | 29 checks | n/a | n/a |
 
 Coverage numbers come from `npx vitest run --coverage` in either workspace.
@@ -45,6 +45,19 @@ database per test, so tests share no state and run in any order.
 | `mammoth-options.test.ts` | The style map and alignment transform |
 | `model.test.ts` | Document model helpers and password hashing |
 | `validation.test.ts` | Email rules and the seed administrator |
+| `robustness.test.ts` | Large documents, non-Latin scripts, deep nesting, two people editing at once |
+
+### Robustness
+
+`robustness.test.ts` is deliberately unlike the others. It uses documents the
+size a real report reaches rather than three-line fixtures, and content that
+breaks naive implementations: right-to-left Urdu and Arabic, Chinese, emoji
+outside the basic plane, combining accents, the characters that matter in XML,
+a five-thousand-character unbroken word, and mixed direction in one line.
+
+It also covers two people editing the same document: the first save wins, the
+second is refused rather than silently discarding the first, and the refused
+writer succeeds once they have caught up. Both authors appear in the history.
 
 ## Client suite
 
