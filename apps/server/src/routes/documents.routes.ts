@@ -36,6 +36,7 @@ import {
 const idParam = z.object({ id: z.string().uuid() });
 
 const DOCX_MIME = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+const PDF_MIME = 'application/pdf';
 
 /**
  * What changed between two revisions, written as tracked changes signed by the
@@ -103,12 +104,14 @@ export async function registerDocumentRoutes(app: FastifyInstance): Promise<void
 
       const file = await request.file();
       if (!file) throw badRequest('Attach a .docx file to upload');
+      const isPdf = file.mimetype === PDF_MIME || /\.pdf$/iu.test(file.filename ?? '');
       const isDocx =
-        file.mimetype === DOCX_MIME ||
-        file.mimetype === 'application/octet-stream' ||
-        /\.docx$/iu.test(file.filename ?? '');
-      if (!isDocx) {
-        throw unsupportedMedia('Only .docx files can be uploaded. Convert .doc files first.');
+        !isPdf &&
+        (file.mimetype === DOCX_MIME ||
+          file.mimetype === 'application/octet-stream' ||
+          /\.docx$/iu.test(file.filename ?? ''));
+      if (!isDocx && !isPdf) {
+        throw unsupportedMedia('Upload a Word file (.docx) or a PDF. Older .doc files must be saved as .docx first.');
       }
 
       const buffer = await file.toBuffer();
@@ -125,7 +128,17 @@ export async function registerDocumentRoutes(app: FastifyInstance): Promise<void
       }
       if (buffer.length === 0) throw badRequest('That file is empty');
 
-      const { content, messages, meta, fragments, styles, comments } = await importDocx(buffer);
+      // The PDF reader is loaded when the first PDF arrives, not when the server
+      // starts: it is three megabytes that most sessions never need, and it
+      // announces the absence of a canvas it has no use for here.
+      const { content, messages, meta, fragments, styles, comments } = isPdf
+        ? await (await import('../pdf/importPdf.js')).importPdf(buffer).then((read) => ({
+            ...read,
+            fragments: undefined,
+            styles: undefined,
+            comments: undefined,
+          }))
+        : await importDocx(buffer);
       const created = createDocument(app.db, user, {
         title: titleFromFileName(file.filename ?? 'Imported document'),
         content,
@@ -140,8 +153,8 @@ export async function registerDocumentRoutes(app: FastifyInstance): Promise<void
       // The file itself, kept so the export can patch it rather than rebuild
       // it, and so the original can be downloaded again.
       saveSource(app.db, created.id, {
-        fileName: file.filename ?? 'document.docx',
-        mediaType: DOCX_MIME,
+        fileName: file.filename ?? (isPdf ? 'document.pdf' : 'document.docx'),
+        mediaType: isPdf ? PDF_MIME : DOCX_MIME,
         bytes: buffer,
         fragments: fragments ?? {},
         styles: styles ?? null,
@@ -242,7 +255,7 @@ export async function registerDocumentRoutes(app: FastifyInstance): Promise<void
       const { id } = idParam.parse(request.params);
       const { format, changes, compare } = z
         .object({
-          format: z.enum(['docx', 'txt', 'original']).default('docx'),
+          format: z.enum(['docx', 'pdf', 'txt', 'original']).default('docx'),
           // Tracked changes as they stand, or the document with all of them
           // accepted (the "final") or all of them rejected.
           changes: z.enum(['markup', 'accepted', 'rejected']).default('markup'),
@@ -290,13 +303,32 @@ export async function registerDocumentRoutes(app: FastifyInstance): Promise<void
           .send(source.bytes);
       }
 
+      if (format === 'pdf') {
+        // Loaded when the first PDF is asked for: see the note on the reader.
+        const { exportPdf } = await import('../pdf/exportPdf.js');
+        const pdf = await exportPdf(document.content, {
+          title: document.title,
+          author: user.name,
+          pageSetup: document.pageSetup,
+          styles: source?.styles ?? null,
+          fontDirs: app.config.fontDirs,
+        });
+        return reply
+          .header('Content-Type', PDF_MIME)
+          .header('Content-Disposition', contentDisposition(safeFileName(document.title, 'pdf')))
+          .header('Content-Length', String(pdf.length))
+          .send(pdf);
+      }
+
       const buffer = await exportDocx(document.content, {
         title: document.title,
         author: user.name,
         pageSetup: document.pageSetup,
-        source: source?.package,
+        // Only a Word file can be patched. A document that arrived as a PDF is
+        // written from the template, like one that was started here.
+        source: source?.mediaType === DOCX_MIME ? source.package : undefined,
         fragments: source?.fragments,
-        originalSetup: source?.pageSetup,
+        originalSetup: source?.mediaType === DOCX_MIME ? source.pageSetup : undefined,
         comments: listThreads(app.db, user, id).map((thread) => ({
           author: thread.authorName,
           date: thread.createdAt,

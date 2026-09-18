@@ -267,7 +267,7 @@ export interface UploadOptions {
   stripRunning?: boolean;
 }
 
-export type ExportFormat = 'docx' | 'txt' | 'original';
+export type ExportFormat = 'docx' | 'pdf' | 'txt' | 'original';
 
 export interface ExportOptions {
   /** Tracked changes as they stand, all accepted, or all rejected. */

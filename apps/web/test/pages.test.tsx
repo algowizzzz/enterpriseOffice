@@ -265,7 +265,7 @@ describe('documents page', () => {
     const onOpen = vi.fn();
     const user = userEvent.setup();
     const { container } = await renderSignedIn(<DocumentsPage onOpen={onOpen} />);
-    await screen.findByRole('button', { name: 'Upload .docx' });
+    await screen.findByRole('button', { name: 'Upload Word or PDF' });
 
     const input = container.querySelector('input[type="file"]') as HTMLInputElement;
     const file = new File(['bytes'], 'Report.docx', {
@@ -283,7 +283,7 @@ describe('documents page', () => {
     );
     const user = userEvent.setup();
     const { container } = await renderSignedIn(<DocumentsPage onOpen={() => {}} />);
-    await screen.findByRole('button', { name: 'Upload .docx' });
+    await screen.findByRole('button', { name: 'Upload Word or PDF' });
     const input = container.querySelector('input[type="file"]') as HTMLInputElement;
     await user.upload(
       input,
@@ -301,7 +301,7 @@ describe('documents page', () => {
     });
     const user = userEvent.setup();
     const { container } = await renderSignedIn(<DocumentsPage onOpen={() => {}} />);
-    await screen.findByRole('button', { name: 'Upload .docx' });
+    await screen.findByRole('button', { name: 'Upload Word or PDF' });
     const input = container.querySelector('input[type="file"]') as HTMLInputElement;
     await user.upload(input, new File(['x'], 'r.docx'));
     expect(await screen.findByText(/larger than 2 MB/u)).toBeInTheDocument();
@@ -349,7 +349,7 @@ describe('documents page', () => {
     await renderSignedIn(<DocumentsPage onOpen={() => {}} />, VIEWER);
     expect(await screen.findByText(/but not create them/u)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'New blank document' })).toBeDisabled();
-    expect(screen.getByRole('button', { name: 'Upload .docx' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Upload Word or PDF' })).toBeDisabled();
   });
 
   it('reports a failure to load the list', async () => {

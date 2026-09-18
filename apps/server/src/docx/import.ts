@@ -77,5 +77,5 @@ export async function importDocx(buffer: Buffer): Promise<ImportResult> {
 /** Strip the extension from an uploaded file name to use as a document title. */
 export function titleFromFileName(fileName: string): string {
   const base = fileName.split(/[\\/]/u).pop() ?? fileName;
-  return base.replace(/\.docx$/iu, '').trim() || 'Imported document';
+  return base.replace(/\.(?:docx|pdf)$/iu, '').trim() || 'Imported document';
 }

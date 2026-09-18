@@ -450,7 +450,8 @@ describe('documents, further behaviour', () => {
     const created = await newDoc(app, owner);
     const response = await app.inject({
       method: 'GET',
-      url: `/api/documents/${created.id}/export?format=pdf`,
+      // PDF was the example here until PDF export existed.
+      url: `/api/documents/${created.id}/export?format=odt`,
       headers: authHeader(owner),
     });
     expect(response.statusCode).toBe(400);

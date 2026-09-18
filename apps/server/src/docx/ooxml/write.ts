@@ -942,16 +942,24 @@ function runProperties(ctx: Context, marks: PMMark[] | undefined): string {
   return serializeXml(el('w:rPr', {}, inOrder(properties, RPR_ORDER)));
 }
 
+const SOFT_HYPHEN = String.fromCodePoint(0xad);
+const NON_BREAKING_HYPHEN = String.fromCodePoint(0x2011);
+const SPECIAL_CHARACTERS = new RegExp(`(\\t|${SOFT_HYPHEN}|${NON_BREAKING_HYPHEN})`, 'u');
+
 function writeText(ctx: Context, node: PMNode): string {
   const value = node.text ?? '';
   if (value.length === 0) return '';
   const properties = runProperties(ctx, node.marks);
-  const pieces = value.split('\t');
+  // A tab, a soft hyphen and a non-breaking hyphen are elements in Word, not
+  // characters in the text. Written as characters they mostly work, and then a
+  // font without the glyph draws a box where the hyphen should be.
   let inner = '';
-  pieces.forEach((piece, index) => {
-    if (index > 0) inner += '<w:tab/>';
-    if (piece.length > 0) inner += `<w:t xml:space="preserve">${escapeXmlText(piece)}</w:t>`;
-  });
+  for (const piece of value.split(SPECIAL_CHARACTERS)) {
+    if (piece === '\t') inner += '<w:tab/>';
+    else if (piece === SOFT_HYPHEN) inner += '<w:softHyphen/>';
+    else if (piece === NON_BREAKING_HYPHEN) inner += '<w:noBreakHyphen/>';
+    else if (piece.length > 0) inner += `<w:t xml:space="preserve">${escapeXmlText(piece)}</w:t>`;
+  }
   return `<w:r>${properties}${inner}</w:r>`;
 }
 

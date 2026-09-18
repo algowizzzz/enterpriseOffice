@@ -25,6 +25,12 @@ export interface Config {
   webRoot: string;
   /** Maximum accepted upload size in bytes. */
   maxUploadBytes: number;
+  /**
+   * Where to look for fonts when a PDF is written. The fonts every PDF reader
+   * has cover Western European text; anything else needs a font file, and an
+   * air-gapped server has only the ones somebody put on it.
+   */
+  fontDirs: string[];
   sessionTtlSeconds: number;
   /** Secure cookie flag. Off by default outside production so plain HTTP works on a laptop. */
   secureCookies: boolean;
@@ -90,6 +96,10 @@ export function loadConfig(overrides: Partial<Config> = {}): Config {
     // Fifty megabytes: a policy with a scanned appendix is routinely past
     // twenty-five, and a refused upload is the first thing anybody would meet.
     maxUploadBytes: int('DOCFORGE_MAX_UPLOAD_BYTES', 50 * 1024 * 1024),
+    fontDirs: (process.env['DOCFORGE_FONT_DIRS'] ?? '')
+      .split(process.platform === 'win32' ? ';' : ':')
+      .map((dir) => dir.trim())
+      .filter(Boolean),
     sessionTtlSeconds: int('DOCFORGE_SESSION_TTL', 12 * 60 * 60),
     secureCookies: bool('DOCFORGE_SECURE_COOKIES', env === 'production'),
     loginRateLimit: int('DOCFORGE_LOGIN_RATE_LIMIT', 10),

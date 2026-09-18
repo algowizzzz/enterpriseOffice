@@ -434,6 +434,13 @@ export function EditorPage({ documentId, onBack }: EditorPageProps): JSX.Element
           <button type="button" onClick={() => { void download('docx'); }}>
             Export .docx
           </button>
+          <button
+            type="button"
+            title="A paginated PDF with the header, the footer and page numbers"
+            onClick={() => { void download('pdf'); }}
+          >
+            Export .pdf
+          </button>
           <button type="button" onClick={() => { void download('txt'); }}>
             Export .txt
           </button>

@@ -106,7 +106,7 @@ export function DocumentsPage({ onOpen }: DocumentsPageProps): JSX.Element {
       <header className="page-header">
         <div>
           <h1>Documents</h1>
-          <p className="muted">Create a document, or upload a Word file to keep working on it.</p>
+          <p className="muted">Create a document, or upload a Word file or a PDF to keep working on it.</p>
         </div>
         <div className="actions">
           <button
@@ -124,12 +124,12 @@ export function DocumentsPage({ onOpen }: DocumentsPageProps): JSX.Element {
             onClick={() => fileInput.current?.click()}
             disabled={busy || !canCreate}
           >
-            Upload .docx
+            Upload Word or PDF
           </button>
           <input
             ref={fileInput}
             type="file"
-            accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            accept=".docx,.pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/pdf"
             hidden
             onChange={(event) => {
               const file = event.target.files?.[0];
@@ -206,7 +206,7 @@ export function DocumentsPage({ onOpen }: DocumentsPageProps): JSX.Element {
       ) : documents.length === 0 ? (
         <div className="empty">
           <p>You have no documents yet.</p>
-          <p className="muted">Start a blank one, or upload a .docx file.</p>
+          <p className="muted">Start a blank one, or upload a Word file or a PDF.</p>
         </div>
       ) : (
         <table className="grid">
