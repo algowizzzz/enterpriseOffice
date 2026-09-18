@@ -1,0 +1,21 @@
+{
+  "name": "docforge",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "npm run dev --workspace apps/web",
+    "build": "npm run build --workspaces --if-present",
+    "typecheck": "tsc --build",
+    "lint": "eslint .",
+    "test": "npm run test --workspaces --if-present",
+    "audit:offline": "node scripts/check-no-remote-urls.mjs"
+  }
+}
