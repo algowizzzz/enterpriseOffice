@@ -1,4 +1,5 @@
 import mammoth from 'mammoth';
+import { buildStyleMap, alignmentTransform } from './mammothOptions.js';
 import { parse, type HTMLElement, type Node as HtmlNode } from 'node-html-parser';
 import { NODE, MARK, type PMNode, type PMMark } from '@docforge/model';
 import { badRequest } from '../errors.js';
@@ -137,8 +138,12 @@ function paragraphFrom(node: HTMLElement, state: ImportState): PMNode {
 
 function alignmentOf(node: HTMLElement): string | undefined {
   const style = node.getAttribute('style') ?? '';
-  const match = /text-align:\s*(left|center|right|justify)/iu.exec(style);
-  return match ? (match[1] as string).toLowerCase() : undefined;
+  const inline = /text-align:\s*(left|center|right|justify)/iu.exec(style);
+  if (inline?.[1]) return inline[1].toLowerCase();
+  // Alignment carried across by the style map below, which encodes it as a class.
+  const className = node.getAttribute('class') ?? '';
+  const marked = /(?:^|\s)align-(left|center|right|justify)(?:\s|$)/iu.exec(className);
+  return marked?.[1]?.toLowerCase();
 }
 
 function listFrom(node: HTMLElement, state: ImportState): PMNode {
@@ -214,10 +219,14 @@ function convertBlock(node: HTMLElement, state: ImportState): PMNode[] {
   if (/^h[1-6]$/u.test(tag)) {
     const level = Number(tag.slice(1));
     const content = node.childNodes.flatMap((child) => inline(child, [], state));
+    // A heading carries alignment just as a paragraph does. Reading it only for
+    // paragraphs silently dropped the centring from every centred title.
+    const align = alignmentOf(node);
+    const attrs = align ? { level, textAlign: align } : { level };
     return [
       content.length > 0
-        ? { type: NODE.heading, attrs: { level }, content }
-        : { type: NODE.heading, attrs: { level } },
+        ? { type: NODE.heading, attrs, content }
+        : { type: NODE.heading, attrs },
     ];
   }
   switch (tag) {
@@ -230,7 +239,20 @@ function convertBlock(node: HTMLElement, state: ImportState): PMNode[] {
       return [tableFrom(node, state)];
     case 'blockquote': {
       const inner = blocksOf(node, state);
-      return [{ type: NODE.blockquote, content: inner.length > 0 ? inner : [{ type: NODE.paragraph }] }];
+      // Alignment sits on the quote element, so pass it to the paragraphs
+      // inside that do not carry one of their own.
+      const align = alignmentOf(node);
+      const content =
+        inner.length > 0
+          ? align
+            ? inner.map((block) =>
+                block.type === NODE.paragraph && block.attrs?.['textAlign'] === undefined
+                  ? { ...block, attrs: { ...(block.attrs ?? {}), textAlign: align } }
+                  : block,
+              )
+            : inner
+          : [{ type: NODE.paragraph }];
+      return [{ type: NODE.blockquote, content }];
     }
     case 'hr':
       return [{ type: NODE.horizontalRule }];
@@ -260,11 +282,8 @@ export async function importDocx(buffer: Buffer): Promise<ImportResult> {
     const result = await mammoth.convertToHtml(
       { buffer },
       {
-        styleMap: [
-          "p[style-name='Title'] => h1:fresh",
-          "p[style-name='Subtitle'] => h2:fresh",
-          "p[style-name='Quote'] => blockquote:fresh",
-        ],
+        styleMap: buildStyleMap(),
+        transformDocument: alignmentTransform(mammoth),
       },
     );
     html = result.value;
