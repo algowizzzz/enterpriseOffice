@@ -264,6 +264,12 @@ Content is ProseMirror JSON. The vocabulary is defined once in
 `packages/model` and shared by the editor and the server, so the two cannot
 drift apart.
 
+Every document also carries a **page setup**: `{ "header": string, "footer":
+string, "orientation": "portrait" | "landscape" }`. It is returned with a
+document, accepted by `PUT /api/documents/:id` beside `title` and `content`,
+read from an uploaded file and written into an exported one. A header or footer
+is one line of at most 300 characters.
+
 Nodes: `doc`, `paragraph`, `heading`, `text`, `hardBreak`, `pageBreak`,
 `horizontalRule`, `blockquote`, `bulletList`, `orderedList`, `listItem`,
 `table`, `tableRow`, `tableCell`, `tableHeader`, `image`.

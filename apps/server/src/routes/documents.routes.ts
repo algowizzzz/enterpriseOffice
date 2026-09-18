@@ -37,11 +37,13 @@ export async function registerDocumentRoutes(app: FastifyInstance): Promise<void
       .object({
         title: z.string().max(300).optional(),
         content: z.unknown().optional(),
+        pageSetup: z.unknown().optional(),
       })
       .parse(request.body ?? {});
     const document = createDocument(app.db, user, {
       title: body.title,
       content: body.content,
+      pageSetup: body.pageSetup,
       origin: 'blank',
     });
     recordAudit(app.db, {
@@ -81,10 +83,12 @@ export async function registerDocumentRoutes(app: FastifyInstance): Promise<void
       }
       if (buffer.length === 0) throw badRequest('That file is empty');
 
-      const { content, messages } = await importDocx(buffer);
+      const { content, messages, meta } = await importDocx(buffer);
       const document = createDocument(app.db, user, {
         title: titleFromFileName(file.filename ?? 'Imported document'),
         content,
+        // The header, the footer and the orientation the file arrived with.
+        pageSetup: meta,
         origin: 'import',
         sourceName: file.filename,
       });
@@ -113,10 +117,11 @@ export async function registerDocumentRoutes(app: FastifyInstance): Promise<void
       .object({
         title: z.string().max(300).optional(),
         content: z.unknown().optional(),
+        pageSetup: z.unknown().optional(),
         expectedRevision: z.number().int().positive().optional(),
       })
       .parse(request.body ?? {});
-    if (body.title === undefined && body.content === undefined) {
+    if (body.title === undefined && body.content === undefined && body.pageSetup === undefined) {
       throw badRequest('Nothing to update');
     }
     const document = updateDocument(app.db, user, id, body);
@@ -181,6 +186,7 @@ export async function registerDocumentRoutes(app: FastifyInstance): Promise<void
       const buffer = await exportDocx(document.content, {
         title: document.title,
         author: user.name,
+        pageSetup: document.pageSetup,
       });
       const fileName = safeFileName(document.title, 'docx');
       return reply

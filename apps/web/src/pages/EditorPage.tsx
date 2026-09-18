@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type JSX } from 'react';
-import type { PMNode } from '@docforge/model';
+import { defaultPageSetup, type PageSetup, type PMNode } from '@docforge/model';
 import {
   api,
   ApiError,
@@ -35,6 +35,7 @@ export function EditorPage({ documentId, onBack }: EditorPageProps): JSX.Element
   const [notice, setNotice] = useState<string | null>(null);
   const [versions, setVersions] = useState<VersionSummary[] | null>(null);
   const [shares, setShares] = useState<ShareEntry[] | null>(null);
+  const [setupOpen, setSetupOpen] = useState(false);
   const [directory, setDirectory] = useState<User[]>([]);
   const revision = useRef(0);
   // One save at a time, with the next one waiting its turn.
@@ -45,7 +46,7 @@ export function EditorPage({ documentId, onBack }: EditorPageProps): JSX.Element
   // only updated on success the editor then failed every later save while the
   // person carried on typing into text that would never be stored again.
   const inFlight = useRef(false);
-  const queued = useRef<{ content?: PMNode; title?: string } | null>(null);
+  const queued = useRef<{ content?: PMNode; title?: string; pageSetup?: PageSetup } | null>(null);
   // Keystrokes that have happened but have not yet been handed over.
   //
   // The editor waits a moment after typing stops before reporting a change, so
@@ -86,7 +87,7 @@ export function EditorPage({ documentId, onBack }: EditorPageProps): JSX.Element
   const readOnly = document?.access === 'view';
 
   const persist = useCallback(
-    async (payload: { content?: PMNode; title?: string }) => {
+    async (payload: { content?: PMNode; title?: string; pageSetup?: PageSetup }) => {
       queued.current = { ...(queued.current ?? {}), ...payload };
       // The editor only hands over content once it has gone quiet, so at this
       // point everything typed so far is accounted for.
@@ -166,6 +167,21 @@ export function EditorPage({ documentId, onBack }: EditorPageProps): JSX.Element
     } catch (caught) {
       setError(caught instanceof ApiError ? caught.message : 'Could not download this document.');
     }
+  };
+
+  /**
+   * Change the page setup.
+   *
+   * Typed into, so it saves on the same path as the text rather than on a
+   * button nobody would press: the header is part of the document.
+   */
+  const changeSetup = (patch: Partial<PageSetup>): void => {
+    setDocument((current) => {
+      if (!current) return current;
+      const pageSetup = { ...(current.pageSetup ?? defaultPageSetup()), ...patch };
+      void persist({ pageSetup });
+      return { ...current, pageSetup };
+    });
   };
 
   const saveTitle = async (): Promise<void> => {
@@ -280,6 +296,9 @@ export function EditorPage({ documentId, onBack }: EditorPageProps): JSX.Element
           <button type="button" onClick={() => { void download('txt'); }}>
             Export .txt
           </button>
+          <button type="button" onClick={() => setSetupOpen((open) => !open)}>
+            Page setup
+          </button>
           <button type="button" onClick={() => void openVersions()}>
             History
           </button>
@@ -304,6 +323,50 @@ export function EditorPage({ documentId, onBack }: EditorPageProps): JSX.Element
             Dismiss
           </button>
         </p>
+      ) : null}
+
+      {setupOpen ? (
+        <aside className="panel">
+          <h2>Page setup</h2>
+          <p className="hint">
+            The header and footer are printed on every page and are written into the Word file.
+          </p>
+          <div className="page-setup">
+            <label>
+              Header
+              <input
+                value={document.pageSetup?.header ?? ''}
+                readOnly={readOnly}
+                maxLength={300}
+                placeholder="Nothing at the top of the page"
+                onChange={(event) => changeSetup({ header: event.target.value })}
+              />
+            </label>
+            <label>
+              Footer
+              <input
+                value={document.pageSetup?.footer ?? ''}
+                readOnly={readOnly}
+                maxLength={300}
+                placeholder="Nothing at the bottom of the page"
+                onChange={(event) => changeSetup({ footer: event.target.value })}
+              />
+            </label>
+            <label>
+              Orientation
+              <select
+                value={document.pageSetup?.orientation ?? 'portrait'}
+                disabled={readOnly}
+                onChange={(event) =>
+                  changeSetup({ orientation: event.target.value as PageSetup['orientation'] })
+                }
+              >
+                <option value="portrait">Portrait</option>
+                <option value="landscape">Landscape</option>
+              </select>
+            </label>
+          </div>
+        </aside>
       ) : null}
 
       {versions ? (
@@ -407,6 +470,8 @@ export function EditorPage({ documentId, onBack }: EditorPageProps): JSX.Element
       <DocumentEditor
         key={surface}
         initialContent={document.content}
+        header={document.pageSetup?.header ?? ''}
+        footer={document.pageSetup?.footer ?? ''}
         readOnly={readOnly ?? false}
         onDirty={() => {
           typedSinceQueued.current = true;

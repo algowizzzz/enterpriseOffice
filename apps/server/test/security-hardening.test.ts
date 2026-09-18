@@ -3,54 +3,7 @@ import type { FastifyInstance } from 'fastify';
 import { buildApp } from '../src/app.js';
 import { openDatabase } from '../src/db.js';
 import { loadConfig } from '../src/config.js';
-import { htmlToDocument } from '../src/docx/import.js';
-import { toPlainText } from '@docforge/model';
 import { authHeader, makeApp, registerFirstAdmin } from './helpers.js';
-
-const text = (html: string): string => toPlainText(htmlToDocument(html).content);
-
-describe('entity decoding', () => {
-  it('decodes each entity exactly once', () => {
-    // Regression: the decoder ran its replacements in sequence, so mammoth's
-    // escaping of a literal "&lt;" was undone twice and the text somebody wrote
-    // was replaced by the character it names.
-    expect(text('<p>&amp;lt;</p>')).toBe('&lt;');
-    expect(text('<p>&amp;gt;</p>')).toBe('&gt;');
-    expect(text('<p>&amp;amp;</p>')).toBe('&amp;');
-    expect(text('<p>&amp;#65;</p>')).toBe('&#65;');
-    expect(text('<p>&amp;nbsp;</p>')).toBe('&nbsp;');
-  });
-
-  it('still decodes an ordinary entity', () => {
-    expect(text('<p>a &amp; b</p>')).toBe('a & b');
-    expect(text('<p>&lt;tag&gt;</p>')).toBe('<tag>');
-    expect(text('<p>&quot;quoted&quot;</p>')).toBe('"quoted"');
-    expect(text('<p>&apos;</p>')).toBe("'");
-    expect(text('<p>a&nbsp;b</p>')).toBe('a b');
-    expect(text('<p>&#65;&#x42;</p>')).toBe('AB');
-  });
-
-  it('survives a code point outside the Unicode range', () => {
-    // This used to throw out of the importer and surface as an opaque server
-    // error for a file the person could do nothing about.
-    expect(() => text('<p>&#99999999;</p>')).not.toThrow();
-    expect(() => text('<p>&#xFFFFFFF;</p>')).not.toThrow();
-    expect(text('<p>ok&#99999999;here</p>')).toBe('okhere');
-  });
-
-  it('drops a lone surrogate rather than storing a broken character', () => {
-    expect(text('<p>a&#55296;b</p>')).toBe('ab');
-    expect(text('<p>a&#xD800;b</p>')).toBe('ab');
-  });
-
-  it('keeps an entity it does not know', () => {
-    expect(text('<p>&copy; 2026</p>')).toBe('&copy; 2026');
-  });
-
-  it('decodes a character outside the basic plane', () => {
-    expect(text('<p>&#128640;</p>')).toBe('\u{1F680}');
-  });
-});
 
 describe('forwarded addresses', () => {
   it('is not trusted by default', () => {

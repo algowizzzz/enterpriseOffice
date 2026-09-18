@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 import { isSafeHref, repairDocument, validateDoc, type PMNode } from '@docforge/model';
-import { htmlToDocument } from '../src/docx/import.js';
+import { importDocx } from '../src/docx/import.js';
+import { docxFixture } from './docxFixture.js';
 import { restoreVersion } from '../src/services/documents.js';
 import { authHeader, createAndLogin, makeApp, registerFirstAdmin, type TestActor } from './helpers.js';
 
@@ -65,19 +66,34 @@ describe('a link the model will not store', () => {
     }
   });
 
-  it('is refused on import rather than shown and then dropped', () => {
-    const result = htmlToDocument('<p>Ring <a href="tel:+441234567890">the desk</a> first.</p>');
+  it('is refused on import rather than shown and then dropped', async () => {
+    const result = await importDocx(
+      docxFixture({
+        body: '<w:p><w:hyperlink r:id="rId1"><w:r><w:t>the desk</w:t></w:r></w:hyperlink></w:p>',
+        relationships: { rId1: { target: 'tel:+441234567890', external: true } },
+      }),
+    );
     expect(JSON.stringify(result.content)).not.toContain('tel:');
     expect(JSON.stringify(result.content)).toContain('the desk');
   });
 });
 
 describe('a list item holding only a nested list', () => {
-  it('is given the paragraph the editor requires', () => {
-    const result = htmlToDocument('<ul><li><ul><li>deep</li></ul></li></ul>');
-    const item = result.content.content?.[0]?.content?.[0];
-    expect(item?.type).toBe('listItem');
-    expect(item?.content?.[0]?.type).toBe('paragraph');
+  it('is given the paragraph the editor requires', async () => {
+    const numbering =
+      '<w:numbering><w:abstractNum w:abstractNumId="0">' +
+      '<w:lvl w:ilvl="0"><w:numFmt w:val="bullet"/></w:lvl>' +
+      '<w:lvl w:ilvl="1"><w:numFmt w:val="bullet"/></w:lvl>' +
+      '</w:abstractNum><w:num w:numId="1"><w:abstractNumId w:val="0"/></w:num></w:numbering>';
+    const item = (level: string, text: string): string =>
+      `<w:p><w:pPr><w:numPr><w:ilvl w:val="${level}"/><w:numId w:val="1"/></w:numPr></w:pPr>` +
+      `<w:r><w:t>${text}</w:t></w:r></w:p>`;
+    const result = await importDocx(
+      docxFixture({ body: `${item('0', '')}${item('1', 'deep')}`, numbering }),
+    );
+    const listItem = result.content.content?.[0]?.content?.[0];
+    expect(listItem?.type).toBe('listItem');
+    expect(listItem?.content?.[0]?.type).toBe('paragraph');
     expect(JSON.stringify(result.content)).toContain('deep');
   });
 });

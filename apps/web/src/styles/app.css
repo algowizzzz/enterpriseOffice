@@ -643,3 +643,62 @@ main {
   text-transform: uppercase;
   letter-spacing: 0.08em;
 }
+
+/* The page setup panel: a header, a footer and which way round the page is. */
+.page-setup {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+}
+
+.page-setup label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.page-setup input,
+.page-setup select {
+  font-size: 14px;
+  color: var(--text);
+}
+
+/* The page, with its running header and footer around it. */
+.page-frame {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 794px;
+  max-width: 100%;
+}
+
+.page-running {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 8px 96px;
+  color: var(--muted);
+  font-size: 13px;
+  background: #fff;
+  border: 1px solid var(--border);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.page-running-header {
+  border-bottom: none;
+  border-radius: var(--radius) var(--radius) 0 0;
+}
+
+.page-running-footer {
+  border-top: none;
+  border-radius: 0 0 var(--radius) var(--radius);
+}
+
+@media print {
+  .page-running {
+    border: none;
+    padding: 0 0 12px;
+  }
+}

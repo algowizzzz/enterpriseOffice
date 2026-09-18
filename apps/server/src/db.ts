@@ -90,6 +90,13 @@ const MIGRATIONS: { id: string; sql: string }[] = [
       CREATE INDEX idx_audit_actor ON audit_log(actor_id, created_at DESC);
     `,
   },
+  {
+    // The running header, the running footer and the orientation of the page.
+    // They arrive in an uploaded Word file and have to leave in the exported
+    // one, and they are not content, so they sit beside the document.
+    id: '0002_page_setup',
+    sql: `ALTER TABLE documents ADD COLUMN page_setup TEXT NOT NULL DEFAULT '{}';`,
+  }
 ];
 
 export function openDatabase(file: string): Database {

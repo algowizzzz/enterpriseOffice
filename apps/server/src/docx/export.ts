@@ -2,7 +2,10 @@ import {
   AlignmentType,
   Document,
   HeadingLevel,
+  Footer,
+  Header,
   ImageRun,
+  PageOrientation,
   Packer,
   Paragraph,
   Table,
@@ -14,7 +17,14 @@ import {
   type IParagraphOptions,
   type ParagraphChild,
 } from 'docx';
-import { NODE, MARK, type PMMark, type PMNode } from '@docforge/model';
+import {
+  NODE,
+  MARK,
+  defaultPageSetup,
+  type PageSetup,
+  type PMMark,
+  type PMNode,
+} from '@docforge/model';
 import { measureImage } from './imageSize.js';
 
 const HEADING_BY_LEVEL: Record<number, (typeof HeadingLevel)[keyof typeof HeadingLevel]> = {
@@ -145,6 +155,8 @@ function paragraphOptions(node: PMNode, list?: ListContext, indentLeft = 0): IPa
 
 /** One level of quote indentation, in twentieths of a point. */
 const QUOTE_INDENT = 720;
+/** The style a quoted paragraph carries, defined in the file itself below. */
+const QUOTE_STYLE = 'Quote';
 
 /**
  * A span larger than this is not a table Word will open. The value reaching
@@ -160,7 +172,12 @@ const MAX_SPAN = 1000;
  * of every new page, and reading the file back produced that blank line as a
  * real paragraph.
  */
-function convertBlocks(nodes: PMNode[], list?: ListContext, indentLeft = 0): (Paragraph | Table)[] {
+function convertBlocks(
+  nodes: PMNode[],
+  list?: ListContext,
+  indentLeft = 0,
+  quoted = false,
+): (Paragraph | Table)[] {
   const blocks: (Paragraph | Table)[] = [];
   let breakBefore = false;
   for (const node of nodes) {
@@ -168,7 +185,7 @@ function convertBlocks(nodes: PMNode[], list?: ListContext, indentLeft = 0): (Pa
       breakBefore = true;
       continue;
     }
-    const converted = convertBlock(node, list, indentLeft, breakBefore);
+    const converted = convertBlock(node, list, indentLeft, breakBefore, quoted);
     if (converted.length > 0) breakBefore = false;
     blocks.push(...converted);
   }
@@ -182,11 +199,21 @@ function convertBlock(
   list?: ListContext,
   indentLeft = 0,
   breakBefore = false,
+  quoted = false,
 ): (Paragraph | Table)[] {
   const pageBreak = breakBefore ? { pageBreakBefore: true } : {};
   switch (node.type) {
     case NODE.paragraph:
-      return [new Paragraph({ ...paragraphOptions(node, list, indentLeft), ...pageBreak })];
+      return [
+        new Paragraph({
+          ...paragraphOptions(node, list, indentLeft),
+          ...pageBreak,
+          // Named, not merely indented. An indent looks like a quotation and
+          // reads back as an ordinary paragraph, so a quotation came home as
+          // plain text every time.
+          ...(quoted ? { style: QUOTE_STYLE } : {}),
+        }),
+      ];
     case NODE.heading: {
       const level = Number(node.attrs?.['level'] ?? 1);
       return [
@@ -203,7 +230,7 @@ function convertBlock(
       // path turned a quoted list into one run-on line with no bullets, and a
       // quoted table into the same.
       return withBreak(
-        convertBlocks(node.content ?? [], list, indentLeft + QUOTE_INDENT),
+        convertBlocks(node.content ?? [], list, indentLeft + QUOTE_INDENT, true),
         breakBefore,
       );
     case NODE.bulletList:
@@ -282,13 +309,31 @@ const NUMBERING_LEVELS = [0, 1, 2, 3, 4, 5, 6, 7, 8];
 export interface ExportOptions {
   title: string;
   author?: string;
+  /** The running header, the running footer and the orientation of the page. */
+  pageSetup?: PageSetup;
 }
 
 /** Serialize a document to a .docx file. */
 export async function exportDocx(doc: PMNode, options: ExportOptions): Promise<Buffer> {
   const blocks = convertBlocks(doc.content ?? []);
+  const setup = options.pageSetup ?? defaultPageSetup();
   const document = new Document({
     title: options.title,
+    // Word has a Quote style of its own, but a file cannot rely on a style it
+    // does not define: an undefined style is ignored and the quotation loses
+    // its indent for anybody opening it elsewhere.
+    styles: {
+      paragraphStyles: [
+        {
+          id: QUOTE_STYLE,
+          name: 'Quote',
+          basedOn: 'Normal',
+          next: 'Normal',
+          quickFormat: true,
+          paragraph: { indent: { left: QUOTE_INDENT } },
+        },
+      ],
+    },
     creator: options.author ?? 'DocForge',
     description: 'Created with DocForge',
     numbering: {
@@ -307,7 +352,27 @@ export async function exportDocx(doc: PMNode, options: ExportOptions): Promise<B
     },
     sections: [
       {
-        properties: {},
+        properties: {
+          ...(setup.orientation === 'landscape'
+            ? { page: { size: { orientation: PageOrientation.LANDSCAPE } } }
+            : {}),
+        },
+        // A running header and footer are written on every page, as Word does,
+        // and come back as the same header and footer when the file is read.
+        ...(setup.header
+          ? {
+              headers: {
+                default: new Header({ children: [new Paragraph({ text: setup.header })] }),
+              },
+            }
+          : {}),
+        ...(setup.footer
+          ? {
+              footers: {
+                default: new Footer({ children: [new Paragraph({ text: setup.footer })] }),
+              },
+            }
+          : {}),
         children: blocks.length > 0 ? blocks : [new Paragraph({})],
       },
     ],

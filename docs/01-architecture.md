@@ -97,9 +97,8 @@ on an air-gapped LAN with flaky Wi-Fi.
 ### File formats
 | Concern | Library | License |
 |---|---|---|
-| `.docx` read/write (own code) | Write your own OOXML parser/serializer over `fast-xml-parser` (MIT) or `sax` (ISC) + `fflate`/`jszip` (MIT) for the zip container | MIT/ISC |
-| `.docx` write (bootstrap) | `docx` (npm) | MIT |
-| `.docx` → HTML (bootstrap import) | `mammoth` | BSD-2 |
+| `.docx` read (own code) | Own XML reader and OOXML converter over `fflate` (MIT) for the zip container, in `apps/server/src/docx/ooxml` | MIT |
+| `.docx` write | `docx` (npm) | MIT |
 | Server-side heavy conversion (.doc, .odt, .rtf, PDF) | LibreOffice headless as a separate process | MPL-2.0 (not linked, no copyleft spread) |
 | PDF export | Own layout → `pdf-lib` (MIT) or `pdfkit` (MIT); or print through headless Chromium (BSD) | MIT / BSD |
 | Images | `sharp` (Apache-2.0) server side; browser `<canvas>` client side | Apache-2.0 |

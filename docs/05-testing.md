@@ -19,8 +19,8 @@ Current state:
 
 | Suite | Tests | Statements | Branches |
 |---|---|---|---|
-| Server | 420 | 97% | 89% |
-| Client | 185 | 96% | 84% |
+| Server | 380 | 97% | 89% |
+| Client | 187 | 96% | 84% |
 | End to end | 29 checks | n/a | n/a |
 
 Coverage numbers come from `npx vitest run --coverage` in either workspace.
@@ -42,7 +42,8 @@ database per test, so tests share no state and run in any order.
 | `docx.test.ts` | Export and import through the portal |
 | `docx-roundtrip.test.ts` | Structure, formatting and images through a full round trip |
 | `html-mapping.test.ts` | The HTML to model mapping, including hostile input |
-| `mammoth-options.test.ts` | The style map and alignment transform |
+| `ooxml.test.ts` | The XML reader and what a Word file keeps on the way through |
+| `ooxml-hostile.test.ts` | The same reader, given files written to break it |
 | `model.test.ts` | Document model helpers and password hashing |
 | `validation.test.ts` | Email rules and the seed administrator |
 | `robustness.test.ts` | Large documents, non-Latin scripts, deep nesting, two people editing at once |
@@ -125,6 +126,25 @@ a page that deliberately loads a remote image, so it cannot pass vacuously.
 This layer earns its place. It caught the editor header scrolling out of view
 and a missing `Ctrl+End` binding, neither of which any assertion had noticed.
 
+## Round-trip fidelity
+
+A sixth layer, run by hand rather than in `verify`: fifty generated Word
+documents covering headings, fonts, colour, alignment, lists, tables with
+shading and merged cells, inline and full-width images, headers, footers,
+landscape pages, quotations, rules and page breaks are uploaded to a running
+build, exported again and compared **as OOXML**.
+
+| Measure | Result |
+|---|---|
+| Items measured | 1260 across 50 documents |
+| Items preserved | 1260 |
+
+It is run with `node scripts/fidelity/run.mjs`, and `--shots` photographs each
+document in the editor. The screenshots are worth the extra minute: they caught
+a table whose columns had been squashed into single letters, which every
+structural check called a perfect round trip. `docs/06-fidelity.md` has the
+per-feature table and says plainly what is not measured.
+
 ## Stability
 
 A suite that fails now and then is worse than no suite, because people learn to
@@ -133,7 +153,7 @@ before any claim about it is made.
 
 | Run | Result | Time |
 |---|---|---|
-| 1 to 5 | 420 server, 185 client, 29 end-to-end, no unhandled errors, no lint findings | about 40 seconds each |
+| 1 to 5 | 380 server, 187 client, 29 end-to-end, no unhandled errors, no lint findings | about 40 seconds each |
 
 Two things keep it that way. Each server test gets its own in-memory database,
 so no test can depend on another having run first. And an unhandled promise
@@ -181,6 +201,9 @@ Worth recording, because it says what these layers are for.
 | A document past the node limit was repaired into an identical one, still too large to save | Fourth review |
 | Content was removed on the way in and out with nothing said about it | Fourth review |
 | Two documents created in the same millisecond shared a timestamp, so the list ordered them arbitrarily | Server suite |
+| Fonts, sizes, colour, highlighting, cell shading, image sizes, page breaks, quotations, rules, headers, footers and orientation were all discarded on import, because the conversion went through HTML | Fidelity harness |
+| A vertically merged table cell was read one column to the right, merging the wrong column | Fidelity harness |
+| A percentage-width table came back with its columns squashed into single letters | Fidelity screenshots |
 | The new message became a permanent banner after pasting a telephone or relative link, pointing at a link still visible on screen that was silently dropped from every save | Fifth review |
 | Restoring a version was the one write path with no repair, so tightening a rule made an old version impossible to restore for ever | Fifth review |
 | A document holding a page break opened completely blank, because the model had a node the editor did not | Fifth review |

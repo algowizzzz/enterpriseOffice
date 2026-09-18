@@ -6,6 +6,17 @@ Notable changes, newest first. Dates are when the work landed.
 
 ### Added
 
+- Round-trip fidelity: Word files are read as Word files. A fifty-document
+  harness uploads, exports and compares the two as OOXML, and every measured
+  item survives. See `docs/06-fidelity.md`.
+- Page setup: a running header, a running footer and page orientation, read
+  from an uploaded file, shown on the page, editable, and written back out.
+- Run fonts, sizes, colour and highlighting, table cell shading and column
+  widths, the size a picture is shown at, page breaks, quotations and rules all
+  survive a round trip. None of them did before: the import went through HTML,
+  which cannot say any of it.
+- A page break can be inserted from the ribbon, and breaks the page when printed.
+
 - Web portal: sign in, accounts with administrator, editor and viewer roles,
   per-document view and edit sharing, and an administrator page with an
   append-only audit trail.
@@ -22,7 +33,7 @@ Notable changes, newest first. Dates are when the work landed.
   example and an install guide.
 - Documentation: architecture and licensing analysis, a tab-by-tab Word feature
   matrix, an API reference, a security model and a testing guide.
-- Tests: 420 server, 185 client, 29 end-to-end checks, and a browser walkthrough
+- Tests: 380 server, 187 client, 29 end-to-end checks, and a browser walkthrough
   that captures each screen. The repair of a stored document is checked as a
   property against generated documents: it never throws, its output always
   satisfies the rules, and repairing twice changes nothing.
@@ -125,9 +136,12 @@ not in production.
 
 - `node:sqlite` is marked experimental in Node 22. The storage layer is narrow
   and behind one module.
-- Import and export cover text, headings, lists, tables, images and common
-  character formatting. Styles, numbering definitions, headers, footers,
-  sections and unknown parts are not yet preserved.
+- Import and export cover text, headings, lists, tables with shading and merged
+  cells, images at the size they are shown, character formatting, quotations,
+  rules, page breaks, and one header, footer and orientation per document.
+  Named styles, numbering definitions, fields, footnotes, comments, tracked
+  changes, text boxes, shapes, charts, later sections and unknown parts are not
+  preserved. `docs/06-fidelity.md` measures what is.
 - Lists use ProseMirror's nested structure rather than Word's flat paragraphs
   with numbering properties.
 - There is no pagination: the editor shows one continuous page.

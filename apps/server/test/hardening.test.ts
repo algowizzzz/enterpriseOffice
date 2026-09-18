@@ -3,8 +3,6 @@ import type { FastifyInstance } from 'fastify';
 import { buildApp } from '../src/app.js';
 import { openDatabase } from '../src/db.js';
 import { createFirstAdmin, listUsers } from '../src/services/users.js';
-import { htmlToDocument } from '../src/docx/import.js';
-import { toPlainText } from '@docforge/model';
 import { authHeader, makeApp, registerFirstAdmin } from './helpers.js';
 
 describe('the first account', () => {
@@ -134,48 +132,5 @@ describe('uploading is limited even for a signed-in person', () => {
     } finally {
       await app.close();
     }
-  });
-});
-
-describe('markup nested beyond any sensible depth', () => {
-  it('is refused rather than overflowing the stack', () => {
-    const deep = `${'<div>'.repeat(500)}buried${'</div>'.repeat(500)}`;
-    expect(() => htmlToDocument(deep)).not.toThrow();
-  });
-
-  it('still reads a document nested to an ordinary degree', () => {
-    const modest = `${'<div>'.repeat(10)}<p>findable</p>${'</div>'.repeat(10)}`;
-    expect(toPlainText(htmlToDocument(modest).content)).toContain('findable');
-  });
-
-  it('survives deeply nested inline markup', () => {
-    const deep = `<p>${'<strong>'.repeat(400)}text${'</strong>'.repeat(400)}</p>`;
-    expect(() => htmlToDocument(deep)).not.toThrow();
-  });
-
-  it('survives deeply nested lists', () => {
-    const deep = `${'<ul><li>'.repeat(300)}item${'</li></ul>'.repeat(300)}`;
-    expect(() => htmlToDocument(deep)).not.toThrow();
-  });
-});
-
-describe('the total size of embedded pictures', () => {
-  it('is capped, so many medium images cannot add up', () => {
-    // A single image is capped at 2 MB and a document at 100 images, which
-    // together allowed far more than the document limit to be built up in
-    // memory before anything rejected it.
-    const oneMegabyte = `data:image/png;base64,${'A'.repeat(1400000)}`;
-    const html = `<p>${`<img src="${oneMegabyte}" />`.repeat(20)}</p>`;
-    const result = htmlToDocument(html);
-
-    const images: unknown[] = [];
-    const walk = (node: { type: string; content?: { type: string }[] }): void => {
-      if (node.type === 'image') images.push(node);
-      for (const child of node.content ?? []) walk(child);
-    };
-    walk(result.content);
-
-    expect(images.length).toBeLessThan(20);
-    expect(result.messages.join(' ')).toMatch(/too many/u);
   });
 });

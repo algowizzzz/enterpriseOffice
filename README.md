@@ -83,13 +83,13 @@ Install it where you want it with `npm install --no-save playwright`.
 
 Three layers, all runnable offline.
 
-**Server suite.** 420 tests. Fastify in-process injection over a fresh in-memory
+**Server suite.** 380 tests. Fastify in-process injection over a fresh in-memory
 database per test. Covers authentication, session revocation, role enforcement,
 the last administrator rule, document access control, optimistic concurrency,
 version history, the audit trail, migrations, configuration, and the `.docx`
 codec in both directions including hostile input.
 
-**Client suite.** 185 tests in jsdom, with the server module replaced. Covers the
+**Client suite.** 187 tests in jsdom, with the server module replaced. Covers the
 request wrapper, the session provider, the router, all four pages and every
 ribbon control. Several tests assert that what the editor produces passes the
 same validator the server applies on save, so the two cannot drift apart.
@@ -145,7 +145,6 @@ an extension cannot be added to the editor without the server learning about it.
 | Server | Fastify on Node 22 | MIT |
 | Database | `node:sqlite`, built into Node | MIT |
 | Password hashing | scrypt from `node:crypto` | MIT |
-| docx import | mammoth | BSD-2 |
 | docx export | docx | MIT |
 | Validation | zod | MIT |
 
@@ -160,7 +159,8 @@ function rather than a plain hash.
 - `node:sqlite` is marked experimental in Node 22. The storage layer is narrow
   and behind one module, so moving to PostgreSQL or `better-sqlite3` is a
   contained change.
-- Import and export go through mammoth and docx, which handle text, headings,
+- Import reads the Word markup directly; export is written with `docx`. Between
+  them they handle text, headings,
   lists, tables, images and the common character formatting. Styles, numbering
   definitions, headers and footers, sections and unknown parts are not yet
   preserved. The project's own OOXML codec, planned in the architecture

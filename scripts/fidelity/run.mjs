@@ -123,7 +123,7 @@ try {
   if (WANT_SHOTS) {
     const { chromium } = await import('playwright');
     browser = await chromium.launch({
-      executablePath: process.env['DOCFORGE_CHROMIUM'] ?? undefined,
+      executablePath: process.env['DOCFORGE_CHROMIUM'] ?? '/opt/pw-browsers/chromium',
     });
   }
 

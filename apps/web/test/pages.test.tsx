@@ -73,6 +73,7 @@ const summary = (over: Partial<DocumentSummary> = {}): DocumentSummary => ({
 const detail = (over: Partial<DocumentDetail> = {}): DocumentDetail => ({
   ...summary(),
   content: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Body' }] }] },
+  pageSetup: { header: '', footer: '', orientation: 'portrait' },
   ...over,
 });
 
@@ -1035,5 +1036,48 @@ describe('editor page', () => {
     await renderSignedIn(<EditorPage documentId="doc-1" onBack={onBack} />);
     await user.click(await screen.findByRole('button', { name: '← Documents' }));
     expect(onBack).toHaveBeenCalled();
+  });
+});
+
+describe('page setup', () => {
+  it('shows the header and footer on the page, and saves a change to them', async () => {
+    // Without them on the page, a document carrying a header looked as though
+    // it did not, and the only way to find out was to open a panel.
+    mocked['getDocument'].mockResolvedValue({
+      document: detail({
+        pageSetup: { header: 'Company handbook', footer: 'Confidential', orientation: 'portrait' },
+      }),
+    });
+    mocked['saveDocument'].mockResolvedValue({ document: detail() });
+    const user = userEvent.setup();
+    await renderSignedIn(<EditorPage documentId="doc-1" onBack={() => {}} />);
+
+    await waitFor(() =>
+      expect(screen.getByLabelText('Page header')).toHaveTextContent('Company handbook'),
+    );
+    expect(screen.getByLabelText('Page footer')).toHaveTextContent('Confidential');
+
+    await user.click(screen.getByRole('button', { name: 'Page setup' }));
+    const header = screen.getByLabelText('Header');
+    expect(header).toHaveValue('Company handbook');
+    await user.clear(header);
+
+    await waitFor(() => expect(mocked['saveDocument']).toHaveBeenCalled());
+    const payload = mocked['saveDocument'].mock.calls.at(-1)?.[1] as {
+      pageSetup?: { header: string };
+    };
+    expect(payload.pageSetup?.header).toBe('');
+  });
+
+  it('offers the orientation the file was written with', async () => {
+    mocked['getDocument'].mockResolvedValue({
+      document: detail({
+        pageSetup: { header: '', footer: '', orientation: 'landscape' },
+      }),
+    });
+    const user = userEvent.setup();
+    await renderSignedIn(<EditorPage documentId="doc-1" onBack={() => {}} />);
+    await user.click(await screen.findByRole('button', { name: 'Page setup' }));
+    expect(screen.getByLabelText('Orientation')).toHaveValue('landscape');
   });
 });

@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { toPlainText, type PMNode } from '@docforge/model';
 import { exportDocx } from '../src/docx/export.js';
-import { htmlToDocument, importDocx } from '../src/docx/import.js';
+import { importDocx } from '../src/docx/import.js';
+import { docxFixture, drawing, p as paragraphXml, PNG_BYTES } from './docxFixture.js';
 import { measureImage } from '../src/docx/imageSize.js';
 
 function collect(node: PMNode, type: string, found: PMNode[] = []): PMNode[] {
@@ -31,12 +32,17 @@ const PNG_1x1 =
 const GIF_1x1 = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
 
 describe('a table inside a table', () => {
-  it('does not duplicate the rows of the inner table', () => {
-    // Regression: asking the parser for every `tr` beneath the outer table
-    // pulled the inner table's rows up into it, and the cell holding the inner
-    // table converted them a second time.
-    const doc = htmlToDocument(
-      '<table><tr><td>outer<table><tr><td>inner</td></tr></table></td></tr></table>',
+  const cell = (inner: string): string => `<w:tc>${inner}</w:tc>`;
+  const row = (inner: string): string => `<w:tr>${inner}</w:tr>`;
+  const table = (inner: string): string => `<w:tbl>${inner}</w:tbl>`;
+
+  it('does not pull the inner table rows into the outer one', async () => {
+    // Regression: asking for every row beneath the outer table pulled the inner
+    // table's rows up into it, and the cell holding the inner table converted
+    // them a second time.
+    const inner = table(row(cell(paragraphXml('inner'))));
+    const doc = (
+      await importDocx(docxFixture({ body: table(row(cell(paragraphXml('outer') + inner))) }))
     ).content;
 
     const tables = collect(doc, 'table');
@@ -45,20 +51,17 @@ describe('a table inside a table', () => {
     expect(toPlainText(doc).match(/inner/gu)).toHaveLength(1);
   });
 
-  it('reads rows through a table body', () => {
-    const doc = htmlToDocument(
-      '<table><thead><tr><th>H</th></tr></thead><tbody><tr><td>A</td></tr><tr><td>B</td></tr></tbody></table>',
+  it('reads a header row as a header row', async () => {
+    const header = `<w:tr><w:trPr><w:tblHeader/></w:trPr>${cell(paragraphXml('H'))}</w:tr>`;
+    const doc = (
+      await importDocx(
+        docxFixture({
+          body: table(header + row(cell(paragraphXml('A'))) + row(cell(paragraphXml('B')))),
+        }),
+      )
     ).content;
-    const table = collect(doc, 'table')[0];
-    expect(table?.content).toHaveLength(3);
+    expect(collect(doc, 'table')[0]?.content).toHaveLength(3);
     expect(collect(doc, 'tableHeader')).toHaveLength(1);
-  });
-
-  it('ignores a row that belongs to a nested table when counting the outer one', () => {
-    const doc = htmlToDocument(
-      '<table><tbody><tr><td><table><tbody><tr><td>x</td></tr><tr><td>y</td></tr></tbody></table></td></tr></tbody></table>',
-    ).content;
-    expect(collect(doc, 'table')[0]?.content).toHaveLength(1);
   });
 });
 
@@ -162,10 +165,17 @@ describe('image dimensions', () => {
     expect(measureImage('not a uri at all')).toBeNull();
   });
 
-  it('carries the real size through an import', () => {
-    const doc = htmlToDocument(`<p><img src="${PNG_2x2}" /></p>`).content;
-    const image = collect(doc, 'image')[0];
-    expect(image?.attrs).toMatchObject({ width: 2, height: 2 });
+  it('carries the size the file shows the picture at through an import', async () => {
+    const doc = (
+      await importDocx(
+        docxFixture({
+          body: drawing('rId1', 120, 90),
+          relationships: { rId1: { target: 'media/image1.png' } },
+          media: { 'image1.png': PNG_BYTES },
+        }),
+      )
+    ).content;
+    expect(collect(doc, 'image')[0]?.attrs).toMatchObject({ width: 120, height: 90 });
   });
 
   it('keeps the size through a full round trip', async () => {
@@ -179,20 +189,27 @@ describe('image dimensions', () => {
 });
 
 describe('images in formats Word cannot be given back', () => {
-  it('refuses one on import, and says why', () => {
+  const withPicture = (name: string) =>
+    docxFixture({
+      body: paragraphXml('Text stays') + drawing('rId1'),
+      relationships: { rId1: { target: `media/${name}` } },
+      media: { [name]: PNG_BYTES },
+    });
+
+  it('refuses one on import, and says why', async () => {
     // Word files often carry EMF, WMF or TIFF pictures. Accepting one and then
     // dropping it silently on export is worse than refusing it with a reason.
-    const result = htmlToDocument('<p>Text stays<img src="data:image/x-emf;base64,AAAA" /></p>');
+    const result = await importDocx(withPicture('image1.emf'));
     expect(collect(result.content, 'image')).toHaveLength(0);
     expect(result.messages.join(' ')).toMatch(/cannot be saved back to Word/u);
     expect(toPlainText(result.content)).toContain('Text stays');
   });
 
-  it('accepts each format it can write back', () => {
-    for (const src of [PNG_1x1, GIF_1x1]) {
-      const result = htmlToDocument(`<p><img src="${src}" /></p>`);
-      expect(collect(result.content, 'image'), src.slice(0, 20)).toHaveLength(1);
-      expect(result.messages).toEqual([]);
+  it('accepts each format it can write back', async () => {
+    for (const name of ['image1.png', 'image1.jpeg', 'image1.gif', 'image1.bmp']) {
+      const result = await importDocx(withPicture(name));
+      expect(collect(result.content, 'image'), name).toHaveLength(1);
+      expect(result.messages, name).toEqual([]);
     }
   });
 });

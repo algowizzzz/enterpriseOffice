@@ -727,3 +727,44 @@ function sanitizeNode(value: unknown, depth: number, ctx: RepairContext): PMNode
 
   return clean;
 }
+
+/**
+ * What sits outside the body of a document: the running header, the running
+ * footer and the orientation of the page.
+ *
+ * None of it belongs in the body, because none of it is content somebody types
+ * into the flow of the document, and ProseMirror has nowhere sensible to put
+ * it. It is stored beside the document and read and written by both ends, so a
+ * Word file that arrives with a header leaves with the same one.
+ */
+export interface PageSetup {
+  header: string;
+  footer: string;
+  orientation: 'portrait' | 'landscape';
+}
+
+/** How long a running header or footer may be. Word allows more; this is a line. */
+export const MAX_RUNNING_TEXT = 300;
+
+export function defaultPageSetup(): PageSetup {
+  return { header: '', footer: '', orientation: 'portrait' };
+}
+
+/** Read page setup from anything, falling back to the default field by field. */
+export function pageSetupFrom(value: unknown): PageSetup {
+  const setup = defaultPageSetup();
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return setup;
+  const source = value as Record<string, unknown>;
+  const line = (raw: unknown): string =>
+    typeof raw === 'string' ? raw.replace(/[\r\n\t]+/gu, ' ').trim().slice(0, MAX_RUNNING_TEXT) : '';
+  return {
+    header: line(source['header']),
+    footer: line(source['footer']),
+    orientation: source['orientation'] === 'landscape' ? 'landscape' : 'portrait',
+  };
+}
+
+/** Whether a page setup is the default, which is what a blank document has. */
+export function isDefaultPageSetup(setup: PageSetup): boolean {
+  return setup.header === '' && setup.footer === '' && setup.orientation === 'portrait';
+}

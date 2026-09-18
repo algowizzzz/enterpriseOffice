@@ -27,7 +27,6 @@ import {
   TableCell,
   TableRow,
   TextRun,
-  VerticalMerge,
   WidthType,
 } from 'docx';
 
@@ -111,13 +110,9 @@ function mergedTable(fill) {
           plainCell('Body C1'),
         ],
       }),
-      new TableRow({
-        children: [
-          new TableCell({ children: [new Paragraph('')], verticalMerge: VerticalMerge.CONTINUE }),
-          plainCell('Body B2'),
-          plainCell('Body C2'),
-        ],
-      }),
+      // No cell is written for the first column: the row span above covers it,
+      // and the library writes the continuation itself.
+      new TableRow({ children: [plainCell('Body B2'), plainCell('Body C2')] }),
     ],
   });
 }

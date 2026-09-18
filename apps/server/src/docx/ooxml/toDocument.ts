@@ -503,9 +503,19 @@ function tableFrom(table: XmlElement, state: State): PMNode | null {
   const rows = childrenNamed(table, 'w:tr');
   if (rows.length === 0) return null;
 
+  // Column widths are only meaningful when the table is laid out at a fixed
+  // width. A table set to fill the page carries a nominal grid, and reading
+  // those numbers as pixels squashed every such table into a column of single
+  // letters, which the screenshots showed and no structural check did.
+  const tableWidth = child(table, 'w:tblPr', 'w:tblW');
+  const fixedWidth = (tableWidth?.attrs['w:type'] ?? 'auto') === 'dxa';
   const widths = childrenNamed(child(table, 'w:tblGrid'), 'w:gridCol').map((column) => {
+    if (!fixedWidth) return null;
     const dxa = Number(column.attrs['w:w'] ?? NaN);
-    return Number.isFinite(dxa) && dxa > 0 ? Math.round(dxa / DXA_PER_PIXEL) : null;
+    if (!Number.isFinite(dxa) || dxa <= 0) return null;
+    const pixels = Math.round(dxa / DXA_PER_PIXEL);
+    // Below this a column cannot hold a word, so the number is nominal.
+    return pixels >= 24 ? pixels : null;
   });
 
   // Cells carried down from an earlier row by a vertical merge, so a cell that

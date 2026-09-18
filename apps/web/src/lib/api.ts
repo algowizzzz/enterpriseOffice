@@ -1,4 +1,4 @@
-import type { PMNode } from '@docforge/model';
+import type { PageSetup, PMNode } from '@docforge/model';
 
 export type Role = 'admin' | 'editor' | 'viewer';
 export type UserStatus = 'active' | 'disabled';
@@ -31,6 +31,8 @@ export interface DocumentSummary {
 
 export interface DocumentDetail extends DocumentSummary {
   content: PMNode;
+  /** The running header, the running footer and the orientation of the page. */
+  pageSetup: PageSetup;
 }
 
 export interface VersionSummary {
@@ -149,7 +151,12 @@ export const api = {
 
   saveDocument: (
     id: string,
-    payload: { title?: string; content?: PMNode; expectedRevision?: number },
+    payload: {
+      title?: string;
+      content?: PMNode;
+      pageSetup?: PageSetup;
+      expectedRevision?: number;
+    },
   ) => request<{ document: DocumentDetail }>(`/documents/${id}`, { method: 'PUT', ...json(payload) }),
 
   deleteDocument: (id: string) =>

@@ -1,4 +1,13 @@
-import { emptyDoc, sanitizeDocument, validateDoc, wordCount, type PMNode } from '@docforge/model';
+import {
+  defaultPageSetup,
+  emptyDoc,
+  pageSetupFrom,
+  sanitizeDocument,
+  validateDoc,
+  wordCount,
+  type PageSetup,
+  type PMNode,
+} from '@docforge/model';
 import type { Database } from '../db.js';
 import { HttpError, badRequest, forbidden, notFound } from '../errors.js';
 import { newId, now } from '../lib/ids.js';
@@ -24,6 +33,8 @@ export interface DocumentSummary {
 
 export interface DocumentDetail extends DocumentSummary {
   content: PMNode;
+  /** The header, the footer and the orientation, which are not body content. */
+  pageSetup: PageSetup;
 }
 
 interface DocRow extends Record<string, unknown> {
@@ -39,6 +50,7 @@ interface DocRow extends Record<string, unknown> {
   updated_at: string;
   updated_by: string;
   deleted_at: string | null;
+  page_setup?: string | null;
 }
 
 export const MAX_TITLE_LENGTH = 200;
@@ -109,6 +121,16 @@ function parseContent(json: string): PMNode {
   return JSON.parse(json) as PMNode;
 }
 
+/** Page setup as stored, falling back to the default for a row written before it existed. */
+function parsePageSetup(json: string | null | undefined): PageSetup {
+  if (!json) return defaultPageSetup();
+  try {
+    return pageSetupFrom(JSON.parse(json));
+  } catch {
+    return defaultPageSetup();
+  }
+}
+
 /** Validates and normalises untrusted document content. Throws on malformed input. */
 export function assertValidContent(content: unknown): PMNode {
   const serialized = JSON.stringify(content ?? null);
@@ -126,6 +148,7 @@ export interface CreateDocumentInput {
   content?: unknown;
   origin?: 'blank' | 'import';
   sourceName?: string;
+  pageSetup?: unknown;
 }
 
 export function createDocument(
@@ -134,6 +157,7 @@ export function createDocument(
   input: CreateDocumentInput,
 ): DocumentDetail {
   const content = input.content === undefined ? emptyDoc() : assertValidContent(input.content);
+  const pageSetup = pageSetupFrom(input.pageSetup);
   const timestamp = now();
   const row: DocRow = {
     id: newId(),
@@ -148,11 +172,12 @@ export function createDocument(
     updated_at: timestamp,
     updated_by: user.id,
     deleted_at: null,
+    page_setup: JSON.stringify(pageSetup),
   };
   transaction(db, () => {
     db.prepare(
-      `INSERT INTO documents (id, owner_id, title, content, origin, source_name, word_count, revision, created_at, updated_at, updated_by)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO documents (id, owner_id, title, content, origin, source_name, word_count, revision, created_at, updated_at, updated_by, page_setup)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).run(
       row.id,
       row.owner_id,
@@ -165,10 +190,11 @@ export function createDocument(
       row.created_at,
       row.updated_at,
       row.updated_by,
+      row.page_setup ?? '{}',
     );
     insertVersion(db, row.id, 1, row.title, row.content, user.id);
   });
-  return { ...rowToSummary(row, 'owner', ownerName(db, user.id)), content };
+  return { ...rowToSummary(row, 'owner', ownerName(db, user.id)), content, pageSetup };
 }
 
 function insertVersion(
@@ -198,6 +224,7 @@ export function getDocument(
   return {
     ...rowToSummary(row, access, ownerName(db, row.owner_id)),
     content: parseContent(row.content),
+    pageSetup: parsePageSetup(row.page_setup),
   };
 }
 
@@ -220,6 +247,7 @@ export function listDocuments(db: Database, user: { id: string; role: Role }): D
 export interface UpdateDocumentInput {
   title?: string;
   content?: unknown;
+  pageSetup?: unknown;
   /** Optimistic concurrency: reject the write when the client is behind. */
   expectedRevision?: number;
 }
@@ -247,15 +275,26 @@ export function updateDocument(
   }
   const content = input.content === undefined ? parseContent(row.content) : assertValidContent(input.content);
   const title = input.title === undefined ? row.title : sanitizeTitle(input.title);
+  const pageSetup =
+    input.pageSetup === undefined ? parsePageSetup(row.page_setup) : pageSetupFrom(input.pageSetup);
   const revision = Number(row.revision) + 1;
   const serialized = JSON.stringify(content);
   const timestamp = now();
   transaction(db, () => {
     db.prepare(
       `UPDATE documents
-          SET title = ?, content = ?, word_count = ?, revision = ?, updated_at = ?, updated_by = ?
+          SET title = ?, content = ?, word_count = ?, revision = ?, updated_at = ?, updated_by = ?, page_setup = ?
         WHERE id = ?`,
-    ).run(title, serialized, wordCount(content), revision, timestamp, user.id, id);
+    ).run(
+      title,
+      serialized,
+      wordCount(content),
+      revision,
+      timestamp,
+      user.id,
+      JSON.stringify(pageSetup),
+      id,
+    );
     insertVersion(db, id, revision, title, serialized, user.id);
     pruneVersions(db, id);
   });

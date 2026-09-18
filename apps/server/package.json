@@ -19,8 +19,6 @@
     "@fastify/static": "^10.1.4",
     "docx": "^9.5.1",
     "fastify": "^5.2.1",
-    "mammoth": "^1.9.1",
-    "node-html-parser": "^7.1.0",
     "zod": "^3.24.2"
   },
   "devDependencies": {

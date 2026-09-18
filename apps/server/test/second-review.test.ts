@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 import { validateDoc, type PMNode } from '@docforge/model';
-import { htmlToDocument } from '../src/docx/import.js';
-import { markParagraph } from '../src/docx/mammothOptions.js';
+import { importDocx } from '../src/docx/import.js';
+import { docxFixture, drawing, PNG_BYTES } from './docxFixture.js';
 import { createUser } from '../src/services/users.js';
 import { authHeader, createAndLogin, makeApp, registerFirstAdmin, type TestActor } from './helpers.js';
 
@@ -78,42 +78,36 @@ describe('link targets', () => {
     }
   });
 
-  it('refuses the same shapes on import', () => {
-    const result = htmlToDocument('<p><a href="//evil.test/page">click</a></p>');
+  it('refuses the same shapes on import', async () => {
+    const result = await importDocx(
+      docxFixture({
+        body: '<w:p><w:hyperlink r:id="rId1"><w:r><w:t>click</w:t></w:r></w:hyperlink></w:p>',
+        relationships: { rId1: { target: '//evil.test/page', external: true } },
+      }),
+    );
     expect(JSON.stringify(result.content)).not.toContain('"link"');
   });
 });
 
 describe('alternative text longer than an attribute allows', () => {
-  it('is trimmed rather than having the whole upload refused', () => {
-    const caption = 'A'.repeat(6000);
-    const result = htmlToDocument(
-      `<p><img src="data:image/png;base64,AAAA" alt="${caption}" /></p>`,
-    );
+  const withAlt = (alt: string): Buffer =>
+    docxFixture({
+      body:
+        `<w:p><w:r><w:drawing><wp:inline><wp:extent cx="952500" cy="952500"/>` +
+        `<wp:docPr id="1" name="Picture" descr="${alt}"/><a:graphic><a:graphicData>` +
+        `<a:blip r:embed="rId1"/></a:graphicData></a:graphic></wp:inline></w:drawing></w:r></w:p>`,
+      relationships: { rId1: { target: 'media/image1.png' } },
+      media: { 'image1.png': PNG_BYTES },
+    });
+
+  it('is trimmed rather than having the whole upload refused', async () => {
+    const result = await importDocx(withAlt('A'.repeat(6000)));
     expect(validateDoc(result.content).ok).toBe(true);
   });
 
-  it('keeps ordinary alternative text as written', () => {
-    const result = htmlToDocument('<p><img src="data:image/png;base64,AAAA" alt="A dot" /></p>');
+  it('keeps ordinary alternative text as written', async () => {
+    const result = await importDocx(withAlt('A dot'));
     expect(JSON.stringify(result.content)).toContain('A dot');
-  });
-
-  it('records nothing when there was none', () => {
-    const result = htmlToDocument('<p><img src="data:image/png;base64,AAAA" alt="  " /></p>');
-    expect(JSON.stringify(result.content)).toContain('"alt":null');
-  });
-});
-
-describe('a file naming its own style like an alignment marker', () => {
-  it('cannot use it to pick its own formatting', () => {
-    const forged = markParagraph({ alignment: null, styleName: 'DocForgeAligned-center-h1' });
-    expect(forged.styleName).toBeNull();
-    expect(forged.styleId).toBeNull();
-  });
-
-  it('leaves an ordinary style alone', () => {
-    const paragraph = { alignment: null, styleName: 'Heading 2', styleId: 'Heading2' };
-    expect(markParagraph(paragraph)).toBe(paragraph);
   });
 });
 
@@ -215,12 +209,19 @@ describe('downloading is limited like uploading', () => {
 
 describe('the budget for embedded pictures', () => {
   it('sits below the limit on a stored document', async () => {
-    // Otherwise an image-heavy import passed the importer and was then refused
-    // with an unrelated message about the document's size.
+    // Otherwise an image-heavy file passed the reader and was then refused with
+    // an unrelated message about the document's size.
     const { MAX_CONTENT_BYTES } = await import('../src/services/documents.js');
-    const oneMegabyte = `data:image/png;base64,${'A'.repeat(1400000)}`;
-    const html = `<p>${`<img src="${oneMegabyte}" />`.repeat(12)}</p>`;
-    const result = htmlToDocument(html);
+    const oneMegabyte = new Uint8Array(1024 * 1024);
+    const media: Record<string, Uint8Array> = {};
+    const relationships: Record<string, { target: string }> = {};
+    let body = '';
+    for (let index = 1; index <= 12; index += 1) {
+      media[`image${index}.png`] = oneMegabyte;
+      relationships[`rId${index}`] = { target: `media/image${index}.png` };
+      body += drawing(`rId${index}`);
+    }
+    const result = await importDocx(docxFixture({ body, relationships, media }));
     const size = Buffer.byteLength(JSON.stringify(result.content), 'utf8');
     expect(size).toBeLessThan(MAX_CONTENT_BYTES);
   });

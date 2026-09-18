@@ -14,6 +14,15 @@ interface DocumentEditorProps {
   /** Called on every keystroke so the caller can mark the document dirty. */
   onDirty: () => void;
   /**
+   * The running header and footer, drawn on the page as Word draws them.
+   *
+   * They are not body content and are not typed into here: without them on the
+   * page, a document that carries a header looked as though it did not, and the
+   * only way to find out was to open a panel.
+   */
+  header?: string;
+  footer?: string;
+  /**
    * Called when the repair had to remove something, so the caller can say so.
    *
    * Removing content somebody can see, with no message, is worse than the
@@ -47,6 +56,8 @@ export function DocumentEditor({
   onChange,
   onDirty,
   onRepair,
+  header = '',
+  footer = '',
 }: DocumentEditorProps): JSX.Element {
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [stats, setStats] = useState<DocumentStats>({ words: 0, characters: 0 });
@@ -131,7 +142,19 @@ export function DocumentEditor({
     <div className="editor">
       <Toolbar editor={editor} disabled={readOnly} />
       <div className="page-surface">
-        <EditorContent editor={editor} />
+        <div className="page-frame">
+          {header ? (
+            <div className="page-running page-running-header" aria-label="Page header">
+              {header}
+            </div>
+          ) : null}
+          <EditorContent editor={editor} />
+          {footer ? (
+            <div className="page-running page-running-footer" aria-label="Page footer">
+              {footer}
+            </div>
+          ) : null}
+        </div>
       </div>
       <div className="status-bar">
         <span>{stats.words === 1 ? '1 word' : `${stats.words} words`}</span>
