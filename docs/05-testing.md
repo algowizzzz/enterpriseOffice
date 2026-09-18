@@ -19,8 +19,8 @@ Current state:
 
 | Suite | Tests | Statements | Branches |
 |---|---|---|---|
-| Server | 285 | 97% | 88% |
-| Client | 147 | 96% | 83% |
+| Server | 355 | 97% | 89% |
+| Client | 150 | 96% | 83% |
 | End to end | 29 checks | n/a | n/a |
 
 Coverage numbers come from `npx vitest run --coverage` in either workspace.
@@ -47,6 +47,11 @@ database per test, so tests share no state and run in any order.
 | `validation.test.ts` | Email rules and the seed administrator |
 | `robustness.test.ts` | Large documents, non-Latin scripts, deep nesting, two people editing at once |
 | `failure-paths.test.ts` | Internal errors, upload limits, re-enabling an account, service edge cases |
+| `security-hardening.test.ts` | Entity decoding, forwarded addresses, rate-limit evasion |
+| `attribute-validation.test.ts` | Every attribute value that reaches the Word serializer |
+| `hardening.test.ts` | The registration race, nesting depth, upload and password limits |
+| `docx-fidelity.test.ts` | Nested tables, blocks inside quotes, image sizing, spans |
+| `zip-guard.test.ts` | What an uploaded archive declares it expands to |
 
 ### Robustness
 
@@ -125,7 +130,7 @@ before any claim about it is made.
 
 | Run | Result | Time |
 |---|---|---|
-| 1 to 5 | 285 server, 147 client, 29 end-to-end, no unhandled errors | about 28 seconds each |
+| 1 to 5 | 355 server, 150 client, 29 end-to-end, no unhandled errors | about 30 seconds each |
 
 Two things keep it that way. Each server test gets its own in-memory database,
 so no test can depend on another having run first. And an unhandled promise
@@ -138,6 +143,16 @@ Worth recording, because it says what these layers are for.
 
 | Defect | Found by |
 |---|---|
+| Sign-in rate limiting could be bypassed and audit addresses forged, because a forwarded header was trusted with no proxy in front | Adversarial review |
+| Importing silently corrupted text: entity decoding ran in passes, so a literal `&lt;` became `<` | Adversarial review |
+| A numeric character reference outside the Unicode range crashed the import with an opaque server error | Adversarial review |
+| The editor could get permanently stuck and stop saving after two of your own writes overlapped | Adversarial review |
+| Autosave destroyed the whole version history, the as-imported original included, in about a minute | Adversarial review |
+| A table inside a table imported with its rows doubled | Adversarial review |
+| A list or table inside a quote flattened into one run-on paragraph | Adversarial review |
+| Every image was written back at a fixed size, resizing and distorting all of them | Adversarial review |
+| Two registrations arriving together could both become administrators | Adversarial review |
+| Attribute values were never checked, so anything could reach the Word serializer | Adversarial review |
 | The seed administrator could never sign in, because the email rule rejected a single-label domain | End-to-end smoke test |
 | Sign out was broken: the client declared a JSON body on a request that had none | End-to-end smoke test |
 | Opening a document marked it dirty and saved a phantom revision | Client suite |
@@ -148,6 +163,20 @@ Worth recording, because it says what these layers are for.
 | Underline and alignment were lost on every round trip | Server suite |
 | Centred headings lost their centring | Server suite |
 | The editor header scrolled out of view; `Ctrl+End` did nothing | Browser walkthrough |
+
+## Review
+
+Tests find the defects you thought to look for. A reading of the code by
+somebody trying to break it finds the ones you did not, and the table above is
+mostly that. Each finding was reproduced before anything was changed, and
+several turned out to be worth less than they first looked; the ones that
+survived are all in the table, each with a regression test beside the fix.
+
+Two of them are worth singling out, because both were invisible to every layer
+of testing. The rate-limit bypass needed somebody to ask what happens when the
+header the limiter keys on is supplied by the attacker. The stuck editor needed
+somebody to trace what the revision does after a save fails, which no test
+exercised because no test made two saves overlap.
 
 ## Conventions
 
