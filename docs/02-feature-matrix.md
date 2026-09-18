@@ -4,6 +4,29 @@ Companion to `word-editor-architecture.md`. Stack assumed: ProseMirror
 (+ Tiptap open-source extensions where useful), Yjs + Hocuspocus, own OOXML
 codec, own layout module, React + shadcn/ui ribbon, Node server.
 
+## What is built so far
+
+This document was written before any code existed, as a plan. It is still the
+plan: the tags below say what each feature costs, not what is finished. For what
+actually works today see the README.
+
+Mapped onto the tabs, the portal currently covers:
+
+| Tab | Built | Not yet |
+|---|---|---|
+| File | New, open, save, autosave, save as `.docx` and `.txt`, recent, word count, version history with restore, print through the browser, sharing | Templates, `.pdf` and `.odt`, document properties, protection |
+| Home | Clipboard, font family and size, bold, italic, underline, strikethrough, superscript, subscript, highlight, colour, clear formatting, bullets, numbering, alignment, block quotes, headings | Format painter, styles gallery, multilevel lists, indent and spacing controls, find and replace, sort, formatting marks |
+| Insert | Tables with rows and columns, pictures from device, hyperlinks, horizontal rules | Cover pages, page and section breaks, shapes, charts, headers and footers, page numbers, text boxes, equations, symbols, comments |
+| Design | Nothing yet | Themes, style sets, watermark, page colour and borders |
+| Layout | Nothing yet | The whole tab. It needs the page layout engine. |
+| References | Nothing yet | The whole tab. Most of it needs the layout engine and the fields engine. |
+| Mailings | Nothing yet | The whole tab. |
+| Review | Spelling through the browser, word count | Comments, track changes, compare, accessibility checker, protection |
+| View | One continuous page, zoom through the browser | Print layout, outline, ruler, navigation pane, split |
+
+The two workstreams that unlock the most are unchanged from the table at the
+foot of this document: the page layout engine and the project's own OOXML codec.
+
 ## Legend
 
 | Tag | Meaning | Typical cost |
