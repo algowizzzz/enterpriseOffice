@@ -111,6 +111,21 @@ where the images go.
 This layer earns its place. It caught the editor header scrolling out of view
 and a missing `Ctrl+End` binding, neither of which any assertion had noticed.
 
+## Stability
+
+A suite that fails now and then is worse than no suite, because people learn to
+re-run it rather than read it. The whole pipeline is run five times in a row
+before any claim about it is made.
+
+| Run | Result | Time |
+|---|---|---|
+| 1 to 5 | 272 server, 147 client, 29 end-to-end, no unhandled errors | about 28 seconds each |
+
+Two things keep it that way. Each server test gets its own in-memory database,
+so no test can depend on another having run first. And an unhandled promise
+rejection anywhere fails the run rather than printing a warning, which is how
+the failed sign out in the table below was caught.
+
 ## What testing has found
 
 Worth recording, because it says what these layers are for.
