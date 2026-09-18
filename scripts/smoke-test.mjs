@@ -217,7 +217,7 @@ try {
     method: 'PUT',
     body: JSON.stringify({ content: typed, expectedRevision: 1 }),
   });
-  check('a stale save is refused', staleSave.status === 400);
+  check('a stale save is refused as a conflict', staleSave.status === 409);
 
   console.log('\nExport');
   const exported = await call(`/api/documents/${documentId}/export?format=docx`);

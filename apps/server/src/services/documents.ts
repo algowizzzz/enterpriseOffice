@@ -1,6 +1,6 @@
 import { emptyDoc, validateDoc, wordCount, type PMNode } from '@docforge/model';
 import type { Database } from '../db.js';
-import { badRequest, forbidden, notFound } from '../errors.js';
+import { HttpError, badRequest, forbidden, notFound } from '../errors.js';
 import { newId, now } from '../lib/ids.js';
 import { transaction } from '../db.js';
 import type { Role } from './users.js';
@@ -236,8 +236,13 @@ export function updateDocument(
     .get(id) as DocRow | undefined;
   if (!row) throw notFound('Document not found');
   if (input.expectedRevision !== undefined && Number(row.revision) !== input.expectedRevision) {
-    throw badRequest(
-      `This document was changed by someone else. Reload before saving. Expected revision ${input.expectedRevision}, found ${row.revision}.`,
+    // A conflict, not a malformed request. The client needs to tell the two
+    // apart to recover: one means reload, the other means the payload is wrong.
+    throw new HttpError(
+      409,
+      'REVISION_CONFLICT',
+      'This document was changed by someone else. Reload before saving.',
+      { expectedRevision: input.expectedRevision, currentRevision: Number(row.revision) },
     );
   }
   const content = input.content === undefined ? parseContent(row.content) : assertValidContent(input.content);
@@ -257,19 +262,44 @@ export function updateDocument(
   return getDocument(db, user, id);
 }
 
-/** Keep the most recent versions only, so a long editing session cannot fill the disk. */
-const VERSION_RETENTION = 50;
+/**
+ * Version retention.
+ *
+ * A version is written on every save and the editor autosaves a second or two
+ * after somebody stops typing, so keeping a flat count of the most recent
+ * versions meant about a minute of writing wiped the entire history, the
+ * as-imported state of an uploaded Word file included. Somebody who imported a
+ * document, edited for a few minutes and then wanted the original back could
+ * not get it, which is the one thing a history is for.
+ *
+ * Three things are kept instead:
+ *   the first revision, always, because it is what the document arrived as;
+ *   the most recent revisions, for undoing the last few minutes of work;
+ *   the last revision of each recent hour, so a day of work stays recoverable
+ *   without storing every keystroke's worth of autosave.
+ */
+const RECENT_VERSIONS = 50;
+const HOURLY_VERSIONS = 24;
+
 function pruneVersions(db: Database, documentId: string): void {
   db.prepare(
     `DELETE FROM document_versions
       WHERE document_id = ?
+        AND revision <> 1
         AND revision NOT IN (
           SELECT revision FROM document_versions
            WHERE document_id = ?
            ORDER BY revision DESC
            LIMIT ?
+        )
+        AND revision NOT IN (
+          SELECT MAX(revision) FROM document_versions
+           WHERE document_id = ?
+           GROUP BY substr(created_at, 1, 13)
+           ORDER BY MAX(revision) DESC
+           LIMIT ?
         )`,
-  ).run(documentId, documentId, VERSION_RETENTION);
+  ).run(documentId, documentId, RECENT_VERSIONS, documentId, HOURLY_VERSIONS);
 }
 
 export interface VersionSummary {

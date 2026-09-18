@@ -70,7 +70,7 @@ export async function buildApp(options: BuildOptions = {}): Promise<FastifyInsta
   const app = Fastify({
     logger: options.logger ?? config.env !== 'test',
     bodyLimit: 16 * 1024 * 1024,
-    trustProxy: true,
+    trustProxy: config.trustProxy,
   });
 
   // Several endpoints take no body. A client that sets a JSON content type and

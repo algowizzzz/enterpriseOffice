@@ -41,15 +41,48 @@ interface ImportState {
 const isElement = (node: HtmlNode): node is HTMLElement => node.nodeType === NodeType.ELEMENT_NODE;
 const isText = (node: HtmlNode): boolean => node.nodeType === NodeType.TEXT_NODE;
 
+const NAMED_ENTITIES: Record<string, string> = {
+  nbsp: '\u00a0',
+  amp: '&',
+  lt: '<',
+  gt: '>',
+  quot: '"',
+  apos: "'",
+};
+
+const ENTITY = /&(?:nbsp|amp|lt|gt|quot|apos|#(\d+)|#x([0-9a-f]+));/giu;
+
+/**
+ * A code point that cannot stand for a character. Out of range throws in
+ * `String.fromCodePoint`, and a lone surrogate produces a broken character that
+ * would then be stored in the document and written back out.
+ */
+function characterFor(code: number): string {
+  if (!Number.isInteger(code) || code < 0 || code > 0x10ffff) return '';
+  if (code >= 0xd800 && code <= 0xdfff) return '';
+  return String.fromCodePoint(code);
+}
+
+/**
+ * Decode the entities mammoth emits.
+ *
+ * One pass, not a chain of replacements. Running them in sequence fed the
+ * output of each into the next, so a document containing the literal text
+ * `&lt;` arrived as `&amp;lt;`, became `&lt;` after the ampersand pass and then
+ * `<` after the next: the text somebody wrote was silently replaced by the
+ * character it names. Anyone importing technical writing or templates lost
+ * content that way.
+ *
+ * A code point outside the Unicode range used to throw out of here, which
+ * surfaced as an opaque server error for a file the person could do nothing
+ * about.
+ */
 function decodeEntities(text: string): string {
-  return text
-    .replace(/&nbsp;/gu, ' ')
-    .replace(/&amp;/gu, '&')
-    .replace(/&lt;/gu, '<')
-    .replace(/&gt;/gu, '>')
-    .replace(/&quot;/gu, '"')
-    .replace(/&#(\d+);/gu, (_, code: string) => String.fromCodePoint(Number(code)))
-    .replace(/&#x([0-9a-f]+);/giu, (_, code: string) => String.fromCodePoint(Number.parseInt(code, 16)));
+  return text.replace(ENTITY, (match: string, decimal?: string, hex?: string) => {
+    if (decimal !== undefined) return characterFor(Number(decimal));
+    if (hex !== undefined) return characterFor(Number.parseInt(hex, 16));
+    return NAMED_ENTITIES[match.slice(1, -1).toLowerCase()] ?? match;
+  });
 }
 
 /** Convert inline HTML into ProseMirror text nodes carrying marks. */

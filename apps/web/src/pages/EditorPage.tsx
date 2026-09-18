@@ -23,6 +23,7 @@ const SAVE_LABEL: Record<SaveState, string> = {
   dirty: 'Unsaved changes',
   saving: 'Saving…',
   error: 'Save failed',
+  conflict: 'Someone else saved first',
 };
 
 export function EditorPage({ documentId, onBack }: EditorPageProps): JSX.Element {
@@ -35,6 +36,15 @@ export function EditorPage({ documentId, onBack }: EditorPageProps): JSX.Element
   const [shares, setShares] = useState<ShareEntry[] | null>(null);
   const [directory, setDirectory] = useState<User[]>([]);
   const revision = useRef(0);
+  // One save at a time, with the next one waiting its turn.
+  //
+  // Without this, the title field losing focus at the same moment the body
+  // autosaves sent two writes carrying the same expected revision. The first
+  // won, the second was rejected as a conflict, and because the revision was
+  // only updated on success the editor then failed every later save while the
+  // person carried on typing into text that would never be stored again.
+  const inFlight = useRef(false);
+  const queued = useRef<{ content?: PMNode; title?: string } | null>(null);
   // Bumped to remount the editing surface. The editor takes its content once,
   // when it is created, so replacing the text wholesale means giving it a new
   // instance. This used to reload the whole page, which threw away the scroll
@@ -65,21 +75,46 @@ export function EditorPage({ documentId, onBack }: EditorPageProps): JSX.Element
 
   const persist = useCallback(
     async (payload: { content?: PMNode; title?: string }) => {
-      setSaveState('saving');
+      queued.current = { ...(queued.current ?? {}), ...payload };
+      if (inFlight.current) return;
+
+      inFlight.current = true;
       try {
-        const { document: saved } = await api.saveDocument(documentId, {
-          ...payload,
-          expectedRevision: revision.current,
-        });
-        revision.current = saved.revision;
-        setDocument((current) => (current ? { ...current, ...saved } : saved));
-        setSaveState('saved');
-        setError(null);
-      } catch (caught) {
-        setSaveState('error');
-        setError(
-          caught instanceof ApiError ? caught.message : 'Could not save. Your changes are still here.',
-        );
+        while (queued.current) {
+          const next = queued.current;
+          queued.current = null;
+          setSaveState('saving');
+          try {
+            const { document: saved } = await api.saveDocument(documentId, {
+              ...next,
+              expectedRevision: revision.current,
+            });
+            revision.current = saved.revision;
+            setDocument((current) => (current ? { ...current, ...saved } : saved));
+            setError(null);
+            if (!queued.current) setSaveState('saved');
+          } catch (caught) {
+            // Put the work back so it is not lost, whatever went wrong.
+            queued.current = { ...next, ...(queued.current ?? {}) };
+            if (caught instanceof ApiError && caught.status === 409) {
+              // Somebody else has moved the document on. Retrying would either
+              // fail forever or overwrite their work, so stop and say so.
+              queued.current = null;
+              setSaveState('conflict');
+              setError(caught.message);
+              return;
+            }
+            setSaveState('error');
+            setError(
+              caught instanceof ApiError
+                ? caught.message
+                : 'Could not save. Your changes are still here.',
+            );
+            return;
+          }
+        }
+      } finally {
+        inFlight.current = false;
       }
     },
     [documentId],
@@ -88,7 +123,7 @@ export function EditorPage({ documentId, onBack }: EditorPageProps): JSX.Element
   // Warn before leaving with unsaved work.
   useEffect(() => {
     const handler = (event: BeforeUnloadEvent): void => {
-      if (saveState === 'dirty' || saveState === 'saving') event.preventDefault();
+      if (saveState !== 'saved') event.preventDefault();
     };
     window.addEventListener('beforeunload', handler);
     return () => window.removeEventListener('beforeunload', handler);
@@ -180,6 +215,17 @@ export function EditorPage({ documentId, onBack }: EditorPageProps): JSX.Element
           }}
         />
         <span className={`save-state save-${saveState}`}>{SAVE_LABEL[saveState]}</span>
+        {saveState === 'conflict' ? (
+          <button
+            type="button"
+            className="primary"
+            onClick={() => {
+              window.location.reload();
+            }}
+          >
+            Reload
+          </button>
+        ) : null}
         <div className="actions">
           <button type="button" onClick={() => void downloadExport(documentId, 'docx')}>
             Export .docx
@@ -306,7 +352,15 @@ export function EditorPage({ documentId, onBack }: EditorPageProps): JSX.Element
         key={surface}
         initialContent={document.content}
         readOnly={readOnly ?? false}
-        onDirty={() => setSaveState((current) => (current === 'saving' ? current : 'dirty'))}
+        onDirty={() =>
+          setSaveState((current) => {
+            // Typing during a save used to leave the badge reading "All changes
+            // saved" once that save finished, although the new keystrokes were
+            // not in it. The save loop above clears this once nothing is queued.
+            if (current === 'conflict') return current;
+            return 'dirty';
+          })
+        }
         onChange={(content) => void persist({ content })}
       />
     </div>

@@ -126,8 +126,11 @@ describe('documents', () => {
       headers: authHeader(owner),
       payload: { content: paragraphDoc('Second writer'), expectedRevision: 1 },
     });
-    expect(stale.statusCode).toBe(400);
+    expect(stale.statusCode).toBe(409);
+    expect(stale.json().error.code).toBe('REVISION_CONFLICT');
     expect(stale.json().error.message).toMatch(/changed by someone else/u);
+    // The answer says where the document actually is, so a client can recover.
+    expect(stale.json().error.details).toMatchObject({ currentRevision: 2 });
   });
 
   it('hides another user documents from the list', async () => {

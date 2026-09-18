@@ -573,6 +573,81 @@ describe('editor page', () => {
     expect(await screen.findByText('Save failed')).toBeInTheDocument();
   });
 
+  it('never sends two saves at once, so your own edits cannot conflict', async () => {
+    // Regression: the title field losing focus while the body autosaved sent two
+    // writes carrying the same expected revision. The second was rejected, and
+    // because the revision only advanced on success every later save failed too.
+    mocked['getDocument'].mockResolvedValue({ document: detail() });
+
+    let inFlight = 0;
+    let maxInFlight = 0;
+    const revisions: (number | undefined)[] = [];
+    let revision = 3;
+    mocked['saveDocument'].mockImplementation(async (_id: string, payload: { expectedRevision?: number }) => {
+      inFlight += 1;
+      maxInFlight = Math.max(maxInFlight, inFlight);
+      revisions.push(payload.expectedRevision);
+      await new Promise<void>((resolve) => {
+        setTimeout(resolve, 20);
+      });
+      inFlight -= 1;
+      if (payload.expectedRevision !== revision) {
+        throw new ApiError(409, 'REVISION_CONFLICT', 'This document was changed by someone else.');
+      }
+      revision += 1;
+      return { document: detail({ revision }) };
+    });
+
+    const user = userEvent.setup();
+    await renderSignedIn(<EditorPage documentId="doc-1" onBack={() => {}} />);
+
+    const title = await screen.findByLabelText('Document title');
+    await user.clear(title);
+    await user.type(title, 'First rename');
+    await user.tab();
+    await user.click(title);
+    await user.clear(title);
+    await user.type(title, 'Second rename');
+    await user.tab();
+
+    await waitFor(() => expect(screen.getByText('All changes saved')).toBeInTheDocument());
+    expect(maxInFlight).toBe(1);
+    // Each save carried the revision the one before it produced.
+    expect(revisions).toEqual([3, 4]);
+  });
+
+  it('stops saving and offers a reload when somebody else got there first', async () => {
+    mocked['getDocument'].mockResolvedValue({ document: detail() });
+    mocked['saveDocument'].mockRejectedValue(
+      new ApiError(409, 'REVISION_CONFLICT', 'This document was changed by someone else. Reload before saving.'),
+    );
+    const user = userEvent.setup();
+    await renderSignedIn(<EditorPage documentId="doc-1" onBack={() => {}} />);
+
+    const title = await screen.findByLabelText('Document title');
+    await user.clear(title);
+    await user.type(title, 'Renamed');
+    await user.tab();
+
+    expect(await screen.findByText('Someone else saved first')).toBeInTheDocument();
+    expect(await screen.findByRole('alert')).toHaveTextContent('Reload before saving');
+    expect(screen.getByRole('button', { name: 'Reload' })).toBeInTheDocument();
+
+    // It must not keep retrying against a revision that will never match.
+    const attempts = mocked['saveDocument'].mock.calls.length;
+    await new Promise<void>((resolve) => {
+      setTimeout(resolve, 100);
+    });
+    expect(mocked['saveDocument'].mock.calls.length).toBe(attempts);
+  });
+
+  it('offers no reload button while saving is healthy', async () => {
+    mocked['getDocument'].mockResolvedValue({ document: detail() });
+    await renderSignedIn(<EditorPage documentId="doc-1" onBack={() => {}} />);
+    await screen.findByText('All changes saved');
+    expect(screen.queryByRole('button', { name: 'Reload' })).not.toBeInTheDocument();
+  });
+
   it('exports in either format', async () => {
     mocked['getDocument'].mockResolvedValue({ document: detail() });
     const user = userEvent.setup();

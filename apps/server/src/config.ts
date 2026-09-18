@@ -28,6 +28,14 @@ export interface Config {
   secureCookies: boolean;
   /** Login attempts allowed per IP per minute. */
   loginRateLimit: number;
+  /**
+   * Whether to believe `X-Forwarded-For`. Off unless a trusted reverse proxy
+   * sets it: with nothing in front of the server the header is supplied by
+   * whoever is connecting, which would let them pick a new rate-limit bucket
+   * for every sign-in attempt and write any address they like into the audit
+   * trail.
+   */
+  trustProxy: boolean;
   /** Seed administrator, created on first start when the user table is empty. */
   bootstrapAdminEmail: string;
   bootstrapAdminPassword: string;
@@ -45,6 +53,7 @@ export function loadConfig(overrides: Partial<Config> = {}): Config {
     sessionTtlSeconds: int('DOCFORGE_SESSION_TTL', 12 * 60 * 60),
     secureCookies: bool('DOCFORGE_SECURE_COOKIES', env === 'production'),
     loginRateLimit: int('DOCFORGE_LOGIN_RATE_LIMIT', 10),
+    trustProxy: bool('DOCFORGE_TRUST_PROXY', false),
     bootstrapAdminEmail: process.env['DOCFORGE_ADMIN_EMAIL'] ?? 'admin@localhost',
     bootstrapAdminPassword: process.env['DOCFORGE_ADMIN_PASSWORD'] ?? '',
     ...overrides,

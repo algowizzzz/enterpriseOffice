@@ -101,6 +101,10 @@ export default tseslint.config(
       // Spying on a global such as window.confirm detaches the method on
       // purpose, which is exactly what this rule is built to warn about.
       '@typescript-eslint/unbound-method': 'off',
+      // A mock replaces a function whose type the mock library widens, so an
+      // async implementation reads as a promise handed to a void slot. The rule
+      // stays on everywhere that ships.
+      '@typescript-eslint/no-misused-promises': 'off',
     },
   },
 );

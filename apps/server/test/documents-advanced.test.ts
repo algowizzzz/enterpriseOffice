@@ -14,12 +14,13 @@ async function newDoc(
   app: FastifyInstance,
   actor: TestActor,
   title = 'Doc',
+  content: unknown = paragraphDoc('Body'),
 ): Promise<{ id: string; revision: number }> {
   const response = await app.inject({
     method: 'POST',
     url: '/api/documents',
     headers: authHeader(actor),
-    payload: { title, content: paragraphDoc('Body') },
+    payload: { title, content },
   });
   return response.json().document;
 }
@@ -146,7 +147,7 @@ describe('documents, further behaviour', () => {
     expect(JSON.stringify(first.json().content)).toContain('Body');
   });
 
-  it('keeps only the most recent versions of a heavily edited document', async () => {
+  it('keeps the recent versions of a heavily edited document', async () => {
     const created = await newDoc(app, owner);
     for (let i = 0; i < 55; i += 1) {
       await app.inject({
@@ -161,10 +162,84 @@ describe('documents, further behaviour', () => {
       url: `/api/documents/${created.id}/versions`,
       headers: authHeader(owner),
     });
-    const list = versions.json().versions as { revision: number }[];
-    // Retention keeps fifty, so a long session cannot fill the disk.
-    expect(list.length).toBeLessThanOrEqual(50);
-    expect(list[0]?.revision).toBe(56);
+    const list = (versions.json().versions as { revision: number }[]).map((v) => v.revision);
+    expect(list[0]).toBe(56);
+    // Fifty recent, plus this hour's marker and the first revision, so a long
+    // session cannot fill the disk.
+    expect(list.length).toBeLessThanOrEqual(52);
+  });
+
+  it('never discards the revision a document arrived as', async () => {
+    // Regression: autosave fires a second or two after somebody stops typing, so
+    // a flat count of recent versions wiped the whole history, the as-imported
+    // state included, after about a minute of writing.
+    const created = await newDoc(app, owner, 'Imported', paragraphDoc('The original wording'));
+    for (let i = 0; i < 80; i += 1) {
+      await app.inject({
+        method: 'PUT',
+        url: `/api/documents/${created.id}`,
+        headers: authHeader(owner),
+        payload: { content: paragraphDoc(`Edit number ${i}`) },
+      });
+    }
+
+    const versions = await app.inject({
+      method: 'GET',
+      url: `/api/documents/${created.id}/versions`,
+      headers: authHeader(owner),
+    });
+    const revisions = (versions.json().versions as { revision: number }[]).map((v) => v.revision);
+    expect(revisions).toContain(1);
+
+    const original = await app.inject({
+      method: 'GET',
+      url: `/api/documents/${created.id}/versions/1`,
+      headers: authHeader(owner),
+    });
+    expect(original.statusCode).toBe(200);
+    expect(JSON.stringify(original.json().content)).toContain('The original wording');
+  });
+
+  it('keeps one version from each recent hour, not only the newest few', async () => {
+    const created = await newDoc(app, owner);
+    const edit = (text: string) =>
+      app.inject({
+        method: 'PUT',
+        url: `/api/documents/${created.id}`,
+        headers: authHeader(owner),
+        payload: { content: paragraphDoc(text) },
+      });
+
+    // A morning's work, backdated into two hours while those versions still
+    // exist, then pushed well outside the recent window by an afternoon of
+    // editing.
+    for (let i = 0; i < 8; i += 1) await edit(`Morning edit ${i}`);
+    app.db
+      .prepare(
+        `UPDATE document_versions SET created_at = '2026-01-01T09:00:00.000Z'
+          WHERE document_id = ? AND revision BETWEEN 2 AND 4`,
+      )
+      .run(created.id);
+    app.db
+      .prepare(
+        `UPDATE document_versions SET created_at = '2026-01-01T10:00:00.000Z'
+          WHERE document_id = ? AND revision BETWEEN 5 AND 7`,
+      )
+      .run(created.id);
+
+    for (let i = 0; i < 60; i += 1) await edit(`Afternoon edit ${i}`);
+
+    const versions = await app.inject({
+      method: 'GET',
+      url: `/api/documents/${created.id}/versions`,
+      headers: authHeader(owner),
+    });
+    const revisions = (versions.json().versions as { revision: number }[]).map((v) => v.revision);
+    // The last version of each backdated hour survives, although both are far
+    // outside the recent window.
+    expect(revisions).toContain(4);
+    expect(revisions).toContain(7);
+    expect(revisions).toContain(1);
   });
 
   it('refuses to share with an account that does not exist', async () => {

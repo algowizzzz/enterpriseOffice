@@ -193,7 +193,7 @@ describe('two people editing at once', () => {
     // Cora read revision 1 before Olive saved, so her save is refused rather
     // than quietly discarding Olive's paragraph.
     const second = await save(collaborator, 'Cora wrote this', 1);
-    expect(second.statusCode).toBe(400);
+    expect(second.statusCode).toBe(409);
 
     const current = await app.inject({
       method: 'GET',

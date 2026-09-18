@@ -4,7 +4,7 @@ import type { PMNode } from '@docforge/model';
 import { editorExtensions } from './editorExtensions';
 import { Toolbar } from './Toolbar';
 
-export type SaveState = 'saved' | 'dirty' | 'saving' | 'error';
+export type SaveState = 'saved' | 'dirty' | 'saving' | 'error' | 'conflict';
 
 interface DocumentEditorProps {
   initialContent: PMNode;
