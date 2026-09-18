@@ -1102,3 +1102,26 @@ main {
     text-decoration: none;
   }
 }
+
+/* Footnote and endnote marks number themselves by where they are in the text,
+   so a note added in the middle renumbers the ones after it, as Word does. */
+.page {
+  counter-reset: footnote endnote;
+}
+.word-inline-footnote::before {
+  counter-increment: footnote;
+  content: counter(footnote);
+}
+.word-inline-endnote::before {
+  counter-increment: endnote;
+  content: counter(endnote, lower-roman);
+}
+.word-inline-control select,
+.word-inline-control input {
+  font: inherit;
+  border: none;
+  background: transparent;
+}
+.page-notes .link {
+  margin-left: 8px;
+}

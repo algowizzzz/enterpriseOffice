@@ -668,6 +668,18 @@ export function Toolbar({
           }
         />
         <ToolButton
+          label="Footnote"
+          title="Insert a footnote where the cursor is"
+          disabled={disabled}
+          onClick={() => {
+            const words = window.prompt('Wording of the footnote');
+            if (!words || words.trim() === '') return;
+            chain()
+              .insertContent({ type: 'wordInline', attrs: { kind: 'footnote', label: '', note: words.trim() } })
+              .run();
+          }}
+        />
+        <ToolButton
           label="Contents"
           title="Insert a table of contents built from the headings. It keeps itself up to date here, and Word updates its page numbers"
           disabled={disabled}

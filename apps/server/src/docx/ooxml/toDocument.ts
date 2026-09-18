@@ -695,7 +695,11 @@ function inlineOf(container: XmlElement, state: State, marks: PMMark[]): PMNode[
         const isForm = ['w:dropDownList', 'w:comboBox', 'w:date', 'w14:checkbox', 'w:picture'].some((name) =>
           Boolean(child(properties, name)),
         );
-        if (isForm) nodes.push(opaqueInline(state, [element], 'control', visibleText(element)));
+        if (isForm) {
+          const control = opaqueInline(state, [element], 'control', visibleText(element));
+          control.attrs = { ...(control.attrs ?? {}), ...controlDetails(properties, visibleText(element)) };
+          nodes.push(control);
+        }
         else nodes.push(...inlineOf(child(element, 'w:sdtContent') ?? element, state, marks));
         break;
       }
@@ -720,6 +724,32 @@ function inlineOf(container: XmlElement, state: State, marks: PMMark[]): PMNode[
     }
   }
   return nodes;
+}
+
+/**
+ * What a form control is and what it holds, so that it can be filled in here.
+ * A picture holder is kept and shown, and not filled in.
+ */
+function controlDetails(properties: XmlElement | undefined, shown: string): Record<string, unknown> {
+  const list = child(properties, 'w:dropDownList') ?? child(properties, 'w:comboBox');
+  if (list) {
+    const options = childrenNamed(list, 'w:listItem')
+      .map((item) => item.attrs['w:displayText'] ?? item.attrs['w:value'] ?? '')
+      .filter((option) => option.length > 0)
+      .slice(0, 200);
+    return { controlType: 'dropdown', options: options.join('\n').slice(0, 4000), value: shown.trim() };
+  }
+  const date = child(properties, 'w:date');
+  if (date) {
+    const full = /^(\d{4}-\d{2}-\d{2})/u.exec(date.attrs['w:fullDate'] ?? '')?.[1] ?? '';
+    return { controlType: 'date', value: full };
+  }
+  const box = child(properties, 'w14:checkbox');
+  if (box) {
+    const checked = attrOf(box, ['w14:checked'], 'w14:val');
+    return { controlType: 'checkbox', value: checked === '1' || checked === 'true' ? 'true' : 'false' };
+  }
+  return {};
 }
 
 const beginsField = (run: XmlElement): boolean =>
@@ -834,7 +864,9 @@ function runOf(run: XmlElement, state: State, inherited: PMMark[]): PMNode[] {
       const number = kind === 'footnote' ? String(state.notes[kind]) : toRoman(state.notes[kind]);
       const node = opaqueInline(state, [run], kind, number);
       const words = source ? visibleText(source).replace(/\s+/gu, ' ').trim().slice(0, 2000) : '';
-      if (words) node.attrs = { ...(node.attrs ?? {}), note: words };
+      // `noteId` says which note in the file this is, so that new wording can
+      // be written back to it; `note` is the wording, which can be edited.
+      node.attrs = { ...(node.attrs ?? {}), noteId: id, ...(words ? { note: words } : {}) };
       return [node];
     }
     const label = kind === 'symbol' ? symbolOf(unknown) : visibleText(run) || textOf(unknown).slice(0, 500);

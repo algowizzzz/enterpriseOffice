@@ -80,3 +80,103 @@ describe('a file that cannot be opened', () => {
     expect(p('x')).toContain('x');
   });
 });
+
+describe('filling in a form', () => {
+  const W14 = 'xmlns:w14="http://schemas.microsoft.com/office/word/2010/wordml"';
+  const documentXml = `<?xml version="1.0"?><w:document ${W} ${W14}><w:body><w:p>
+    <w:sdt><w:sdtPr><w:alias w:val="Classification"/><w:tag w:val="cls"/><w:showingPlcHdr/><w:dropDownList><w:listItem w:displayText="Internal" w:value="int"/><w:listItem w:displayText="Public" w:value="pub"/></w:dropDownList></w:sdtPr><w:sdtContent><w:r><w:rPr><w:b/></w:rPr><w:t>Choose an item.</w:t></w:r></w:sdtContent></w:sdt>
+    <w:sdt><w:sdtPr><w:date w:fullDate="2026-01-31T00:00:00Z"><w:dateFormat w:val="dd/MM/yyyy"/></w:date></w:sdtPr><w:sdtContent><w:r><w:t>31/01/2026</w:t></w:r></w:sdtContent></w:sdt>
+    <w:sdt><w:sdtPr><w14:checkbox><w14:checked w14:val="0"/></w14:checkbox></w:sdtPr><w:sdtContent><w:r><w:t>&#9744;</w:t></w:r></w:sdtContent></w:sdt>
+  </w:p></w:body></w:document>`;
+  const file = docxFixture({ documentXml });
+
+  it('says what each control is, what it offers and what it holds', async () => {
+    const { content } = await importDocx(file);
+    const controls = collect(content, 'wordInline').map((node) => node.attrs);
+    expect(controls[0]).toMatchObject({ controlType: 'dropdown', options: 'Internal\nPublic' });
+    expect(controls[1]).toMatchObject({ controlType: 'date', value: '2026-01-31' });
+    expect(controls[2]).toMatchObject({ controlType: 'checkbox', value: 'false' });
+  });
+
+  it('writes what was chosen into the control, and leaves the control a control', async () => {
+    const imported = await importDocx(file);
+    const fill = (node: PMNode): PMNode => {
+      if (node.type === 'wordInline') {
+        const next = { dropdown: 'Public', date: '2026-10-01', checkbox: 'true' }[String(node.attrs?.['controlType'])];
+        return { ...node, attrs: { ...node.attrs, value: next } };
+      }
+      return node.content ? { ...node, content: node.content.map(fill) } : node;
+    };
+    const xml = strFromU8(
+      unzipSync(new Uint8Array(await exportDocx(fill(imported.content), { title: 'T', source: file, fragments: imported.fragments })))['word/document.xml']!,
+    );
+    expect(xml).toMatch(/<w:tag w:val="cls"\/>.*<w:dropDownList>.*<w:t[^>]*>Public<\/w:t>/su);
+    // Its formatting stays, and Word is no longer told it is showing a placeholder.
+    expect(xml).toMatch(/<w:rPr><w:b\/><\/w:rPr><w:t[^>]*>Public/u);
+    expect(xml).not.toContain('showingPlcHdr');
+    expect(xml).toContain('w:fullDate="2026-10-01T00:00:00Z"');
+    expect(xml).toContain('01/10/2026');
+    expect(xml).toContain('<w14:checked w14:val="1"/>');
+    expect(xml).toContain(String.fromCodePoint(0x2612));
+  });
+
+  it('will not put something into a drop-down that is not on its list', async () => {
+    const imported = await importDocx(file);
+    const forge = (node: PMNode): PMNode =>
+      node.type === 'wordInline' && node.attrs?.['controlType'] === 'dropdown'
+        ? { ...node, attrs: { ...node.attrs, value: 'Top secret' } }
+        : node.content ? { ...node, content: node.content.map(forge) } : node;
+    const xml = strFromU8(
+      unzipSync(new Uint8Array(await exportDocx(forge(imported.content), { title: 'T', source: file, fragments: imported.fragments })))['word/document.xml']!,
+    );
+    expect(xml).not.toContain('Top secret');
+  });
+});
+
+describe('editing and adding footnotes', () => {
+  const body =
+    '<w:p><w:r><w:t>Records are kept</w:t></w:r><w:r><w:footnoteReference w:id="2"/></w:r><w:r><w:t> for ten years.</w:t></w:r></w:p>';
+  const footnotes = `<?xml version="1.0"?><w:footnotes ${W}><w:footnote w:type="separator" w:id="0"><w:p/></w:footnote><w:footnote w:id="2"><w:p><w:r><w:footnoteRef/></w:r><w:r><w:rPr><w:i/></w:rPr><w:t xml:space="preserve"> Includes paper and electronic media.</w:t></w:r></w:p></w:footnote></w:footnotes>`;
+  const file = withPart(docxFixture({ body }), 'word/footnotes.xml', footnotes);
+  const edit = (doc: PMNode, change: (node: PMNode) => PMNode): PMNode =>
+    doc.type === 'wordInline' ? change(doc) : doc.content ? { ...doc, content: doc.content.map((inner) => edit(inner, change)) } : doc;
+
+  it('leaves a note nobody touched exactly as it was, formatting and all', async () => {
+    const imported = await importDocx(file);
+    const parts = unzipSync(new Uint8Array(await exportDocx(imported.content, { title: 'T', source: file, fragments: imported.fragments })));
+    expect(strFromU8(parts['word/footnotes.xml']!)).toBe(footnotes);
+  });
+
+  it('writes new wording into the note it belongs to', async () => {
+    const imported = await importDocx(file);
+    const changed = edit(imported.content, (node) => ({ ...node, attrs: { ...node.attrs, note: 'Includes recorded media too.' } }));
+    const parts = unzipSync(new Uint8Array(await exportDocx(changed, { title: 'T', source: file, fragments: imported.fragments })));
+    const notes = strFromU8(parts['word/footnotes.xml']!);
+    expect(notes).toContain('Includes recorded media too.');
+    expect(notes).not.toContain('paper and electronic');
+    expect(notes).toContain('<w:footnoteRef/>');
+    expect(strFromU8(parts['word/document.xml']!)).toContain('<w:footnoteReference w:id="2"/>');
+  });
+
+  it('adds a footnote made here to a file that had none, and reads it back', async () => {
+    const made: PMNode = {
+      type: 'doc',
+      content: [
+        {
+          type: 'paragraph',
+          content: [
+            { type: 'text', text: 'Kept for ten years' },
+            { type: 'wordInline', attrs: { kind: 'footnote', label: '', note: 'From the end of the financial year.' } },
+            { type: 'text', text: '.' },
+          ],
+        },
+      ],
+    };
+    const exported = await exportDocx(made, { title: 'T' });
+    const parts = unzipSync(new Uint8Array(exported));
+    expect(strFromU8(parts['word/footnotes.xml']!)).toContain('From the end of the financial year.');
+    expect(strFromU8(parts['[Content_Types].xml']!)).toContain('footnotes+xml');
+    const back = await importDocx(exported);
+    expect(collect(back.content, 'wordInline')[0]?.attrs).toMatchObject({ kind: 'footnote', label: '1', note: 'From the end of the financial year.' });
+  });
+});

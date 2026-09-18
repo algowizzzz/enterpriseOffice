@@ -46,6 +46,20 @@ export function withoutDefaults(node: PMNode): PMNode {
   return clean;
 }
 
+/** Small Roman numerals, which is how endnotes are numbered. */
+function toRoman(value: number): string {
+  const parts: [number, string][] = [[1000, 'm'], [900, 'cm'], [500, 'd'], [400, 'cd'], [100, 'c'], [90, 'xc'], [50, 'l'], [40, 'xl'], [10, 'x'], [9, 'ix'], [5, 'v'], [4, 'iv'], [1, 'i']];
+  let left = Math.max(1, Math.min(value, 3999));
+  let out = '';
+  for (const [size, letters] of parts) {
+    while (left >= size) {
+      out += letters;
+      left -= size;
+    }
+  }
+  return out;
+}
+
 export type SaveState = 'saved' | 'dirty' | 'saving' | 'error' | 'conflict' | 'offline';
 
 interface DocumentEditorProps {
@@ -128,7 +142,7 @@ export function DocumentEditor({
   });
   const speller = useRef<Speller | null>(null);
   const [menu, setMenu] = useState<{ x: number; y: number; target: Misspelling; suggestions: string[] } | null>(null);
-  const [notes, setNotes] = useState<{ kind: string; number: string; words: string }[]>([]);
+  const [notes, setNotes] = useState<{ kind: string; number: string; words: string; position: number }[]>([]);
 
   // Held in a ref so reporting a repair cannot restart the editor, which would
   // throw away the cursor and the undo history.
@@ -186,11 +200,14 @@ export function DocumentEditor({
     const recount = (): void => {
       setStats(statsFor(editor.getText()));
       // The notes at the foot of the page, in the order their marks appear.
-      const found: { kind: string; number: string; words: string }[] = [];
-      editor.state.doc.descendants((node) => {
+      const found: { kind: string; number: string; words: string; position: number }[] = [];
+      editor.state.doc.descendants((node, position) => {
         if (node.type.name !== 'wordInline') return true;
-        const { kind, label, note } = node.attrs as { kind?: string; label?: string; note?: string };
-        if ((kind === 'footnote' || kind === 'endnote') && note) found.push({ kind, number: label ?? '', words: note });
+        const { kind, note } = node.attrs as { kind?: string; note?: string };
+        if (kind === 'footnote' || kind === 'endnote') {
+          const index = found.filter((entry) => entry.kind === kind).length + 1;
+          found.push({ kind, number: kind === 'footnote' ? String(index) : toRoman(index), words: note ?? '', position });
+        }
         return false;
       });
       setNotes(found.slice(0, 500));
@@ -357,10 +374,23 @@ export function DocumentEditor({
             <div className="page-notes" aria-label="Footnotes and endnotes">
               {notes.map((entry, index) => (
                 <p key={`${entry.kind}-${index}`}>
-                  <sup>{entry.number}</sup> {entry.words}
+                  <sup>{entry.number}</sup> {entry.words || <em>No wording yet</em>}
+                  {readOnly ? null : (
+                    <button
+                      type="button"
+                      className="link"
+                      title="Change the wording of this note"
+                      onClick={() => {
+                        const words = window.prompt('Wording of the note', entry.words);
+                        if (words === null) return;
+                        editor.view.dispatch(editor.state.tr.setNodeAttribute(entry.position, 'note', words.trim()));
+                      }}
+                    >
+                      Edit
+                    </button>
+                  )}
                 </p>
               ))}
-              <p className="hint">Notes are kept as they are in the Word file. Edit their wording in Word.</p>
             </div>
           ) : null}
           {footer ? (

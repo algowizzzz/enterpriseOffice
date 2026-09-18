@@ -264,6 +264,27 @@ const OBJECT_NAMES: Record<string, string> = {
 /** Kinds that mark a place and show nothing, such as the ends of a bookmark. */
 const INVISIBLE_KINDS = new Set(['bookmark', 'comment', 'permission']);
 
+/** How a kept inline object is drawn: shared by the page and by what is copied from it. */
+function inlineLook(attrs: Record<string, unknown>): { className: string; title: string; text: string } {
+  const kind = typeof attrs['kind'] === 'string' ? attrs['kind'] : 'other';
+  const label = typeof attrs['label'] === 'string' ? attrs['label'] : '';
+  const hidden = INVISIBLE_KINDS.has(kind) && !(kind === 'comment' && label);
+  const text =
+    hidden || kind === 'footnote' || kind === 'endnote'
+      ? ''
+      : kind === 'field' || kind === 'symbol' || kind === 'tab'
+        ? label
+        : label
+          ? `${OBJECT_NAMES[kind] ?? 'Object'}: ${label}`
+          : (OBJECT_NAMES[kind] ?? 'Object');
+  return {
+    className: `word-inline word-inline-${kind.replace(/[^a-z]/giu, '')}${hidden ? ' word-inline-hidden' : ''}`,
+    // A footnote says what it says when pointed at.
+    title: typeof attrs['note'] === 'string' && attrs['note'] ? attrs['note'] : (OBJECT_NAMES[kind] ?? kind),
+    text,
+  };
+}
+
 /**
  * Something Word holds that the editor cannot edit: a field, a footnote mark, a
  * chart, a shape, a bookmark. It is one unit here, it can be moved or deleted,
@@ -276,36 +297,82 @@ export const WordInline = Node.create({
   atom: true,
   selectable: true,
   addAttributes() {
-    return { ...carried('ref'), ...carried('kind'), ...carried('label'), ...carried('note') };
+    return {
+      ...carried('ref'),
+      ...carried('kind'),
+      ...carried('label'),
+      ...carried('note'),
+      ...carried('noteId'),
+      ...carried('controlType'),
+      ...carried('options'),
+      ...carried('value'),
+    };
+  },
+  addNodeView() {
+    // A form control is a control here too: something to choose from, a date to
+    // pick, a box to tick. Everything else is drawn as it always was.
+    return ({ node, editor, getPos }) => {
+      const type = typeof node.attrs['controlType'] === 'string' ? node.attrs['controlType'] : '';
+      const dom = document.createElement('span');
+      dom.contentEditable = 'false';
+      dom.setAttribute('data-word-inline', '');
+      if (node.attrs['kind'] !== 'control' || !['dropdown', 'date', 'checkbox'].includes(type)) {
+        const look = inlineLook(node.attrs);
+        dom.className = look.className;
+        dom.title = look.title;
+        dom.textContent = look.text;
+        return { dom, ignoreMutation: () => true };
+      }
+      dom.className = 'word-inline word-inline-control';
+      const current = typeof node.attrs['value'] === 'string' ? node.attrs['value'] : '';
+      const set = (value: string): void => {
+        const position = getPos();
+        if (typeof position !== 'number' || !editor.isEditable) return;
+        editor.view.dispatch(editor.state.tr.setNodeAttribute(position, 'value', value));
+      };
+      let field: HTMLSelectElement | HTMLInputElement;
+      if (type === 'dropdown') {
+        const select = document.createElement('select');
+        const options = (typeof node.attrs['options'] === 'string' ? node.attrs['options'] : '').split('\n').filter(Boolean);
+        if (!options.includes(current)) select.append(new Option(current || 'Choose an item', ''));
+        for (const option of options) select.append(new Option(option, option));
+        select.value = options.includes(current) ? current : '';
+        select.addEventListener('change', () => select.value && set(select.value));
+        field = select;
+      } else {
+        const input = document.createElement('input');
+        input.type = type === 'date' ? 'date' : 'checkbox';
+        if (type === 'date') input.value = current;
+        else input.checked = current === 'true';
+        input.addEventListener('change', () => set(type === 'date' ? input.value : String(input.checked)));
+        field = input;
+      }
+      field.disabled = !editor.isEditable;
+      field.setAttribute('aria-label', 'Form control');
+      dom.append(field);
+      return {
+        dom,
+        // Typing and clicking inside the control are the control's business.
+        stopEvent: () => true,
+        ignoreMutation: () => true,
+        update: (next) => next.type === node.type && next.attrs['ref'] === node.attrs['ref'] && next.attrs['value'] === current,
+      };
+    };
   },
   parseHTML() {
     return [{ tag: 'span[data-word-inline]' }];
   },
   renderHTML({ node, HTMLAttributes }) {
-    const kind = String(node.attrs['kind'] ?? 'other');
-    const label = String(node.attrs['label'] ?? '');
-    const hidden = INVISIBLE_KINDS.has(kind) && !(kind === 'comment' && label);
-    const shown =
-      kind === 'footnote' || kind === 'endnote'
-        ? label || '*'
-        : kind === 'field' || kind === 'symbol' || kind === 'tab'
-          ? label
-          : label
-            ? `${OBJECT_NAMES[kind] ?? 'Object'}: ${label}`
-            : (OBJECT_NAMES[kind] ?? 'Object');
+    const look = inlineLook(node.attrs);
     return [
       'span',
       mergeAttributes(HTMLAttributes, {
         'data-word-inline': '',
-        class: `word-inline word-inline-${kind.replace(/[^a-z]/giu, '')}${hidden ? ' word-inline-hidden' : ''}`,
+        class: look.className,
         contenteditable: 'false',
-        // A footnote says what it says when pointed at.
-        title:
-          typeof node.attrs['note'] === 'string' && node.attrs['note']
-            ? node.attrs['note']
-            : (OBJECT_NAMES[kind] ?? kind),
+        title: look.title,
       }),
-      hidden ? '' : shown,
+      look.text,
     ];
   },
 });

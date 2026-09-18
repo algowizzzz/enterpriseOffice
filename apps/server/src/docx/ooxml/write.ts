@@ -230,7 +230,7 @@ export function writeDocx(doc: PMNode, options: WriteOptions): Buffer {
   const section = finalSection(body, options.pageSetup);
   applyRunningText(ctx, section, options.pageSetup, options.originalSetup);
 
-  const commented = writeComments(ctx, doc, options.comments ?? []);
+  const commented = writeComments(ctx, writeNotes(ctx, doc), options.comments ?? []);
   const blocks = writeBlocks(ctx, commented.content ?? [], { depth: 0 });
   const root = { ...original.attrs };
   for (const [name, value] of Object.entries(NAMESPACES)) root[name] ??= value;
@@ -823,7 +823,14 @@ function writeInlineNode(ctx: Context, node: PMNode): string {
       return `<w:commentRangeEnd w:id="${id}"/><w:r><w:commentReference w:id="${id}"/></w:r>`;
     }
     case NODE.wordInline: {
+      const kind = node.attrs?.['kind'];
+      if ((kind === 'footnote' || kind === 'endnote') && typeof node.attrs?.['newNoteId'] === 'string') {
+        // A note made here: the mark in the text. The note itself is in its part.
+        const tag = kind === 'footnote' ? 'w:footnoteReference' : 'w:endnoteReference';
+        return `<w:r><w:rPr><w:vertAlign w:val="superscript"/></w:rPr><${tag} w:id="${escapeXmlAttr(node.attrs['newNoteId'])}"/></w:r>`;
+      }
       const kept = fragment(ctx, node.attrs?.['ref']);
+      if (kept && kind === 'control') return filledControl(kept, node).map(serializeXml).join('');
       if (kept) return kept.map(serializeXml).join('');
       const label = typeof node.attrs?.['label'] === 'string' ? node.attrs['label'] : '';
       return label ? `<w:r><w:t xml:space="preserve">${escapeXmlText(label)}</w:t></w:r>` : '';
@@ -1332,4 +1339,149 @@ function dropPart(ctx: Context, name: string): void {
   ctx.contentTypes.children = ctx.contentTypes.children.filter(
     (node) => !isElement(node) || node.attrs['PartName'] !== `/${name}`,
   );
+}
+
+// ---------------------------------------------------------------- form controls
+
+/** The text of a control's content, replaced, keeping the first run's formatting. */
+function setControlText(control: XmlElement, value: string): void {
+  const content = child(control, 'w:sdtContent');
+  if (!content) return;
+  const runs = descendants(content, 'w:r');
+  const first = runs[0];
+  const properties = first ? child(first, 'w:rPr') : undefined;
+  const run = el('w:r', {}, [
+    ...(properties ? [properties] : []),
+    el('w:t', { 'xml:space': 'preserve' }, [{ text: value }]),
+  ]);
+  // Inside a paragraph the content is runs; a control can also wrap one.
+  const paragraph = child(content, 'w:p');
+  if (paragraph) {
+    paragraph.children = [...paragraph.children.filter((node) => isElement(node) && node.name === 'w:pPr'), run];
+  } else content.children = [run];
+}
+
+/**
+ * A form control as it was kept, holding what has been filled in here.
+ *
+ * Only what the control holds is changed: the chosen item, the date, the tick.
+ * What kind of control it is, its list, its tag and its title are as they came.
+ */
+function filledControl(kept: XmlElement[], node: PMNode): XmlElement[] {
+  const value = typeof node.attrs?.['value'] === 'string' ? node.attrs['value'] : null;
+  const type = node.attrs?.['controlType'];
+  if (value === null || typeof type !== 'string') return kept;
+  const clones = kept.map((element) => parseXml(serializeXml(element)));
+  const control = clones.find((element) => element.name === 'w:sdt');
+  const properties = child(control, 'w:sdtPr');
+  if (!control || !properties) return kept;
+
+  if (type === 'dropdown') {
+    const list = child(properties, 'w:dropDownList') ?? child(properties, 'w:comboBox');
+    const known = childrenNamed(list, 'w:listItem').some(
+      (item) => (item.attrs['w:displayText'] ?? item.attrs['w:value']) === value,
+    );
+    // Only something on the list: a value from anywhere else is not a choice.
+    if (known || child(properties, 'w:comboBox')) {
+      setControlText(control, value);
+      // Word marks an unfilled control as showing its placeholder.
+      properties.children = properties.children.filter((entry) => !isElement(entry) || entry.name !== 'w:showingPlcHdr');
+    }
+  } else if (type === 'date' && /^\d{4}-\d{2}-\d{2}$/u.test(value)) {
+    const date = child(properties, 'w:date');
+    if (date) date.attrs['w:fullDate'] = `${value}T00:00:00Z`;
+    const [year, month, day] = value.split('-') as [string, string, string];
+    setControlText(control, `${day}/${month}/${year}`);
+    properties.children = properties.children.filter((entry) => !isElement(entry) || entry.name !== 'w:showingPlcHdr');
+  } else if (type === 'checkbox') {
+    const box = child(properties, 'w14:checkbox');
+    const checked = value === 'true';
+    const state = child(box, 'w14:checked');
+    if (state) state.attrs['w14:val'] = checked ? '1' : '0';
+    else if (box) box.children.unshift(el('w14:checked', { 'w14:val': checked ? '1' : '0' }));
+    setControlText(control, String.fromCodePoint(checked ? 0x2612 : 0x2610));
+  }
+  return clones;
+}
+
+// -------------------------------------------------------- footnotes and endnotes
+
+const NOTE_KINDS = [
+  { kind: 'footnote', part: 'word/footnotes.xml', root: 'w:footnotes', entry: 'w:footnote', ref: 'w:footnoteRef', rel: 'footnotes', style: 'FootnoteText' },
+  { kind: 'endnote', part: 'word/endnotes.xml', root: 'w:endnotes', entry: 'w:endnote', ref: 'w:endnoteRef', rel: 'endnotes', style: 'EndnoteText' },
+] as const;
+
+/**
+ * Footnotes and endnotes whose wording was changed here, and notes made here.
+ *
+ * A note's wording lives in its own part of the file. One that has not been
+ * touched is left exactly as it was, with whatever formatting it had; one whose
+ * words were edited is rewritten as plain text; a new one is added. Returns the
+ * document with each new note's mark told which note it is.
+ */
+function writeNotes(ctx: Context, doc: PMNode): PMNode {
+  let result = doc;
+  for (const spec of NOTE_KINDS) {
+    const marks: PMNode[] = [];
+    const collect = (node: PMNode): void => {
+      if (node.type === NODE.wordInline && node.attrs?.['kind'] === spec.kind) marks.push(node);
+      for (const inner of node.content ?? []) collect(inner);
+    };
+    collect(result);
+    const edited = marks.filter((mark) => typeof mark.attrs?.['note'] === 'string');
+    if (edited.length === 0) continue;
+
+    const existing = ctx.parts[spec.part];
+    const root = existing
+      ? parseXml(strFromU8(existing))
+      : el(spec.root, { 'xmlns:w': NAMESPACES['xmlns:w'] as string, 'xmlns:r': REL }, [
+          // The two every such part begins with: the rule above the notes.
+          el(spec.entry, { 'w:type': 'separator', 'w:id': '-1' }, [el('w:p', {}, [el('w:r', {}, [el('w:separator')])])]),
+          el(spec.entry, { 'w:type': 'continuationSeparator', 'w:id': '0' }, [el('w:p', {}, [el('w:r', {}, [el('w:continuationSeparator')])])]),
+        ]);
+    let nextId = Math.max(0, ...childrenNamed(root, spec.entry).map((entry) => Number(entry.attrs['w:id']) || 0)) + 1;
+    let changed = false;
+
+    const body = (words: string): XmlElement =>
+      el('w:p', {}, [
+        ...(ctx.styleIds.has(spec.style) ? [el('w:pPr', {}, [el('w:pStyle', { 'w:val': spec.style })])] : []),
+        el('w:r', {}, [el('w:rPr', {}, [el('w:vertAlign', { 'w:val': 'superscript' })]), el(spec.ref)]),
+        el('w:r', {}, [el('w:t', { 'xml:space': 'preserve' }, [{ text: ` ${words}` }])]),
+      ]);
+
+    const assigned = new Map<PMNode, string>();
+    for (const mark of edited) {
+      const words = String(mark.attrs?.['note']).replace(/\s+/gu, ' ').trim().slice(0, 4000);
+      const id = typeof mark.attrs?.['noteId'] === 'string' && fragment(ctx, mark.attrs['ref']) ? mark.attrs['noteId'] : null;
+      if (id !== null) {
+        const entry = childrenNamed(root, spec.entry).find((candidate) => candidate.attrs['w:id'] === id);
+        if (!entry) continue;
+        const was = descendants(entry, 'w:t').map(textOf).join('').replace(/\s+/gu, ' ').trim();
+        if (was === words) continue;
+        entry.children = [body(words)];
+        changed = true;
+      } else if (words.length > 0) {
+        const newId = String(nextId);
+        nextId += 1;
+        root.children.push(el(spec.entry, { 'w:id': newId }, [body(words)]));
+        assigned.set(mark, newId);
+        changed = true;
+      }
+    }
+    if (!changed) continue;
+    ctx.parts[spec.part] = xmlPart(root);
+    if (!existing) {
+      ensureOverride(ctx, `/${spec.part}`, `application/vnd.openxmlformats-officedocument.wordprocessingml.${spec.rel}+xml`);
+      addRelationship(ctx, `${REL}/${spec.rel}`, spec.part.replace('word/', ''));
+    }
+    if (assigned.size > 0) {
+      const stamp = (node: PMNode): PMNode => {
+        const id = assigned.get(node);
+        if (id) return { ...node, attrs: { ...node.attrs, newNoteId: id } };
+        return node.content ? { ...node, content: node.content.map(stamp) } : node;
+      };
+      result = stamp(result);
+    }
+  }
+  return result;
 }
