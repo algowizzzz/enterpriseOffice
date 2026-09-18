@@ -37,6 +37,8 @@ export interface Config {
    */
   trustProxy: boolean;
   /** Seed administrator, created on first start when the user table is empty. */
+  importRateLimit: number;
+  exportRateLimit: number;
   bootstrapAdminEmail: string;
   bootstrapAdminPassword: string;
 }
@@ -53,6 +55,11 @@ export function loadConfig(overrides: Partial<Config> = {}): Config {
     sessionTtlSeconds: int('DOCFORGE_SESSION_TTL', 12 * 60 * 60),
     secureCookies: bool('DOCFORGE_SECURE_COOKIES', env === 'production'),
     loginRateLimit: int('DOCFORGE_LOGIN_RATE_LIMIT', 10),
+    // Converting and writing a Word file are both CPU bound and hold the
+    // single-threaded server while they run, so both are limited. A bulk
+    // migration or a fidelity run needs the limits raised deliberately.
+    importRateLimit: int('DOCFORGE_IMPORT_RATE_LIMIT', 20),
+    exportRateLimit: int('DOCFORGE_EXPORT_RATE_LIMIT', 30),
     trustProxy: bool('DOCFORGE_TRUST_PROXY', false),
     bootstrapAdminEmail: process.env['DOCFORGE_ADMIN_EMAIL'] ?? 'admin@localhost',
     bootstrapAdminPassword: process.env['DOCFORGE_ADMIN_PASSWORD'] ?? '',

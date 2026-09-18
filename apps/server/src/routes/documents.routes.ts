@@ -60,7 +60,7 @@ export async function registerDocumentRoutes(app: FastifyInstance): Promise<void
   // while it runs, so this route is limited even though the caller is signed in.
   app.post(
     '/documents/import',
-    { config: { rateLimit: { max: 20, timeWindow: '1 minute' } } },
+    { config: { rateLimit: { max: app.config.importRateLimit, timeWindow: '1 minute' } } },
     async (request, reply) => {
       const user = await app.authenticate(request);
       if (user.role === 'viewer') throw badRequest('Your account cannot create documents');
@@ -152,7 +152,7 @@ export async function registerDocumentRoutes(app: FastifyInstance): Promise<void
   // by asking for the same large document over and over.
   app.get(
     '/documents/:id/export',
-    { config: { rateLimit: { max: 30, timeWindow: '1 minute' } } },
+    { config: { rateLimit: { max: app.config.exportRateLimit, timeWindow: '1 minute' } } },
     async (request, reply) => {
       const user = await app.authenticate(request);
       const { id } = idParam.parse(request.params);

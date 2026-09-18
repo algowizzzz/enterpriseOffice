@@ -1,6 +1,6 @@
-import mammoth from 'mammoth';
-import { buildStyleMap, alignmentTransform } from './mammothOptions.js';
 import { parse, NodeType, type HTMLElement, type Node as HtmlNode } from 'node-html-parser';
+import { readPackage } from './ooxml/package.js';
+import { documentFromPackage, type DocumentMeta } from './ooxml/toDocument.js';
 import { NODE, MARK, type PMNode, type PMMark } from '@docforge/model';
 import { badRequest } from '../errors.js';
 import { measureImage } from './imageSize.js';
@@ -17,6 +17,8 @@ export interface ImportResult {
   content: PMNode;
   /** Non-fatal notes from the converter, surfaced to the user after upload. */
   messages: string[];
+  /** What sits outside the body: the header, the footer and the page setup. */
+  meta?: DocumentMeta;
 }
 
 const BLOCK_TAGS = new Set([
@@ -249,8 +251,11 @@ function listFrom(node: HTMLElement, state: ImportState, depth = 0): PMNode {
     // which `<li><ul>…</ul></li>` produces, is a shape the editor's schema does
     // not allow, and the list commands then operate on a document that cannot
     // be built. The browser's own parser inserts the same empty paragraph.
+    // A heading leads an item perfectly well, so it is left alone rather than
+    // given a blank first line.
+    const leads = blocks[0]?.type;
     const content =
-      blocks.length > 0 && blocks[0]?.type !== NODE.paragraph
+      blocks.length > 0 && leads !== NODE.paragraph && leads !== NODE.heading
         ? [{ type: NODE.paragraph }, ...blocks]
         : blocks;
     items.push({
@@ -392,9 +397,14 @@ const ZIP_MAGIC = Buffer.from([0x50, 0x4b, 0x03, 0x04]);
 /**
  * Convert an uploaded .docx into the editor's document model.
  *
- * Mammoth handles the OOXML reading. This maps its HTML onto our node and mark
- * vocabulary. Phase 3 replaces mammoth with the project's own OOXML codec so
- * that styles, numbering and unknown parts survive a round trip.
+ * The markup is read directly. Going through HTML lost everything HTML cannot
+ * say: the size a picture is shown at, the font, size and colour of a run, the
+ * shading of a table cell, a page break, the orientation of the page, the
+ * header and the footer. All of it arrived and was discarded before anything
+ * could store it.
+ *
+ * The HTML route is kept below for pasted markup, which arrives as HTML and has
+ * no other description to read.
  */
 export async function importDocx(buffer: Buffer): Promise<ImportResult> {
   if (buffer.length < 4 || !buffer.subarray(0, 4).equals(ZIP_MAGIC)) {
@@ -405,27 +415,12 @@ export async function importDocx(buffer: Buffer): Promise<ImportResult> {
   const reasonable = archiveIsReasonable(buffer, MAX_EXPANDED_BYTES);
   if (!reasonable.ok) throw badRequest(reasonable.reason);
 
-  let html: string;
-  const state: ImportState = { images: 0, imageBytes: 0, messages: new Set() };
   try {
-    const result = await mammoth.convertToHtml(
-      { buffer },
-      {
-        styleMap: buildStyleMap(),
-        transformDocument: alignmentTransform(mammoth),
-      },
-    );
-    html = result.value;
-    for (const message of result.messages) {
-      if (message.type === 'warning') state.messages.add(message.message);
-    }
+    const result = documentFromPackage(readPackage(buffer));
+    return { content: result.content, messages: result.messages, meta: result.meta };
   } catch (error) {
     throw badRequest(`Could not read that .docx file: ${(error as Error).message}`);
   }
-
-  const converted = htmlToDocument(html);
-  for (const message of converted.messages) state.messages.add(message);
-  return { content: converted.content, messages: [...state.messages] };
 }
 
 /**

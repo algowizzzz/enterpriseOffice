@@ -31,7 +31,11 @@ export default tseslint.config(
     languageOptions: {
       parserOptions: {
         projectService: {
-          allowDefaultProject: ['*.js', '*.mjs', 'scripts/*.mjs'],
+          allowDefaultProject: ['*.js', '*.mjs', 'scripts/*.mjs', 'scripts/fidelity/*.mjs'],
+          // These are plain Node scripts outside either application's project.
+          // The default grows as scripts are added, and the cap exists to stop
+          // a project accidentally linting its whole tree without a tsconfig.
+          maximumDefaultProjectFileMatchCount_THIS_WILL_SLOW_DOWN_LINTING: 20,
         },
         tsconfigRootDir: import.meta.dirname,
       },

@@ -349,7 +349,14 @@ export function Toolbar({ editor, disabled = false }: ToolbarProps): JSX.Element
           label="Break"
           title="Page break"
           disabled={disabled}
-          onClick={() => chain().insertContent({ type: 'pageBreak' }).run()}
+          onClick={() =>
+            // A trailing paragraph, like the rule button inserts. Without one
+            // the break is the last node, so the cursor selects it and the next
+            // thing typed replaces it.
+            chain()
+              .insertContent([{ type: 'pageBreak' }, { type: 'paragraph' }])
+              .run()
+          }
         />
       </div>
     </div>

@@ -294,10 +294,12 @@ describe('docx round trip, formatting', () => {
     expect((result.content ?? [])[0]?.attrs?.['textAlign']).toBe('justify');
   });
 
-  it('leaves left alignment implicit, as Word does', async () => {
+  it('keeps left alignment, which used to be dropped on the way back in', async () => {
+    // The conversion went through HTML, which could not carry it. Reading the
+    // markup itself means an explicitly left-aligned paragraph comes back
+    // explicitly left aligned rather than merely looking the same.
     const result = await roundTrip(doc(paragraph('Ordinary', { textAlign: 'left' })));
-    const attrs = (result.content ?? [])[0]?.attrs ?? {};
-    expect(attrs['textAlign']).toBeUndefined();
+    expect((result.content ?? [])[0]?.attrs?.['textAlign']).toBe('left');
   });
 
   it('writes a font family, size and colour without corrupting the file', async () => {

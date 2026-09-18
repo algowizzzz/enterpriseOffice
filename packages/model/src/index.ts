@@ -496,7 +496,7 @@ export function repairDocument(value: unknown): RepairResult {
 
   // A root that is not a document at all still holds the person's words.
   if (root) {
-    const content = asBlocks([root], ctx);
+    const content = asBlocks([root], ctx, 1);
     return {
       doc: { type: NODE.doc, content: content.length > 0 ? content : [{ type: NODE.paragraph }] },
       changed: true,
@@ -629,15 +629,29 @@ function sanitizeChildren(content: unknown, depth: number, ctx: RepairContext): 
   return kept;
 }
 
-/** Wrap loose inline content in paragraphs, so a block container holds blocks. */
-function asBlocks(children: PMNode[], ctx: RepairContext): PMNode[] {
+/**
+ * Wrap loose inline content in paragraphs, so a block container holds blocks.
+ *
+ * `depth` is where the wrapper would sit. A wrapper deeper than the checker
+ * allows would make the document unsavable, and its content could not have been
+ * kept at that depth anyway, so it is dropped instead of wrapped.
+ */
+function asBlocks(children: PMNode[], ctx: RepairContext, depth: number): PMNode[] {
   const blocks: PMNode[] = [];
   let run: PMNode[] = [];
   const flush = (): void => {
     if (run.length === 0) return;
     ctx.changed = true;
-    blocks.push({ type: NODE.paragraph, content: run });
+    const wrapped = run;
     run = [];
+    if (depth + 1 > MAX_DEPTH) {
+      ctx.removed = true;
+      return;
+    }
+    // Charged like any other node: a wrapper the repair invents counts against
+    // the same budget, or a repaired document can come back over the limit.
+    ctx.left -= 1;
+    blocks.push({ type: NODE.paragraph, content: wrapped });
   };
   for (const child of children) {
     if (INLINE_NODES.has(child.type)) run.push(child);
@@ -666,9 +680,15 @@ function sanitizeNode(value: unknown, depth: number, ctx: RepairContext): PMNode
   if (ctx.left < reserve) return dropped(ctx);
   ctx.left -= reserve;
 
+  /** Give the places back when this node turns out not to be kept. */
+  const refund = (): null => {
+    ctx.left += reserve;
+    return dropped(ctx);
+  };
+
   const exempt = node.type === NODE.image ? NO_EXEMPTIONS : NOT_AN_IMAGE;
   const attrs = sanitizeAttrs(node.type, node.attrs, exempt, ctx);
-  if (attrs.drop) return dropped(ctx);
+  if (attrs.drop) return refund();
 
   const clean: PMNode = { type: node.type };
   if (attrs.attrs && Object.keys(attrs.attrs).length > 0) clean.attrs = attrs.attrs;
@@ -677,7 +697,7 @@ function sanitizeNode(value: unknown, depth: number, ctx: RepairContext): PMNode
   if (marks) clean.marks = marks;
 
   if (node.type === NODE.text) {
-    if (typeof node.text !== 'string' || node.text.length === 0) return dropped(ctx);
+    if (typeof node.text !== 'string' || node.text.length === 0) return refund();
     // A text node carrying children is refused by the checker, so the repair
     // returns here rather than copying them across.
     if (node.content !== undefined) dropped(ctx);
@@ -688,7 +708,7 @@ function sanitizeNode(value: unknown, depth: number, ctx: RepairContext): PMNode
   const children = sanitizeChildren(node.content, depth, ctx);
 
   if (NEEDS_BLOCK.has(node.type)) {
-    const blocks = asBlocks(children, ctx);
+    const blocks = asBlocks(children, ctx, depth + 1);
     if (blocks.length > 0) {
       ctx.left += 1; // the reserved place was not needed
       clean.content = blocks;
@@ -696,14 +716,14 @@ function sanitizeNode(value: unknown, depth: number, ctx: RepairContext): PMNode
     }
     // Nothing left inside something that cannot be empty. An empty paragraph is
     // a place to type; no content at all is a document that opens blank.
-    if (depth + 1 > MAX_DEPTH) return dropped(ctx);
+    if (depth + 1 > MAX_DEPTH) return refund();
     ctx.changed = true;
     clean.content = [{ type: NODE.paragraph }];
     return clean;
   }
 
   if (children.length > 0) clean.content = children;
-  else if (DROP_IF_EMPTY.has(node.type)) return dropped(ctx);
+  else if (DROP_IF_EMPTY.has(node.type)) return refund();
 
   return clean;
 }

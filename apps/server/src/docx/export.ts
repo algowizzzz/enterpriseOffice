@@ -8,6 +8,7 @@ import {
   Table,
   TableCell,
   TableRow,
+  ShadingType,
   TextRun,
   WidthType,
   type IParagraphOptions,
@@ -151,15 +152,47 @@ const QUOTE_INDENT = 720;
  */
 const MAX_SPAN = 1000;
 
-function convertBlock(node: PMNode, list?: ListContext, indentLeft = 0): (Paragraph | Table)[] {
+/**
+ * A run of sibling blocks.
+ *
+ * A page break is a property of the paragraph that follows it, not a paragraph
+ * of its own. Writing it as its own empty paragraph put a blank line at the top
+ * of every new page, and reading the file back produced that blank line as a
+ * real paragraph.
+ */
+function convertBlocks(nodes: PMNode[], list?: ListContext, indentLeft = 0): (Paragraph | Table)[] {
+  const blocks: (Paragraph | Table)[] = [];
+  let breakBefore = false;
+  for (const node of nodes) {
+    if (node.type === NODE.pageBreak) {
+      breakBefore = true;
+      continue;
+    }
+    const converted = convertBlock(node, list, indentLeft, breakBefore);
+    if (converted.length > 0) breakBefore = false;
+    blocks.push(...converted);
+  }
+  // A break with nothing after it still has to be written down.
+  if (breakBefore) blocks.push(new Paragraph({ pageBreakBefore: true }));
+  return blocks;
+}
+
+function convertBlock(
+  node: PMNode,
+  list?: ListContext,
+  indentLeft = 0,
+  breakBefore = false,
+): (Paragraph | Table)[] {
+  const pageBreak = breakBefore ? { pageBreakBefore: true } : {};
   switch (node.type) {
     case NODE.paragraph:
-      return [new Paragraph(paragraphOptions(node, list, indentLeft))];
+      return [new Paragraph({ ...paragraphOptions(node, list, indentLeft), ...pageBreak })];
     case NODE.heading: {
       const level = Number(node.attrs?.['level'] ?? 1);
       return [
         new Paragraph({
           ...paragraphOptions(node, undefined, indentLeft),
+          ...pageBreak,
           heading: HEADING_BY_LEVEL[level] ?? HeadingLevel.HEADING_1,
         }),
       ];
@@ -169,8 +202,9 @@ function convertBlock(node: PMNode, list?: ListContext, indentLeft = 0): (Paragr
       // flattened into a paragraph. Mapping everything through the paragraph
       // path turned a quoted list into one run-on line with no bullets, and a
       // quoted table into the same.
-      return (node.content ?? []).flatMap((child) =>
-        convertBlock(child, list, indentLeft + QUOTE_INDENT),
+      return withBreak(
+        convertBlocks(node.content ?? [], list, indentLeft + QUOTE_INDENT),
+        breakBefore,
       );
     case NODE.bulletList:
     case NODE.orderedList: {
@@ -178,11 +212,9 @@ function convertBlock(node: PMNode, list?: ListContext, indentLeft = 0): (Paragr
       const level = list ? list.level + 1 : 0;
       const blocks: (Paragraph | Table)[] = [];
       for (const item of node.content ?? []) {
-        for (const child of item.content ?? []) {
-          blocks.push(...convertBlock(child, { level, ordered }, indentLeft));
-        }
+        blocks.push(...convertBlocks(item.content ?? [], { level, ordered }, indentLeft));
       }
-      return blocks;
+      return withBreak(blocks, breakBefore);
     }
     case NODE.table: {
       const rows = (node.content ?? []).map(
@@ -193,23 +225,52 @@ function convertBlock(node: PMNode, list?: ListContext, indentLeft = 0): (Paragr
                 new TableCell({
                   columnSpan: positiveInt(cell.attrs?.['colspan'], MAX_SPAN) ?? 1,
                   rowSpan: positiveInt(cell.attrs?.['rowspan'], MAX_SPAN) ?? 1,
-                  children: (cell.content ?? []).flatMap((child) =>
-                    convertBlock(child, undefined, indentLeft),
-                  ),
+                  // The colour somebody gave the cell. Dropping it turned every
+                  // banded table into a plain one on the way out.
+                  ...cellShading(cell.attrs?.['background']),
+                  ...cellWidth(cell.attrs?.['colwidth']),
+                  children: convertBlocks(cell.content ?? [], undefined, indentLeft),
                 }),
             ),
           }),
       );
       if (rows.length === 0) return [new Paragraph({})];
-      return [new Table({ rows, width: { size: 100, type: WidthType.PERCENTAGE } })];
+      // A table cannot carry a break of its own, so it gets one in front.
+      return withBreak(
+        [new Table({ rows, width: { size: 100, type: WidthType.PERCENTAGE } })],
+        breakBefore,
+      );
     }
     case NODE.horizontalRule:
-      return [new Paragraph({ thematicBreak: true })];
+      return [new Paragraph({ thematicBreak: true, ...pageBreak })];
     case NODE.pageBreak:
       return [new Paragraph({ pageBreakBefore: true })];
     default:
-      return (node.content ?? []).flatMap((child) => convertBlock(child, list, indentLeft));
+      return withBreak(convertBlocks(node.content ?? [], list, indentLeft), breakBefore);
   }
+}
+
+/** Put a break in front of blocks that cannot carry one themselves. */
+function withBreak(blocks: (Paragraph | Table)[], breakBefore: boolean): (Paragraph | Table)[] {
+  if (!breakBefore || blocks.length === 0) return blocks;
+  return [new Paragraph({ pageBreakBefore: true }), ...blocks];
+}
+
+/** A cell's fill, as Word states it: six hexadecimal digits, no hash. */
+function cellShading(value: unknown): { shading?: { type: (typeof ShadingType)[keyof typeof ShadingType]; color: string; fill: string } } {
+  if (typeof value !== 'string') return {};
+  const fill = value.trim().replace(/^#/u, '');
+  if (!/^[0-9a-f]{6}$/iu.test(fill)) return {};
+  return { shading: { type: ShadingType.CLEAR, color: 'auto', fill: fill.toUpperCase() } };
+}
+
+/** A cell's width, stored by the editor in pixels and written in twentieths of a point. */
+function cellWidth(value: unknown): { width?: { size: number; type: typeof WidthType.DXA } } {
+  const pixels = Array.isArray(value)
+    ? value.reduce((total: number, entry) => total + (typeof entry === 'number' ? entry : 0), 0)
+    : 0;
+  if (!Number.isFinite(pixels) || pixels <= 0) return {};
+  return { width: { size: Math.round(pixels * 15), type: WidthType.DXA } };
 }
 
 /**
@@ -225,7 +286,7 @@ export interface ExportOptions {
 
 /** Serialize a document to a .docx file. */
 export async function exportDocx(doc: PMNode, options: ExportOptions): Promise<Buffer> {
-  const blocks = (doc.content ?? []).flatMap((node) => convertBlock(node));
+  const blocks = convertBlocks(doc.content ?? []);
   const document = new Document({
     title: options.title,
     creator: options.author ?? 'DocForge',

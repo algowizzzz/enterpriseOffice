@@ -604,6 +604,18 @@ main {
     overflow: visible;
   }
 
+  /* A page break must break the page, not print a dashed line across it. */
+  .page-break {
+    break-after: page;
+    page-break-after: always;
+    border-top: none;
+    margin: 0;
+  }
+
+  .page-break-label {
+    display: none;
+  }
+
   .page {
     border: none;
     box-shadow: none;

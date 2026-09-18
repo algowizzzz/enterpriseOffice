@@ -53,6 +53,36 @@ const StorableLink = Link.extend({
 });
 
 /**
+ * Cells that keep the colour they were given.
+ *
+ * Tiptap's table cells have no colour attribute, so a banded table imported
+ * from Word lost its shading the moment the editor loaded it, and the export
+ * had nothing left to write. The attribute is stored as the model stores it and
+ * drawn as the background of the cell.
+ */
+const shadedCell = <T extends typeof TableCell | typeof TableHeader>(base: T) =>
+  base.extend({
+    addAttributes() {
+      return {
+        ...this.parent?.(),
+        background: {
+          default: null,
+          parseHTML: (element: HTMLElement) =>
+            element.getAttribute('data-background') || element.style.backgroundColor || null,
+          renderHTML: (attributes: Record<string, unknown>) => {
+            const colour = attributes['background'];
+            if (typeof colour !== 'string' || colour.length === 0) return {};
+            return { 'data-background': colour, style: `background-color: ${colour}` };
+          },
+        },
+      };
+    },
+  });
+
+const ShadedTableCell = shadedCell(TableCell);
+const ShadedTableHeader = shadedCell(TableHeader);
+
+/**
  * A page break, which the model has a node for and the Word exporter writes.
  *
  * Without it here, a document containing one could not be built: Tiptap
@@ -96,6 +126,12 @@ export const editorExtensions: Extensions = [
     autolink: true,
     // Only protocols that cannot execute script.
     protocols: ['http', 'https', 'mailto'],
+    // Every other way a link is made, typing one, pasting one over a
+    // selection, the ribbon button, goes through this rather than through the
+    // parse rule below. Leaving it at the default meant typing an ftp address
+    // still produced a link the model strips on every save, which is the
+    // banner-after-every-keystroke this was meant to end.
+    isAllowedUri: (url: string) => isSafeHref(url),
     HTMLAttributes: { rel: 'noopener noreferrer nofollow', target: '_blank' },
   }),
   PageBreak,
@@ -110,8 +146,8 @@ export const editorExtensions: Extensions = [
   EmbeddedImage.configure({ inline: true, allowBase64: true }),
   Table.configure({ resizable: true }),
   TableRow,
-  TableHeader,
-  TableCell,
+  ShadedTableHeader,
+  ShadedTableCell,
   WordNavigation,
 ];
 
