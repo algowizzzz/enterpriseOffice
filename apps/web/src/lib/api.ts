@@ -27,6 +27,8 @@ export interface DocumentSummary {
   createdAt: string;
   updatedAt: string;
   access: Access;
+  /** Framework, policy, standard, procedure: chosen at upload. */
+  docType?: DocumentType | null;
 }
 
 export interface DocumentDetail extends DocumentSummary {
@@ -184,8 +186,11 @@ export const api = {
   deleteDocument: (id: string) =>
     request<{ ok: boolean }>(`/documents/${id}`, { method: 'DELETE' }),
 
-  importDocx: (file: File) => {
+  importDocx: (file: File, options: UploadOptions = {}) => {
     const form = new FormData();
+    // Fields first: the server reads them as it reaches the file.
+    if (options.docType) form.append('docType', options.docType);
+    if (options.stripRunning) form.append('stripRunning', '1');
     form.append('file', file, file.name);
     return request<{ document: DocumentDetail; messages: string[] }>('/documents/import', {
       method: 'POST',
@@ -208,6 +213,10 @@ export const api = {
       method: 'PUT',
       ...json({ userId, permission }),
     }),
+
+  /** Hand the document to somebody else. */
+  transferOwnership: (id: string, userId: string) =>
+    request<{ document: DocumentDetail }>(`/documents/${id}/owner`, { method: 'PUT', ...json({ userId }) }),
 
   unshare: (id: string, userId: string) =>
     request<{ shares: ShareEntry[] }>(`/documents/${id}/shares/${userId}`, { method: 'DELETE' }),
@@ -243,6 +252,15 @@ export const api = {
 };
 
 /** Trigger a browser download without leaving the page. */
+export const DOCUMENT_TYPES = ['Framework', 'Policy', 'Standard', 'Procedure', 'Guideline', 'Other'] as const;
+export type DocumentType = (typeof DOCUMENT_TYPES)[number];
+
+export interface UploadOptions {
+  docType?: DocumentType;
+  /** Leave the uploaded file's own header and footer out, so the approved ones can go in. */
+  stripRunning?: boolean;
+}
+
 export type ExportFormat = 'docx' | 'txt' | 'original';
 
 export interface ExportOptions {

@@ -13,6 +13,7 @@ import type { Extensions } from '@tiptap/react';
 import { WordNavigation } from './wordNavigation';
 import { CommentHighlights } from './commentHighlights';
 import { Deletion, Insertion, TrackChanges } from './trackChanges';
+import { SearchReplace } from './searchReplace';
 import Collaboration from '@tiptap/extension-collaboration';
 import CollaborationCaret from '@tiptap/extension-collaboration-caret';
 import type { Doc as YDoc } from 'yjs';
@@ -309,6 +310,66 @@ export const WordBlock = Node.create({
   parseHTML() {
     return [{ tag: 'div[data-word-block]' }];
   },
+  addNodeView() {
+    // A contents table is drawn from the headings as they are now, so it is
+    // never out of date here. Anything else is drawn as it was kept.
+    return ({ node, editor }) => {
+      const kind = typeof node.attrs['kind'] === 'string' ? node.attrs['kind'] : 'object';
+      const dom = document.createElement('div');
+      dom.className = `word-block word-block-${kind.replace(/[^a-z]/giu, '')}`;
+      dom.contentEditable = 'false';
+      dom.setAttribute('data-word-block', '');
+      if (kind !== 'toc') {
+        const title = document.createElement('div');
+        title.className = 'word-block-title';
+        title.textContent = OBJECT_NAMES[kind] ?? 'Kept from the Word file';
+        dom.append(title);
+        const label = typeof node.attrs['label'] === 'string' ? node.attrs['label'] : '';
+        for (const text of label.split('\n').filter(Boolean).slice(0, 60)) {
+          const line = document.createElement('div');
+          line.className = 'word-block-line';
+          line.textContent = text;
+          dom.append(line);
+        }
+        return { dom, ignoreMutation: () => true };
+      }
+      const draw = (): void => {
+        dom.replaceChildren();
+        const title = document.createElement('div');
+        title.className = 'word-block-title';
+        title.textContent = 'Table of contents';
+        dom.append(title);
+        let found = 0;
+        editor.state.doc.descendants((inner) => {
+          if (inner.type.name !== 'heading') return !inner.isTextblock;
+          const level = Number(inner.attrs['level'] ?? 1);
+          if (level > 3 || inner.textContent.trim() === '' || found >= 300) return false;
+          found += 1;
+          const line = document.createElement('div');
+          line.className = 'word-block-line';
+          line.style.paddingLeft = `${(level - 1) * 18}px`;
+          line.textContent = inner.textContent;
+          dom.append(line);
+          return false;
+        });
+        if (found === 0) {
+          const empty = document.createElement('div');
+          empty.className = 'word-block-line muted';
+          empty.textContent = 'Headings will be listed here.';
+          dom.append(empty);
+        }
+      };
+      draw();
+      editor.on('update', draw);
+      return {
+        dom,
+        ignoreMutation: () => true,
+        destroy: () => {
+          editor.off('update', draw);
+        },
+      };
+    };
+  },
   renderHTML({ node, HTMLAttributes }) {
     const kind = String(node.attrs['kind'] ?? 'object');
     const lines = String(node.attrs['label'] ?? '')
@@ -431,6 +492,7 @@ export function buildExtensions(shared?: SharedEditing): Extensions {
     Insertion,
     Deletion,
     TrackChanges,
+    SearchReplace,
   ];
 }
 

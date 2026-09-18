@@ -175,7 +175,7 @@ server {
     server_name docs.example.internal;
     ssl_certificate     /etc/pki/tls/certs/docs.crt;
     ssl_certificate_key /etc/pki/tls/private/docs.key;
-    client_max_body_size 30m;            # above DOCFORGE_MAX_UPLOAD_BYTES
+    client_max_body_size 60m;            # above DOCFORGE_MAX_UPLOAD_BYTES
 
     location / {
         proxy_pass http://127.0.0.1:8080;
@@ -195,7 +195,7 @@ Apache httpd, with `mod_proxy` and `mod_proxy_http`:
     SSLEngine on
     SSLCertificateFile    /etc/pki/tls/certs/docs.crt
     SSLCertificateKeyFile /etc/pki/tls/private/docs.key
-    LimitRequestBody 31457280
+    LimitRequestBody 62914560
     ProxyPreserveHost On
     ProxyPass        / http://127.0.0.1:8080/
     ProxyPassReverse / http://127.0.0.1:8080/

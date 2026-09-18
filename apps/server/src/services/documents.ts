@@ -26,6 +26,8 @@ export interface DocumentSummary {
   ownerName: string;
   origin: 'blank' | 'import';
   sourceName: string | null;
+  /** Framework, policy, standard, procedure, or nothing said. */
+  docType: DocumentType | null;
   wordCount: number;
   revision: number;
   createdAt: string;
@@ -136,7 +138,16 @@ interface DocRow extends Record<string, unknown> {
   updated_by: string;
   deleted_at: string | null;
   page_setup?: string | null;
+  doc_type?: string | null;
 }
+
+export const DOCUMENT_TYPES = ['Framework', 'Policy', 'Standard', 'Procedure', 'Guideline', 'Other'] as const;
+export type DocumentType = (typeof DOCUMENT_TYPES)[number];
+const asDocumentType = (value: unknown): DocumentType | null =>
+  (DOCUMENT_TYPES as readonly string[]).includes(value as string) ? (value as DocumentType) : null;
+
+/** How many people a document may be shared with. */
+export const MAX_SHARES = 10;
 
 export const MAX_TITLE_LENGTH = 200;
 /** Guards the database and the editor against a single pathological document. */
@@ -156,6 +167,7 @@ function rowToSummary(row: DocRow, access: Access, ownerName: string): DocumentS
     ownerName,
     origin: row.origin,
     sourceName: row.source_name,
+    docType: asDocumentType(row.doc_type),
     wordCount: Number(row.word_count),
     revision: Number(row.revision),
     createdAt: row.created_at,
@@ -234,6 +246,7 @@ export interface CreateDocumentInput {
   origin?: 'blank' | 'import';
   sourceName?: string;
   pageSetup?: unknown;
+  docType?: unknown;
 }
 
 export function createDocument(
@@ -258,11 +271,12 @@ export function createDocument(
     updated_by: user.id,
     deleted_at: null,
     page_setup: JSON.stringify(pageSetup),
+    doc_type: asDocumentType(input.docType),
   };
   transaction(db, () => {
     db.prepare(
-      `INSERT INTO documents (id, owner_id, title, content, origin, source_name, word_count, revision, created_at, updated_at, updated_by, page_setup)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO documents (id, owner_id, title, content, origin, source_name, word_count, revision, created_at, updated_at, updated_by, page_setup, doc_type)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).run(
       row.id,
       row.owner_id,
@@ -276,6 +290,7 @@ export function createDocument(
       row.updated_at,
       row.updated_by,
       row.page_setup ?? '{}',
+      row.doc_type ?? null,
     );
     insertVersion(db, row.id, 1, row.title, row.content, user.id);
   });
@@ -546,11 +561,55 @@ export function shareDocument(
     | undefined;
   if (!target) throw notFound('User not found');
   if (target.status !== 'active') throw badRequest('That account is disabled');
+  const shared = db
+    .prepare('SELECT COUNT(*) AS n FROM document_shares WHERE document_id = ? AND user_id <> ?')
+    .get(id, targetUserId) as { n: number };
+  if (Number(shared.n) >= MAX_SHARES) {
+    throw badRequest(`A document can be shared with at most ${MAX_SHARES} people`);
+  }
   db.prepare(
     `INSERT INTO document_shares (document_id, user_id, permission, created_at, created_by)
      VALUES (?, ?, ?, ?, ?)
      ON CONFLICT (document_id, user_id) DO UPDATE SET permission = excluded.permission`,
   ).run(id, targetUserId, permission, now(), user.id);
+}
+
+/**
+ * Hand a document to somebody else. Its owner may, and so may an administrator,
+ * which is how a document is rescued when its owner has left. The person who
+ * owned it keeps edit access, so handing a document over never locks them out
+ * of something they were working on a moment ago.
+ */
+export function transferOwnership(
+  db: Database,
+  user: { id: string; role: Role },
+  id: string,
+  targetUserId: string,
+): void {
+  const row = db.prepare('SELECT owner_id FROM documents WHERE id = ? AND deleted_at IS NULL').get(id) as
+    | { owner_id: string }
+    | undefined;
+  // Somebody with no access at all is told it is not there, as everywhere else.
+  if (!row || (user.role !== 'admin' && accessFor(db, id, user) === 'none')) throw notFound('Document not found');
+  if (row.owner_id !== user.id && user.role !== 'admin') {
+    throw forbidden('Only the owner or an administrator can hand a document over');
+  }
+  if (targetUserId === row.owner_id) throw badRequest('That person already owns this document');
+  const target = db.prepare('SELECT id, status, role FROM users WHERE id = ?').get(targetUserId) as
+    | { id: string; status: string; role: Role }
+    | undefined;
+  if (!target) throw notFound('User not found');
+  if (target.status !== 'active') throw badRequest('That account is disabled');
+  if (target.role === 'viewer') throw badRequest('A viewer account cannot own a document');
+  transaction(db, () => {
+    db.prepare('UPDATE documents SET owner_id = ? WHERE id = ?').run(targetUserId, id);
+    db.prepare('DELETE FROM document_shares WHERE document_id = ? AND user_id = ?').run(id, targetUserId);
+    db.prepare(
+      `INSERT INTO document_shares (document_id, user_id, permission, created_at, created_by)
+       VALUES (?, ?, 'edit', ?, ?)
+       ON CONFLICT (document_id, user_id) DO UPDATE SET permission = 'edit'`,
+    ).run(id, row.owner_id, now(), user.id);
+  });
 }
 
 export function unshareDocument(

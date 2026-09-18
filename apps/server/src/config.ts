@@ -87,7 +87,9 @@ export function loadConfig(overrides: Partial<Config> = {}): Config {
     port: int('DOCFORGE_PORT', 8080),
     databaseFile: process.env['DOCFORGE_DB'] ?? resolve(process.cwd(), 'data/docforge.db'),
     webRoot: process.env['DOCFORGE_WEB_ROOT'] ?? findWebRoot(),
-    maxUploadBytes: int('DOCFORGE_MAX_UPLOAD_BYTES', 25 * 1024 * 1024),
+    // Fifty megabytes: a policy with a scanned appendix is routinely past
+    // twenty-five, and a refused upload is the first thing anybody would meet.
+    maxUploadBytes: int('DOCFORGE_MAX_UPLOAD_BYTES', 50 * 1024 * 1024),
     sessionTtlSeconds: int('DOCFORGE_SESSION_TTL', 12 * 60 * 60),
     secureCookies: bool('DOCFORGE_SECURE_COOKIES', env === 'production'),
     loginRateLimit: int('DOCFORGE_LOGIN_RATE_LIMIT', 10),

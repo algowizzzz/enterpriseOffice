@@ -985,3 +985,59 @@ main {
   white-space: nowrap;
   user-select: none;
 }
+
+/* Find and replace. */
+.find-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  padding: 6px 12px;
+  border-bottom: 1px solid #d9dee5;
+  background: #f6f8fb;
+}
+.find-bar input[type='text'],
+.find-bar input:not([type]) {
+  padding: 4px 8px;
+  min-width: 180px;
+}
+.find-count {
+  min-width: 64px;
+}
+.search-hit {
+  background: #fff3a3;
+}
+.search-hit-current {
+  background: #ffb74d;
+}
+@media print {
+  .find-bar,
+  .view-tabs,
+  .editor-header,
+  .toolbar,
+  .status-bar {
+    display: none !important;
+  }
+}
+
+.upload-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  align-items: center;
+  margin: 8px 0 12px;
+  font-size: 0.9rem;
+}
+.upload-options select {
+  margin-left: 8px;
+}
+.badge-type {
+  background: #e7eef8;
+  color: #1f4e79;
+  margin-left: 8px;
+}
+.guide ol {
+  padding-left: 20px;
+  display: grid;
+  gap: 8px;
+}

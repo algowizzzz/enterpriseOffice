@@ -9,6 +9,7 @@ import {
 } from '@docforge/model';
 import { buildExtensions, editorExtensions, type SharedEditing } from './editorExtensions';
 import { Toolbar } from './Toolbar';
+import { FindBar } from './FindBar';
 
 /**
  * A document without the attributes the editor left at their default.
@@ -109,6 +110,7 @@ export function DocumentEditor({
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const flush = useRef<(() => void) | null>(null);
   const [stats, setStats] = useState<DocumentStats>({ words: 0, characters: 0 });
+  const [finding, setFinding] = useState(false);
 
   // Held in a ref so reporting a repair cannot restart the editor, which would
   // throw away the cursor and the undo history.
@@ -202,13 +204,28 @@ export function DocumentEditor({
     editor.setEditable(editable, false);
   }, [editor, readOnly]);
 
+  // Ctrl+F and Ctrl+H open the find bar, as they do in Word, instead of the
+  // browser's own search, which cannot see past what is on screen or replace.
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent): void => {
+      if (!(event.ctrlKey || event.metaKey) || event.altKey) return;
+      const key = event.key.toLowerCase();
+      if (key !== 'f' && key !== 'h') return;
+      event.preventDefault();
+      setFinding(true);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
   if (!editor) return <div className="editor-loading">Preparing the editor…</div>;
 
   return (
     <div className="editor">
       {/* Built from numbers and checked words only: see styleSheetFor. */}
       {styles ? <style>{styleSheetFor(styles, '.page')}</style> : null}
-      <Toolbar editor={editor} disabled={readOnly} />
+      <Toolbar editor={editor} disabled={readOnly} styles={styles} onFind={() => setFinding((open) => !open)} />
+      {finding ? <FindBar editor={editor} readOnly={readOnly} onClose={() => setFinding(false)} /> : null}
       <div className="page-surface">
         <div className="page-frame">
           {header ? (

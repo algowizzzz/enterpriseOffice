@@ -168,6 +168,12 @@ const MIGRATIONS: { id: string; sql: string }[] = [
       );
     `,
   },
+  {
+    // What kind of controlled document this is: a framework, a policy, a
+    // standard, a procedure. Chosen at upload and shown beside the name.
+    id: '0006_document_type',
+    sql: `ALTER TABLE documents ADD COLUMN doc_type TEXT;`,
+  },
 ];
 
 export function openDatabase(file: string): Database {

@@ -512,3 +512,29 @@ describe('docx round trip, links', () => {
     expect(toPlainText(back)).toContain('See the standard for detail.');
   });
 });
+
+describe('a contents table made in the editor', () => {
+  const withContents = doc(
+    { type: 'wordBlock', attrs: { kind: 'toc', label: '' } },
+    { type: 'heading', attrs: { level: 1 }, content: [{ type: 'text', text: 'Purpose' }] },
+    paragraph('Body text.'),
+    { type: 'heading', attrs: { level: 2 }, content: [{ type: 'text', text: 'Scope & limits' }] },
+  );
+
+  it('is written as the field Word builds its own contents from, listing the headings', async () => {
+    const { strFromU8, unzipSync } = await import('fflate');
+    const xml = strFromU8(unzipSync(new Uint8Array(await exportDocx(withContents, { title: 'T' })))['word/document.xml']!);
+    // A field, so that Word can fill in page numbers, and marked as needing it.
+    expect(xml).toMatch(/w:fldCharType="begin" w:dirty="true"/u);
+    expect(xml).toMatch(/TOC \\o "1-3"/u);
+    const field = xml.slice(xml.indexOf('fldCharType="begin"'), xml.indexOf('fldCharType="end"'));
+    expect(field).toContain('Purpose');
+    expect(field).toContain('Scope &amp; limits');
+  });
+
+  it('comes back as a contents table, not as loose paragraphs', async () => {
+    const back = await roundTrip(withContents);
+    expect(collect(back, 'wordBlock').map((node) => node.attrs?.['kind'])).toEqual(['toc']);
+    expect(collect(back, 'heading')).toHaveLength(2);
+  });
+});

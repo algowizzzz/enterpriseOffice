@@ -63,6 +63,7 @@ export function EditorPage({ documentId, onBack }: EditorPageProps): JSX.Element
   const [present, setPresent] = useState<Presence[]>([]);
   const [reopen, setReopen] = useState(0);
   const settle = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [reminder, setReminder] = useState(() => window.localStorage.getItem('docforge-reminder') !== 'dismissed');
   const [tracking, setTrackingOn] = useState(
     () => window.localStorage.getItem(`docforge-track-${documentId}`) === '1',
   );
@@ -476,6 +477,23 @@ export function EditorPage({ documentId, onBack }: EditorPageProps): JSX.Element
         </p>
       ) : null}
 
+      {reminder ? (
+        <p className="notice" role="note">
+          This is a working copy. The Word file you export is the record: check it before it is approved or issued.
+          {document.origin === 'import' ? ' The file as it was uploaded is always available under Original.' : ''}
+          <button
+            type="button"
+            className="link"
+            onClick={() => {
+              window.localStorage.setItem('docforge-reminder', 'dismissed');
+              setReminder(false);
+            }}
+          >
+            Do not show again
+          </button>
+        </p>
+      ) : null}
+
       {notice ? (
         <p className="notice notice-warning" role="alert">
           {notice}
@@ -560,6 +578,24 @@ export function EditorPage({ documentId, onBack }: EditorPageProps): JSX.Element
                 <span>
                   {share.name} can {share.permission}
                 </span>
+                <button
+                  type="button"
+                  title="Hand this document over. You keep edit access"
+                  onClick={() => {
+                    if (!window.confirm(`Make ${share.name} the owner of this document? You will keep edit access.`)) return;
+                    void (async () => {
+                      try {
+                        const { document: handed } = await api.transferOwnership(documentId, share.userId);
+                        setDocument((current) => (current ? { ...current, ...handed } : handed));
+                        setShares(null);
+                      } catch (caught) {
+                        setError(caught instanceof ApiError ? caught.message : 'Could not hand the document over.');
+                      }
+                    })();
+                  }}
+                >
+                  Make owner
+                </button>
                 <button
                   type="button"
                   className="danger"

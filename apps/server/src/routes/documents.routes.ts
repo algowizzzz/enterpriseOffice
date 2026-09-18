@@ -3,6 +3,7 @@ import { z } from 'zod';
 import {
   acceptAllChanges,
   compareDocuments,
+  pageSetupFrom,
   rejectAllChanges,
   toPlainText,
   type PMNode,
@@ -25,6 +26,8 @@ import {
   restoreVersion,
   saveSource,
   shareDocument,
+  transferOwnership,
+  DOCUMENT_TYPES,
   unshareDocument,
   updateDocument,
 } from '../services/documents.js';
@@ -108,6 +111,14 @@ export async function registerDocumentRoutes(app: FastifyInstance): Promise<void
       }
 
       const buffer = await file.toBuffer();
+      // The choices made in the upload dialog travel as fields beside the file.
+      const field = (name: string): string | undefined => {
+        const entry = file.fields[name];
+        const value = entry && !Array.isArray(entry) && 'value' in entry ? entry.value : undefined;
+        return typeof value === 'string' ? value : undefined;
+      };
+      const docType = DOCUMENT_TYPES.find((type) => type === field('docType'));
+      const stripRunning = field('stripRunning') === '1';
       if (file.file.truncated || buffer.length > app.config.maxUploadBytes) {
         throw payloadTooLarge('That file is larger than the upload limit.');
       }
@@ -117,8 +128,11 @@ export async function registerDocumentRoutes(app: FastifyInstance): Promise<void
       const created = createDocument(app.db, user, {
         title: titleFromFileName(file.filename ?? 'Imported document'),
         content,
-        // The header, the footer and the orientation the file arrived with.
-        pageSetup: meta,
+        // The header, the footer and the orientation the file arrived with. A
+        // house template often wants the uploaded letterhead gone, so that the
+        // approved one can be applied: that is a choice made at upload.
+        pageSetup: stripRunning && meta ? { ...meta, header: '', footer: '' } : meta,
+        docType,
         origin: 'import',
         sourceName: file.filename,
       });
@@ -130,7 +144,9 @@ export async function registerDocumentRoutes(app: FastifyInstance): Promise<void
         bytes: buffer,
         fragments: fragments ?? {},
         styles: styles ?? null,
-        pageSetup: created.pageSetup,
+        // As it was read, not as it was chosen: the writer tells an untouched
+        // header from a removed one by comparing the two.
+        pageSetup: pageSetupFrom(meta),
       });
       // The review comments the file carried, signed as Word signed them.
       const imported = new Map<string, string>();
@@ -374,6 +390,23 @@ export async function registerDocumentRoutes(app: FastifyInstance): Promise<void
       ip: request.ip,
     });
     return { shares: listShares(app.db, user, id) };
+  });
+
+  /** Hand the document to somebody else. */
+  app.put('/documents/:id/owner', async (request) => {
+    const user = await app.authenticate(request);
+    const { id } = idParam.parse(request.params);
+    const body = z.object({ userId: z.string().uuid() }).parse(request.body);
+    transferOwnership(app.db, user, id, body.userId);
+    recordAudit(app.db, {
+      actorId: user.id,
+      action: 'document.transferred',
+      targetType: 'document',
+      targetId: id,
+      detail: { to: body.userId },
+      ip: request.ip,
+    });
+    return { document: getDocument(app.db, user, id) };
   });
 
   app.delete('/documents/:id/shares/:userId', async (request) => {

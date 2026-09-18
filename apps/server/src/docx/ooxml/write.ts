@@ -25,6 +25,7 @@ import {
   NODE,
   isSafeHref,
   locateAnchor,
+  outline,
   textBlocks,
   type CommentAnchor,
   type PageSetup,
@@ -148,6 +149,8 @@ interface Context {
   needsStyles: Set<string>;
   drawingId: number;
   changeId: number;
+  /** The headings of the document being written, for a contents table. */
+  outline: { level: number; text: string }[];
   parsedFragments: Map<string, XmlElement[]>;
 }
 
@@ -213,6 +216,7 @@ export function writeDocx(doc: PMNode, options: WriteOptions): Buffer {
     needsStyles: new Set(),
     drawingId: 60000,
     changeId: 90000,
+    outline: outline(doc),
     parsedFragments: new Map(),
   };
   readStyles(ctx, styles);
@@ -567,6 +571,10 @@ function writeBlock(ctx: Context, node: PMNode, block: BlockContext, breakBefore
       ];
     case NODE.wordBlock: {
       const kept = fragment(ctx, node.attrs?.['ref']);
+      if (!kept && node.attrs?.['kind'] === 'toc') {
+        const contents = writeContents(ctx);
+        return breakBefore ? [BREAK_PARAGRAPH, ...contents] : contents;
+      }
       const label = typeof node.attrs?.['label'] === 'string' ? node.attrs['label'] : '';
       const written = kept
         ? kept.map(serializeXml)
@@ -576,6 +584,34 @@ function writeBlock(ctx: Context, node: PMNode, block: BlockContext, breakBefore
     default:
       return writeBlocks(ctx, node.content ?? [], deeper);
   }
+}
+
+/**
+ * A contents table made in the editor, written as the field Word builds its
+ * own from. The entries are the headings as they stand, so the file reads
+ * properly anywhere; the field is marked as needing an update, so that Word
+ * fills in the page numbers, which only a program that lays out pages can know.
+ */
+function writeContents(ctx: Context): string[] {
+  const entries = ctx.outline.filter((entry) => entry.level <= 3 && entry.text.trim().length > 0).slice(0, 500);
+  const line = (entry: { level: number; text: string }): string =>
+    `<w:pPr>${
+      ctx.styleIds.has(`TOC${entry.level}`)
+        ? `<w:pStyle w:val="TOC${entry.level}"/>`
+        : `<w:ind w:left="${(entry.level - 1) * 240}"/>`
+    }</w:pPr>`;
+  const begin =
+    '<w:r><w:fldChar w:fldCharType="begin" w:dirty="true"/></w:r>' +
+    '<w:r><w:instrText xml:space="preserve"> TOC \\o "1-3" \\h \\z \\u </w:instrText></w:r>' +
+    '<w:r><w:fldChar w:fldCharType="separate"/></w:r>';
+  const end = '<w:r><w:fldChar w:fldCharType="end"/></w:r>';
+  if (entries.length === 0) {
+    return [`<w:p>${begin}<w:r><w:t>No headings yet.</w:t></w:r>${end}</w:p>`];
+  }
+  return entries.map((entry, index) => {
+    const words = `<w:r><w:t xml:space="preserve">${escapeXmlText(entry.text)}</w:t></w:r>`;
+    return `<w:p>${line(entry)}${index === 0 ? begin : ''}${words}${index === entries.length - 1 ? end : ''}</w:p>`;
+  });
 }
 
 /** The numbering a list writes its items with. */
