@@ -18,6 +18,7 @@ export async function makeApp(): Promise<FastifyInstance> {
       env: 'test',
       // Rate limits high enough that they never fire by accident during tests.
       loginRateLimit: 1000,
+      aiRateLimit: 1000,
       bootstrapAdminPassword: '',
       webRoot: '/nonexistent-web-root',
       llmSecretKeyFile: ':memory:',

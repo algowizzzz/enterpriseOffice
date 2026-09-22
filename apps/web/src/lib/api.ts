@@ -91,17 +91,35 @@ export interface ShareEntry {
  * summary of what running them together is meant to produce. Configuration
  * only: nothing here calls a model yet.
  */
+export type WorkflowPromptRole = 'analysis' | 'summary';
+
+export interface WorkflowGroupPrompt {
+  id: string;
+  role: WorkflowPromptRole;
+  position: number;
+  text: string;
+}
+
 export interface WorkflowGroup {
   id: string;
   name: string;
   description: string;
   docType: DocumentType | null;
   isDefault: boolean;
-  prompts: string[];
-  outputSummary: string;
+  /** Null falls back to the installation's default endpoint. */
+  endpointId: string | null;
+  /** The summary prompt first, then analysis prompts in execution order. */
+  prompts: WorkflowGroupPrompt[];
   createdAt: string;
   updatedAt: string;
   createdBy: string;
+}
+
+/** What the AI Analysis dropdown shows: enough to pick a group, not to edit one. */
+export interface WorkflowGroupOption {
+  id: string;
+  name: string;
+  description: string;
 }
 
 export type LlmAuthScheme = 'none' | 'bearer' | 'header';
@@ -116,9 +134,43 @@ export interface LlmEndpoint {
   /** Whether a secret is stored. The secret itself is never sent to the client. */
   hasSecret: boolean;
   requestFormat: LlmRequestFormat;
+  /** What Chat and an endpoint-less workflow group fall back to. At most one. */
+  isDefault: boolean;
   createdAt: string;
   updatedAt: string;
   createdBy: string;
+}
+
+export interface ChatSettings {
+  endpointId: string | null;
+}
+
+export interface ChatTurn {
+  role: 'user' | 'assistant';
+  content: string;
+}
+
+export interface ChatReply {
+  ok: boolean;
+  reply?: string;
+  truncated?: boolean;
+  message: string;
+}
+
+export interface AnalysisPromptResult {
+  promptId: string;
+  text: string;
+  output: string;
+}
+
+export interface AnalysisRunResult {
+  ok: boolean;
+  message: string;
+  groupId: string;
+  groupName: string;
+  endpointId?: string;
+  analysis?: AnalysisPromptResult[];
+  summary?: string;
 }
 
 export interface AuditEntry {
@@ -324,8 +376,9 @@ export const api = {
     description?: string;
     docType?: DocumentType | null;
     isDefault?: boolean;
-    prompts?: string[];
-    outputSummary?: string;
+    endpointId?: string | null;
+    analysisPrompts?: string[];
+    summaryPrompt: string;
   }) => request<{ group: WorkflowGroup }>('/workflow-groups', { method: 'POST', ...json(payload) }),
 
   updateWorkflowGroup: (
@@ -335,13 +388,39 @@ export const api = {
       description: string;
       docType: DocumentType | null;
       isDefault: boolean;
-      prompts: string[];
-      outputSummary: string;
+      endpointId: string | null;
     }>,
   ) => request<{ group: WorkflowGroup }>(`/workflow-groups/${id}`, { method: 'PATCH', ...json(payload) }),
 
   deleteWorkflowGroup: (id: string) =>
     request<{ ok: boolean }>(`/workflow-groups/${id}`, { method: 'DELETE' }),
+
+  addWorkflowGroupPrompt: (groupId: string, payload: { role: WorkflowPromptRole; text: string }) =>
+    request<{ group: WorkflowGroup }>(`/workflow-groups/${groupId}/prompts`, {
+      method: 'POST',
+      ...json(payload),
+    }),
+
+  updateWorkflowGroupPrompt: (groupId: string, promptId: string, text: string) =>
+    request<{ group: WorkflowGroup }>(`/workflow-groups/${groupId}/prompts/${promptId}`, {
+      method: 'PATCH',
+      ...json({ text }),
+    }),
+
+  deleteWorkflowGroupPrompt: (groupId: string, promptId: string) =>
+    request<{ group: WorkflowGroup }>(`/workflow-groups/${groupId}/prompts/${promptId}`, {
+      method: 'DELETE',
+    }),
+
+  reorderWorkflowGroupPrompts: (groupId: string, promptIds: string[]) =>
+    request<{ group: WorkflowGroup }>(`/workflow-groups/${groupId}/prompts/reorder`, {
+      method: 'POST',
+      ...json({ promptIds }),
+    }),
+
+  /** The groups eligible for one document: its own type, plus every type-agnostic group. */
+  listWorkflowGroupsForDocument: (documentId: string) =>
+    request<{ groups: WorkflowGroupOption[] }>(`/documents/${documentId}/workflow-groups`),
 
   listLlmEndpoints: () => request<{ endpoints: LlmEndpoint[] }>('/llm-endpoints'),
 
@@ -352,6 +431,7 @@ export const api = {
     authHeaderName?: string | null;
     authSecret?: string | null;
     requestFormat?: LlmRequestFormat;
+    isDefault?: boolean;
   }) => request<{ endpoint: LlmEndpoint }>('/llm-endpoints', { method: 'POST', ...json(payload) }),
 
   updateLlmEndpoint: (
@@ -363,6 +443,7 @@ export const api = {
       authHeaderName: string | null;
       authSecret: string | null;
       requestFormat: LlmRequestFormat;
+      isDefault: boolean;
     }>,
   ) => request<{ endpoint: LlmEndpoint }>(`/llm-endpoints/${id}`, { method: 'PATCH', ...json(payload) }),
 
@@ -372,6 +453,20 @@ export const api = {
   testLlmEndpoint: (id: string) =>
     request<{ ok: boolean; status?: number; message: string }>(`/llm-endpoints/${id}/test`, {
       method: 'POST',
+    }),
+
+  getChatSettings: () => request<ChatSettings>('/chat-settings'),
+
+  setChatSettings: (endpointId: string | null) =>
+    request<ChatSettings>('/chat-settings', { method: 'PATCH', ...json({ endpointId }) }),
+
+  sendChatMessage: (documentId: string, message: string, history: ChatTurn[]) =>
+    request<ChatReply>(`/documents/${documentId}/chat`, { method: 'POST', ...json({ message, history }) }),
+
+  runAnalysis: (documentId: string, groupId: string) =>
+    request<AnalysisRunResult>(`/documents/${documentId}/analysis/run`, {
+      method: 'POST',
+      ...json({ groupId }),
     }),
 };
 

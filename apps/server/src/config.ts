@@ -57,6 +57,8 @@ export interface Config {
   /** Seed administrator, created on first start when the user table is empty. */
   importRateLimit: number;
   exportRateLimit: number;
+  /** Chat messages and analysis runs per IP per minute: the one resource here that costs money or load on a shared server. */
+  aiRateLimit: number;
   bootstrapAdminEmail: string;
   bootstrapAdminPassword: string;
 }
@@ -120,6 +122,7 @@ export function loadConfig(overrides: Partial<Config> = {}): Config {
     // migration or a fidelity run needs the limits raised deliberately.
     importRateLimit: int('DOCFORGE_IMPORT_RATE_LIMIT', 20),
     exportRateLimit: int('DOCFORGE_EXPORT_RATE_LIMIT', 30),
+    aiRateLimit: int('DOCFORGE_AI_RATE_LIMIT', 20),
     trustProxy: bool('DOCFORGE_TRUST_PROXY', false),
     bootstrapAdminEmail: process.env['DOCFORGE_ADMIN_EMAIL'] ?? 'admin@localhost',
     bootstrapAdminPassword: process.env['DOCFORGE_ADMIN_PASSWORD'] ?? '',

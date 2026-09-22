@@ -267,13 +267,13 @@ export function DocumentsPage({ onOpen }: DocumentsPageProps): JSX.Element {
       {
         key: 'chat',
         label: <IconLabel icon={MessageCircle}>Chat</IconLabel>,
-        title: 'A preview; not connected to a model in this build',
+        title: 'Ask questions about this document. AI-generated: check anything important',
         onSelect: () => openChat(document),
       },
       {
         key: 'analysis',
         label: <IconLabel icon={Sparkles}>Run analysis</IconLabel>,
-        title: 'A preview; not connected to a model in this build',
+        title: 'Run a workflow group’s prompts against this document. AI-generated: check anything important',
         onSelect: () => openAnalysis(document),
       },
     );
@@ -599,7 +599,7 @@ export function DocumentsPage({ onOpen }: DocumentsPageProps): JSX.Element {
                   <tr>
                     <td colSpan={6}>
                       <div className="panel-embed">
-                        <AnalysisPanel onClose={() => setExpanded(null)} />
+                        <AnalysisPanel documentId={document.id} onClose={() => setExpanded(null)} />
                       </div>
                     </td>
                   </tr>
@@ -608,7 +608,7 @@ export function DocumentsPage({ onOpen }: DocumentsPageProps): JSX.Element {
                   <tr>
                     <td colSpan={6}>
                       <div className="panel-embed">
-                        <ChatPanel onClose={() => setExpanded(null)} />
+                        <ChatPanel documentId={document.id} onClose={() => setExpanded(null)} />
                       </div>
                     </td>
                   </tr>

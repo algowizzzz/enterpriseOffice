@@ -27,11 +27,20 @@ vi.mock('../src/lib/api', async () => {
       createWorkflowGroup: vi.fn(),
       updateWorkflowGroup: vi.fn(),
       deleteWorkflowGroup: vi.fn(),
+      addWorkflowGroupPrompt: vi.fn(),
+      updateWorkflowGroupPrompt: vi.fn(),
+      deleteWorkflowGroupPrompt: vi.fn(),
+      reorderWorkflowGroupPrompts: vi.fn(),
+      listWorkflowGroupsForDocument: vi.fn(),
       listLlmEndpoints: vi.fn(),
       createLlmEndpoint: vi.fn(),
       updateLlmEndpoint: vi.fn(),
       deleteLlmEndpoint: vi.fn(),
       testLlmEndpoint: vi.fn(),
+      getChatSettings: vi.fn(),
+      setChatSettings: vi.fn(),
+      sendChatMessage: vi.fn(),
+      runAnalysis: vi.fn(),
       listDocuments: vi.fn(),
       createDocument: vi.fn(),
       getDocument: vi.fn(),
@@ -122,6 +131,8 @@ beforeEach(() => {
   mocked['listAudit'].mockResolvedValue({ entries: [] });
   mocked['listWorkflowGroups'].mockResolvedValue({ groups: [] });
   mocked['listLlmEndpoints'].mockResolvedValue({ endpoints: [] });
+  mocked['getChatSettings'].mockResolvedValue({ endpointId: null });
+  mocked['listWorkflowGroupsForDocument'].mockResolvedValue({ groups: [] });
   mocked['listDocuments'].mockResolvedValue({ documents: [] });
 });
 
@@ -506,15 +517,30 @@ describe('documents page', () => {
     await waitFor(() => expect(mocked['transferOwnership']).toHaveBeenCalledWith('doc-1', 'u-admin'));
   });
 
-  it('opens a preview of analysis from the list, without a model behind it', async () => {
+  it('opens analysis from the list, offering the workflow groups set up for that document', async () => {
     mocked['listDocuments'].mockResolvedValue({ documents: [summary()] });
+    mocked['listWorkflowGroupsForDocument'].mockResolvedValue({
+      groups: [{ id: 'g1', name: 'Policy prompts', description: '' }],
+    });
     const user = userEvent.setup();
     await renderSignedIn(<DocumentsPage onOpen={() => {}} />);
 
     await openRowMenu(user, 'Quarterly Report');
     await user.click(await screen.findByRole('menuitem', { name: 'Run analysis' }));
     expect(await screen.findByText('Document analysis')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Run analysis' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Run analysis' })).toBeEnabled();
+    expect(mocked['listWorkflowGroupsForDocument']).toHaveBeenCalledWith('doc-1');
+  });
+
+  it('says so when no workflow group applies to a document opened from the list', async () => {
+    mocked['listDocuments'].mockResolvedValue({ documents: [summary()] });
+    mocked['listWorkflowGroupsForDocument'].mockResolvedValue({ groups: [] });
+    const user = userEvent.setup();
+    await renderSignedIn(<DocumentsPage onOpen={() => {}} />);
+
+    await openRowMenu(user, 'Quarterly Report');
+    await user.click(await screen.findByRole('menuitem', { name: 'Run analysis' }));
+    expect(await screen.findByText(/no workflow group is set up/i)).toBeInTheDocument();
   });
 
   it('opens a chat preview from the list, the same as the editor offers', async () => {
@@ -524,7 +550,7 @@ describe('documents page', () => {
 
     await openRowMenu(user, 'Quarterly Report');
     await user.click(await screen.findByRole('menuitem', { name: 'Chat' }));
-    expect(await screen.findByText('Welcome. Ask a question about this document.')).toBeInTheDocument();
+    expect(await screen.findByText('Ask a question about this document.')).toBeInTheDocument();
   });
 
   it('searches the list by title', async () => {
@@ -731,27 +757,28 @@ describe('administration page', () => {
     expect(await screen.findByText('No workflow groups yet.')).toBeInTheDocument();
   });
 
+  const policyGroup = {
+    id: 'g1',
+    name: 'Policy prompts',
+    description: 'Checked against the template.',
+    docType: 'Policy',
+    isDefault: true,
+    endpointId: null,
+    prompts: [
+      { id: 'p-summary', role: 'summary', position: 0, text: 'Summarise the findings above.' },
+      { id: 'p1', role: 'analysis', position: 0, text: 'Does it name an owner?' },
+      { id: 'p2', role: 'analysis', position: 1, text: 'Is the review date within a year?' },
+    ],
+    createdAt: '2026-01-01T00:00:00.000Z',
+    updatedAt: '2026-01-01T00:00:00.000Z',
+    createdBy: 'u-admin',
+  };
+
   it('lists a workflow group with its document type, default badge and prompt count', async () => {
-    mocked['listWorkflowGroups'].mockResolvedValue({
-      groups: [
-        {
-          id: 'g1',
-          name: 'Policy prompts',
-          description: 'Checked against the template.',
-          docType: 'Policy',
-          isDefault: true,
-          prompts: ['Does it name an owner?', 'Is the review date within a year?'],
-          outputSummary: 'Gaps against the template.',
-          createdAt: '2026-01-01T00:00:00.000Z',
-          updatedAt: '2026-01-01T00:00:00.000Z',
-          createdBy: 'u-admin',
-        },
-      ],
-    });
+    mocked['listWorkflowGroups'].mockResolvedValue({ groups: [policyGroup] });
     await renderSignedIn(<AdminPage />, ADMIN);
     expect(await screen.findByText('Policy prompts')).toBeInTheDocument();
     expect(screen.getByText('Checked against the template.')).toBeInTheDocument();
-    expect(screen.getByText('Gaps against the template.')).toBeInTheDocument();
     // "Policy" also names an option in the document-type select above the
     // table, so the row itself is what everything else here is checked against.
     const row = screen.getByText('Policy prompts').closest('tr');
@@ -759,23 +786,29 @@ describe('administration page', () => {
     const withinRow = within(row as HTMLElement);
     expect(withinRow.getByText('Policy')).toBeInTheDocument();
     expect(withinRow.getByText('Yes')).toBeInTheDocument();
-    // Two prompts, shown as a count rather than the prompts themselves.
+    // Two analysis prompts, shown as a count; the summary prompt is not counted here.
     expect(withinRow.getByRole('cell', { name: '2' })).toBeInTheDocument();
   });
 
-  it('creates a workflow group from one prompt per line and a summary of what they produce', async () => {
+  it('shows a group’s prompts, summary pinned first, once "Manage prompts" is opened', async () => {
+    mocked['listWorkflowGroups'].mockResolvedValue({ groups: [policyGroup] });
+    const user = userEvent.setup();
+    await renderSignedIn(<AdminPage />, ADMIN);
+    await user.click(await screen.findByRole('button', { name: 'Manage prompts' }));
+    expect(screen.getByText('Summarise the findings above.')).toBeInTheDocument();
+    expect(screen.getByText('Does it name an owner?')).toBeInTheDocument();
+    expect(screen.getByText('Is the review date within a year?')).toBeInTheDocument();
+  });
+
+  it('creates a workflow group from one analysis prompt per line and a summary prompt', async () => {
     mocked['createWorkflowGroup'].mockResolvedValue({
       group: {
+        ...policyGroup,
         id: 'g2',
         name: 'Standard prompts',
         description: '',
         docType: 'Standard',
         isDefault: false,
-        prompts: ['First prompt.', 'Second prompt.'],
-        outputSummary: 'A short list of gaps.',
-        createdAt: '2026-01-01T00:00:00.000Z',
-        updatedAt: '2026-01-01T00:00:00.000Z',
-        createdBy: 'u-admin',
       },
     });
     const user = userEvent.setup();
@@ -783,8 +816,8 @@ describe('administration page', () => {
 
     await user.type(await screen.findByLabelText('Group name'), 'Standard prompts');
     await user.selectOptions(screen.getByLabelText('Document type'), 'Standard');
-    await user.type(screen.getByLabelText('Prompts, one per line'), 'First prompt.\nSecond prompt.');
-    await user.type(screen.getByLabelText('Summary of the prompt outputs'), 'A short list of gaps.');
+    await user.type(screen.getByLabelText('Analysis prompts, one per line'), 'First prompt.\nSecond prompt.');
+    await user.type(screen.getByLabelText('Summary prompt'), 'A short list of gaps.');
     await user.click(screen.getByRole('button', { name: 'Add group' }));
 
     await waitFor(() =>
@@ -793,28 +826,50 @@ describe('administration page', () => {
         description: '',
         docType: 'Standard',
         isDefault: false,
-        prompts: ['First prompt.', 'Second prompt.'],
-        outputSummary: 'A short list of gaps.',
+        endpointId: null,
+        analysisPrompts: ['First prompt.', 'Second prompt.'],
+        summaryPrompt: 'A short list of gaps.',
       }),
     );
   });
 
+  it('adds, edits and deletes an analysis prompt on an existing group', async () => {
+    mocked['listWorkflowGroups'].mockResolvedValue({ groups: [policyGroup] });
+    mocked['addWorkflowGroupPrompt'].mockResolvedValue({ group: policyGroup });
+    mocked['updateWorkflowGroupPrompt'].mockResolvedValue({ group: policyGroup });
+    mocked['deleteWorkflowGroupPrompt'].mockResolvedValue({ group: policyGroup });
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    const user = userEvent.setup();
+    await renderSignedIn(<AdminPage />, ADMIN);
+    await user.click(await screen.findByRole('button', { name: 'Manage prompts' }));
+
+    await user.type(screen.getByLabelText('New analysis prompt'), 'A third prompt.');
+    await user.click(screen.getByRole('button', { name: 'Add prompt' }));
+    await waitFor(() =>
+      expect(mocked['addWorkflowGroupPrompt']).toHaveBeenCalledWith('g1', {
+        role: 'analysis',
+        text: 'A third prompt.',
+      }),
+    );
+
+    const firstPromptRow = screen.getByText('Does it name an owner?').closest('li') as HTMLElement;
+    await user.click(within(firstPromptRow).getByRole('button', { name: 'Edit' }));
+    const textarea = within(firstPromptRow).getByRole('textbox');
+    await user.clear(textarea);
+    await user.type(textarea, 'Edited prompt text.');
+    await user.click(within(firstPromptRow).getByRole('button', { name: 'Save' }));
+    await waitFor(() =>
+      expect(mocked['updateWorkflowGroupPrompt']).toHaveBeenCalledWith('g1', 'p1', 'Edited prompt text.'),
+    );
+
+    const secondPromptRow = screen.getByText('Is the review date within a year?').closest('li') as HTMLElement;
+    await user.click(within(secondPromptRow).getByRole('button', { name: 'Delete' }));
+    await waitFor(() => expect(mocked['deleteWorkflowGroupPrompt']).toHaveBeenCalledWith('g1', 'p2'));
+  });
+
   it('deletes a workflow group once the question is confirmed', async () => {
     mocked['listWorkflowGroups'].mockResolvedValue({
-      groups: [
-        {
-          id: 'g1',
-          name: 'Draft group',
-          description: '',
-          docType: null,
-          isDefault: false,
-          prompts: [],
-          outputSummary: '',
-          createdAt: '2026-01-01T00:00:00.000Z',
-          updatedAt: '2026-01-01T00:00:00.000Z',
-          createdBy: 'u-admin',
-        },
-      ],
+      groups: [{ ...policyGroup, id: 'g1', name: 'Draft group', isDefault: false, prompts: [] }],
     });
     mocked['deleteWorkflowGroup'].mockResolvedValue({ ok: true });
     vi.spyOn(window, 'confirm').mockReturnValue(true);
@@ -848,7 +903,9 @@ describe('administration page', () => {
       ],
     });
     await renderSignedIn(<AdminPage />, ADMIN);
-    const row = (await screen.findByText('Internal GPU box')).closest('tr');
+    // "Internal GPU box" also names an option in the Chat-settings select
+    // below, so the row itself is found by its table cell, not just its text.
+    const row = (await screen.findByRole('cell', { name: 'Internal GPU box' })).closest('tr');
     expect(row).not.toBeNull();
     const withinRow = within(row as HTMLElement);
     expect(withinRow.getByText('http://10.0.0.5:8000/v1/chat/completions')).toBeInTheDocument();
@@ -888,6 +945,7 @@ describe('administration page', () => {
         authScheme: 'bearer',
         authHeaderName: null,
         authSecret: 'sk-my-secret',
+        isDefault: false,
       }),
     );
   });
@@ -1491,31 +1549,70 @@ describe('editor page', () => {
     expect(onBack).toHaveBeenCalled();
   });
 
-  it('opens a chat preview that sends nothing anywhere', async () => {
+  it('opens Chat, sends a message and shows the reply, carrying the document as context', async () => {
     mocked['getDocument'].mockResolvedValue({ document: detail() });
+    mocked['sendChatMessage'].mockResolvedValue({ ok: true, reply: 'It is about the quarter.', truncated: false });
     const user = userEvent.setup();
     await renderSignedIn(<EditorPage documentId="doc-1" onBack={() => {}} />);
     await openFileTab(user);
 
     await user.click(await screen.findByRole('button', { name: 'Chat' }));
-    expect(await screen.findByText('Welcome. Ask a question about this document.')).toBeInTheDocument();
+    expect(await screen.findByText('Ask a question about this document.')).toBeInTheDocument();
 
-    await user.type(screen.getByLabelText('Message'), 'Is this connected to anything?');
+    await user.type(screen.getByLabelText('Message'), 'What is this about?');
     await user.click(screen.getByRole('button', { name: 'Send' }));
-    expect(
-      await screen.findByText(/not connected to a model in this build/u),
-    ).toBeInTheDocument();
+    expect(await screen.findByText('It is about the quarter.')).toBeInTheDocument();
+    expect(mocked['sendChatMessage']).toHaveBeenCalledWith('doc-1', 'What is this about?', []);
   });
 
-  it('opens an analysis preview that states plainly it is not connected to a model', async () => {
+  it('says so when Chat has no AI endpoint configured', async () => {
+    mocked['getDocument'].mockResolvedValue({ document: detail() });
+    mocked['sendChatMessage'].mockResolvedValue({ ok: false, message: 'No AI endpoint is configured.' });
+    const user = userEvent.setup();
+    await renderSignedIn(<EditorPage documentId="doc-1" onBack={() => {}} />);
+    await openFileTab(user);
+
+    await user.click(await screen.findByRole('button', { name: 'Chat' }));
+    await user.type(screen.getByLabelText('Message'), 'Hello?');
+    await user.click(screen.getByRole('button', { name: 'Send' }));
+    expect(await screen.findByText('No AI endpoint is configured.')).toBeInTheDocument();
+  });
+
+  it('opens Analysis, runs the workflow group set up for this document, and shows both outputs and the summary', async () => {
+    mocked['getDocument'].mockResolvedValue({ document: detail() });
+    mocked['listWorkflowGroupsForDocument'].mockResolvedValue({
+      groups: [{ id: 'g1', name: 'Policy prompts', description: '' }],
+    });
+    mocked['runAnalysis'].mockResolvedValue({
+      ok: true,
+      message: 'Complete.',
+      groupId: 'g1',
+      groupName: 'Policy prompts',
+      analysis: [{ promptId: 'p1', text: 'Does it name an owner?', output: 'Yes, Jane Doe.' }],
+      summary: 'The document names an owner.',
+    });
+    const user = userEvent.setup();
+    await renderSignedIn(<EditorPage documentId="doc-1" onBack={() => {}} />);
+    await openFileTab(user);
+
+    await user.click(await screen.findByRole('button', { name: 'Analysis' }));
+    await screen.findByRole('option', { name: 'Policy prompts' });
+    await user.click(screen.getByRole('button', { name: 'Run analysis' }));
+
+    expect(await screen.findByText('Does it name an owner?')).toBeInTheDocument();
+    expect(screen.getByText('Yes, Jane Doe.')).toBeInTheDocument();
+    expect(screen.getByText('The document names an owner.')).toBeInTheDocument();
+    expect(mocked['runAnalysis']).toHaveBeenCalledWith('doc-1', 'g1');
+  });
+
+  it('says so when no workflow group is set up for this kind of document', async () => {
     mocked['getDocument'].mockResolvedValue({ document: detail() });
     const user = userEvent.setup();
     await renderSignedIn(<EditorPage documentId="doc-1" onBack={() => {}} />);
     await openFileTab(user);
 
     await user.click(await screen.findByRole('button', { name: 'Analysis' }));
-    expect(await screen.findByText('Document analysis')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Run analysis' })).toBeDisabled();
+    expect(await screen.findByText(/no workflow group is set up/i)).toBeInTheDocument();
   });
 });
 

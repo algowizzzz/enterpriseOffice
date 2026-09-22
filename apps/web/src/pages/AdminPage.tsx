@@ -1,16 +1,18 @@
 import { AccessRequests } from '../components/AccessRequests';
-import { useCallback, useEffect, useState, type FormEvent, type JSX } from 'react';
+import { Fragment, useCallback, useEffect, useState, type FormEvent, type JSX } from 'react';
 import {
   api,
   ApiError,
   DOCUMENT_TYPES,
   type AuditEntry,
+  type ChatSettings,
   type DocumentType,
   type LlmAuthScheme,
   type LlmEndpoint,
   type Role,
   type User,
   type WorkflowGroup,
+  type WorkflowGroupPrompt,
 } from '../lib/api';
 import { useSession } from '../lib/session';
 import { textField } from '../lib/forms';
@@ -21,23 +23,31 @@ export function AdminPage(): JSX.Element {
   const [audit, setAudit] = useState<AuditEntry[]>([]);
   const [workflowGroups, setWorkflowGroups] = useState<WorkflowGroup[]>([]);
   const [llmEndpoints, setLlmEndpoints] = useState<LlmEndpoint[]>([]);
+  const [chatSettings, setChatSettingsState] = useState<ChatSettings>({ endpointId: null });
   const [testResults, setTestResults] = useState<Record<string, string>>({});
+  const [expandedGroupId, setExpandedGroupId] = useState<string | null>(null);
+  const [promptDraft, setPromptDraft] = useState('');
+  const [editingPromptId, setEditingPromptId] = useState<string | null>(null);
+  const [editingText, setEditingText] = useState('');
+  const [dragPromptId, setDragPromptId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   const load = useCallback(async () => {
     try {
-      const [{ users: list }, { entries }, { groups }, { endpoints }] = await Promise.all([
+      const [{ users: list }, { entries }, { groups }, { endpoints }, settings] = await Promise.all([
         api.listUsers(),
         api.listAudit(),
         api.listWorkflowGroups(),
         api.listLlmEndpoints(),
+        api.getChatSettings(),
       ]);
       setUsers(list);
       setAudit(entries);
       setWorkflowGroups(groups);
       setLlmEndpoints(endpoints);
+      setChatSettingsState(settings);
       setError(null);
     } catch (caught) {
       setError(caught instanceof ApiError ? caught.message : 'Could not load administration data.');
@@ -97,19 +107,20 @@ export function AdminPage(): JSX.Element {
   };
 
   /**
-   * A workflow group names a set of prompts for one kind of document, and
-   * what running them together is meant to produce. Configuration only:
-   * nothing here calls a model. One line of the textarea is one prompt, the
-   * same "one thing per line" shape as the footnote and comment text boxes
-   * elsewhere, rather than a picker that would need its own list of prompts
-   * to choose from before there is anything to choose.
+   * A workflow group names a set of prompts for one kind of document: each
+   * analysis prompt reads the document, and the one summary prompt reads
+   * their collected output afterwards (docs/16-ai-integration.md §4-5).
+   * Configuration only here at creation; adding, editing, deleting and
+   * reordering prompts on an existing group are separate actions below,
+   * once there is a group to manage them on.
    */
   const addWorkflowGroup = async (event: FormEvent<HTMLFormElement>): Promise<void> => {
     event.preventDefault();
     const element = event.currentTarget;
     const form = new FormData(element);
     const docType = textField(form, 'docType');
-    const prompts = textField(form, 'prompts')
+    const endpointId = textField(form, 'endpointId');
+    const analysisPrompts = textField(form, 'analysisPrompts')
       .split('\n')
       .map((line) => line.trim())
       .filter((line) => line.length > 0);
@@ -122,8 +133,9 @@ export function AdminPage(): JSX.Element {
         description: textField(form, 'description'),
         docType: docType === '' ? null : (docType as DocumentType),
         isDefault: form.get('isDefault') === 'on',
-        prompts,
-        outputSummary: textField(form, 'outputSummary'),
+        endpointId: endpointId === '' ? null : endpointId,
+        analysisPrompts,
+        summaryPrompt: textField(form, 'summaryPrompt'),
       });
       element.reset();
       setNotice('Workflow group created.');
@@ -150,9 +162,76 @@ export function AdminPage(): JSX.Element {
     setError(null);
     try {
       await api.deleteWorkflowGroup(group.id);
+      if (expandedGroupId === group.id) setExpandedGroupId(null);
       await load();
     } catch (caught) {
       setError(caught instanceof ApiError ? caught.message : 'Could not delete that workflow group.');
+    }
+  };
+
+  const addPrompt = async (groupId: string): Promise<void> => {
+    const text = promptDraft.trim();
+    if (!text) return;
+    setError(null);
+    try {
+      await api.addWorkflowGroupPrompt(groupId, { role: 'analysis', text });
+      setPromptDraft('');
+      await load();
+    } catch (caught) {
+      setError(caught instanceof ApiError ? caught.message : 'Could not add that prompt.');
+    }
+  };
+
+  const startEditingPrompt = (prompt: WorkflowGroupPrompt): void => {
+    setEditingPromptId(prompt.id);
+    setEditingText(prompt.text);
+  };
+
+  const saveEditingPrompt = async (groupId: string): Promise<void> => {
+    if (!editingPromptId || !editingText.trim()) return;
+    setError(null);
+    try {
+      await api.updateWorkflowGroupPrompt(groupId, editingPromptId, editingText.trim());
+      setEditingPromptId(null);
+      await load();
+    } catch (caught) {
+      setError(caught instanceof ApiError ? caught.message : 'Could not save that prompt.');
+    }
+  };
+
+  const removePrompt = async (groupId: string, prompt: WorkflowGroupPrompt): Promise<void> => {
+    if (!window.confirm('Delete this prompt?')) return;
+    setError(null);
+    try {
+      await api.deleteWorkflowGroupPrompt(groupId, prompt.id);
+      await load();
+    } catch (caught) {
+      setError(
+        caught instanceof ApiError
+          ? caught.message
+          : 'Could not delete that prompt.',
+      );
+    }
+  };
+
+  /** Drag-and-drop reorder of the analysis prompts only; the summary prompt is pinned and never moves. */
+  const dropPromptOn = async (group: WorkflowGroup, targetId: string): Promise<void> => {
+    const draggedId = dragPromptId;
+    setDragPromptId(null);
+    if (!draggedId || draggedId === targetId) return;
+    const analysisIds = group.prompts.filter((p) => p.role === 'analysis').map((p) => p.id);
+    const from = analysisIds.indexOf(draggedId);
+    const to = analysisIds.indexOf(targetId);
+    if (from === -1 || to === -1) return;
+    const reordered = [...analysisIds];
+    reordered.splice(from, 1);
+    reordered.splice(to, 0, draggedId);
+    setError(null);
+    try {
+      await api.reorderWorkflowGroupPrompts(group.id, reordered);
+      await load();
+    } catch (caught) {
+      setError(caught instanceof ApiError ? caught.message : 'Could not reorder those prompts.');
     }
   };
 
@@ -179,6 +258,7 @@ export function AdminPage(): JSX.Element {
         authScheme,
         authHeaderName: authScheme === 'header' && authHeaderName ? authHeaderName : null,
         authSecret: authSecret || null,
+        isDefault: form.get('isDefault') === 'on',
       });
       element.reset();
       setNotice('Endpoint registered.');
@@ -209,6 +289,28 @@ export function AdminPage(): JSX.Element {
     } catch (caught) {
       const message = caught instanceof ApiError ? caught.message : 'Could not run the test.';
       setTestResults((current) => ({ ...current, [endpoint.id]: message }));
+    }
+  };
+
+  const setEndpointDefault = async (endpoint: LlmEndpoint): Promise<void> => {
+    setError(null);
+    try {
+      await api.updateLlmEndpoint(endpoint.id, { isDefault: true });
+      await load();
+    } catch (caught) {
+      setError(caught instanceof ApiError ? caught.message : 'Could not update that endpoint.');
+    }
+  };
+
+  /** Which endpoint Chat itself uses; null falls back to the installation default. */
+  const changeChatEndpoint = async (endpointId: string): Promise<void> => {
+    setError(null);
+    try {
+      const settings = await api.setChatSettings(endpointId === '' ? null : endpointId);
+      setChatSettingsState(settings);
+      setNotice('Chat settings updated.');
+    } catch (caught) {
+      setError(caught instanceof ApiError ? caught.message : 'Could not update chat settings.');
     }
   };
 
@@ -328,9 +430,8 @@ export function AdminPage(): JSX.Element {
       <section>
         <h2>Workflow groups</h2>
         <p className="hint">
-          A named set of prompts for one kind of document, and a summary of what running them together
-          is meant to produce. This configures a future analysis assistant; nothing here calls a model
-          yet.
+          A named set of prompts for one kind of document: each analysis prompt reads the document, and
+          the one summary prompt reads their collected findings afterwards.
         </p>
         <form
           className="inline-form"
@@ -357,20 +458,32 @@ export function AdminPage(): JSX.Element {
               ))}
             </select>
           </label>
+          <label>
+            Endpoint
+            <select name="endpointId" defaultValue="">
+              <option value="">Installation default</option>
+              {llmEndpoints.map((endpoint) => (
+                <option key={endpoint.id} value={endpoint.id}>
+                  {endpoint.name}
+                </option>
+              ))}
+            </select>
+          </label>
           <label className="checkbox-field">
             <input name="isDefault" type="checkbox" />
-            Set as default
+            Set as default for its document type
           </label>
           <label className="full-width">
-            Prompts, one per line
-            <textarea name="prompts" rows={4} placeholder="Does the document name an owner?" />
+            Analysis prompts, one per line
+            <textarea name="analysisPrompts" rows={4} placeholder="Does the document name an owner?" />
           </label>
           <label className="full-width">
-            Summary of the prompt outputs
+            Summary prompt
             <textarea
-              name="outputSummary"
+              name="summaryPrompt"
               rows={2}
-              placeholder="What running these prompts together is meant to produce."
+              required
+              placeholder="Summarise the findings above for the document owner."
             />
           </label>
           <button type="submit" className="primary" disabled={busy}>
@@ -388,46 +501,161 @@ export function AdminPage(): JSX.Element {
                 <th scope="col">Document type</th>
                 <th scope="col">Default</th>
                 <th scope="col">Prompts</th>
-                <th scope="col">Output summary</th>
                 <th scope="col">
                   <span className="visually-hidden">Actions</span>
                 </th>
               </tr>
             </thead>
             <tbody>
-              {workflowGroups.map((group) => (
-                <tr key={group.id}>
-                  <td>
-                    {group.name}
-                    {group.description ? <div className="muted">{group.description}</div> : null}
-                  </td>
-                  <td>{group.docType ?? 'Any'}</td>
-                  <td>{group.isDefault ? 'Yes' : 'No'}</td>
-                  <td>{group.prompts.length}</td>
-                  <td>{group.outputSummary || <span className="muted">Not set</span>}</td>
-                  <td className="row-actions">
-                    <button
-                      type="button"
-                      disabled={group.isDefault}
-                      title={
-                        group.docType
-                          ? `Makes this the default group for ${group.docType}, in place of whichever one has that now`
-                          : 'Set as the default group'
-                      }
-                      onClick={() => void setGroupDefault(group, true)}
-                    >
-                      Set as default
-                    </button>
-                    <button
-                      type="button"
-                      className="danger"
-                      onClick={() => void removeWorkflowGroup(group)}
-                    >
-                      Delete
-                    </button>
-                  </td>
-                </tr>
-              ))}
+              {workflowGroups.map((group) => {
+                const analysisPrompts = group.prompts
+                  .filter((prompt) => prompt.role === 'analysis')
+                  .sort((a, b) => a.position - b.position);
+                const summaryPrompt = group.prompts.find((prompt) => prompt.role === 'summary');
+                const expanded = expandedGroupId === group.id;
+                return (
+                  <Fragment key={group.id}>
+                    <tr>
+                      <td>
+                        {group.name}
+                        {group.description ? <div className="muted">{group.description}</div> : null}
+                      </td>
+                      <td>{group.docType ?? 'Any'}</td>
+                      <td>{group.isDefault ? 'Yes' : 'No'}</td>
+                      <td>{analysisPrompts.length}</td>
+                      <td className="row-actions">
+                        <button
+                          type="button"
+                          aria-expanded={expanded}
+                          onClick={() => {
+                            setExpandedGroupId(expanded ? null : group.id);
+                            setEditingPromptId(null);
+                            setPromptDraft('');
+                          }}
+                        >
+                          {expanded ? 'Hide prompts' : 'Manage prompts'}
+                        </button>
+                        <button
+                          type="button"
+                          disabled={group.isDefault}
+                          title={
+                            group.docType
+                              ? `Makes this the default group for ${group.docType}, in place of whichever one has that now`
+                              : 'Set as the default group'
+                          }
+                          onClick={() => void setGroupDefault(group, true)}
+                        >
+                          Set as default
+                        </button>
+                        <button
+                          type="button"
+                          className="danger"
+                          onClick={() => void removeWorkflowGroup(group)}
+                        >
+                          Delete
+                        </button>
+                      </td>
+                    </tr>
+                    {expanded ? (
+                      <tr>
+                        <td colSpan={5}>
+                          <div className="prompt-manager">
+                            {summaryPrompt ? (
+                              <div className="prompt-row prompt-row-summary">
+                                <span className="badge">Summary</span>
+                                {editingPromptId === summaryPrompt.id ? (
+                                  <>
+                                    <textarea
+                                      value={editingText}
+                                      onChange={(event) => setEditingText(event.target.value)}
+                                      rows={2}
+                                    />
+                                    <button type="button" onClick={() => void saveEditingPrompt(group.id)}>
+                                      Save
+                                    </button>
+                                    <button type="button" className="link" onClick={() => setEditingPromptId(null)}>
+                                      Cancel
+                                    </button>
+                                  </>
+                                ) : (
+                                  <>
+                                    <span>{summaryPrompt.text}</span>
+                                    <button type="button" onClick={() => startEditingPrompt(summaryPrompt)}>
+                                      Edit
+                                    </button>
+                                  </>
+                                )}
+                              </div>
+                            ) : null}
+                            <p className="hint">
+                              Analysis prompts run first, in this order; drag a row to reorder it.
+                            </p>
+                            <ul className="prompt-list">
+                              {analysisPrompts.map((prompt) => (
+                                <li
+                                  key={prompt.id}
+                                  className={`prompt-row${dragPromptId === prompt.id ? ' is-dragging' : ''}`}
+                                  draggable
+                                  onDragStart={() => setDragPromptId(prompt.id)}
+                                  onDragOver={(event) => event.preventDefault()}
+                                  onDrop={() => void dropPromptOn(group, prompt.id)}
+                                >
+                                  {editingPromptId === prompt.id ? (
+                                    <>
+                                      <textarea
+                                        value={editingText}
+                                        onChange={(event) => setEditingText(event.target.value)}
+                                        rows={2}
+                                      />
+                                      <button type="button" onClick={() => void saveEditingPrompt(group.id)}>
+                                        Save
+                                      </button>
+                                      <button type="button" className="link" onClick={() => setEditingPromptId(null)}>
+                                        Cancel
+                                      </button>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <span>{prompt.text}</span>
+                                      <button type="button" onClick={() => startEditingPrompt(prompt)}>
+                                        Edit
+                                      </button>
+                                      <button
+                                        type="button"
+                                        className="danger"
+                                        onClick={() => void removePrompt(group.id, prompt)}
+                                      >
+                                        Delete
+                                      </button>
+                                    </>
+                                  )}
+                                </li>
+                              ))}
+                            </ul>
+                            {analysisPrompts.length >= 10 ? (
+                              <p className="muted">At the cap of 10 analysis prompts.</p>
+                            ) : (
+                              <div className="inline-form">
+                                <label className="full-width">
+                                  New analysis prompt
+                                  <textarea
+                                    value={promptDraft}
+                                    onChange={(event) => setPromptDraft(event.target.value)}
+                                    rows={2}
+                                  />
+                                </label>
+                                <button type="button" onClick={() => void addPrompt(group.id)}>
+                                  Add prompt
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    ) : null}
+                  </Fragment>
+                );
+              })}
             </tbody>
           </table>
         )}
@@ -475,6 +703,10 @@ export function AdminPage(): JSX.Element {
             Secret
             <input name="authSecret" type="password" placeholder="Bearer token or header value" />
           </label>
+          <label className="checkbox-field">
+            <input name="isDefault" type="checkbox" />
+            Set as installation default
+          </label>
           <button type="submit" className="primary" disabled={busy}>
             Register
           </button>
@@ -490,6 +722,7 @@ export function AdminPage(): JSX.Element {
                 <th scope="col">URL</th>
                 <th scope="col">Authentication</th>
                 <th scope="col">Secret</th>
+                <th scope="col">Default</th>
                 <th scope="col">
                   <span className="visually-hidden">Actions</span>
                 </th>
@@ -502,9 +735,17 @@ export function AdminPage(): JSX.Element {
                   <td className="mono">{endpoint.url}</td>
                   <td>{endpoint.authScheme}</td>
                   <td>{endpoint.hasSecret ? 'Set' : <span className="muted">None</span>}</td>
+                  <td>{endpoint.isDefault ? 'Yes' : 'No'}</td>
                   <td className="row-actions">
                     <button type="button" onClick={() => void testEndpoint(endpoint)}>
                       Test connection
+                    </button>
+                    <button
+                      type="button"
+                      disabled={endpoint.isDefault}
+                      onClick={() => void setEndpointDefault(endpoint)}
+                    >
+                      Set as default
                     </button>
                     <button
                       type="button"
@@ -524,6 +765,29 @@ export function AdminPage(): JSX.Element {
             </tbody>
           </table>
         )}
+      </section>
+
+      <section>
+        <h2>Chat</h2>
+        <p className="hint">
+          Which registered endpoint Chat sends a conversation to. Chat is not scoped to one kind of
+          document, so it has no dropdown of its own the way a workflow group does: it always uses
+          this choice, or the installation default when none is set here.
+        </p>
+        <label>
+          Endpoint for Chat
+          <select
+            value={chatSettings.endpointId ?? ''}
+            onChange={(event) => void changeChatEndpoint(event.target.value)}
+          >
+            <option value="">Installation default</option>
+            {llmEndpoints.map((endpoint) => (
+              <option key={endpoint.id} value={endpoint.id}>
+                {endpoint.name}
+              </option>
+            ))}
+          </select>
+        </label>
       </section>
 
       <section>

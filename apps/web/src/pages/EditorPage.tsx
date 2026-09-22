@@ -561,7 +561,7 @@ export function EditorPage({ documentId, onBack }: EditorPageProps): JSX.Element
           </button>
           <button
             type="button"
-            title="A preview of a document assistant. Not connected to a model in this build"
+            title="Ask questions about this document. AI-generated: check anything important"
             aria-pressed={side === 'chat'}
             onClick={() => toggleSide('chat')}
           >
@@ -569,7 +569,7 @@ export function EditorPage({ documentId, onBack }: EditorPageProps): JSX.Element
           </button>
           <button
             type="button"
-            title="A preview of AI-assisted analysis. Not connected to a model in this build"
+            title="Run a workflow group's prompts against this document. AI-generated: check anything important"
             aria-pressed={side === 'analysis'}
             onClick={() => toggleSide('analysis')}
           >
@@ -922,8 +922,10 @@ export function EditorPage({ documentId, onBack }: EditorPageProps): JSX.Element
               onCount={setOpenComments}
             />
           ) : null}
-          {side === 'chat' ? <ChatPanel onClose={() => setSide(null)} /> : null}
-          {side === 'analysis' ? <AnalysisPanel onClose={() => setSide(null)} /> : null}
+          {side === 'chat' ? <ChatPanel documentId={documentId} onClose={() => setSide(null)} /> : null}
+          {side === 'analysis' ? (
+            <AnalysisPanel documentId={documentId} onClose={() => setSide(null)} />
+          ) : null}
           </div>
         </div>
       </div>

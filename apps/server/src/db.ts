@@ -1,14 +1,20 @@
 import { DatabaseSync } from 'node:sqlite';
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
+import { newId } from './lib/ids.js';
 
 export type Database = DatabaseSync;
 
 /**
  * Schema migrations, applied in order and recorded in `schema_migrations`.
  * Never edit a migration that has shipped. Append a new one instead.
+ *
+ * `sql` runs first, `run` second, both inside the same transaction: a
+ * migration that only changes the schema needs `sql` alone, but converting
+ * existing rows into a new table's shape (giving each one a real id, not a
+ * value SQL can generate on its own) needs `run`.
  */
-const MIGRATIONS: { id: string; sql: string }[] = [
+const MIGRATIONS: { id: string; sql?: string; run?: (db: Database) => void }[] = [
   {
     id: '0001_initial',
     sql: `
@@ -296,6 +302,107 @@ const MIGRATIONS: { id: string; sql: string }[] = [
       );
     `,
   },
+  {
+    // At most one endpoint is "the" default: what Chat uses (see
+    // `chat_settings` below) and what a workflow group falls back to when it
+    // does not name one of its own. Enforced in the service layer the same
+    // way `workflow_groups.is_default` already is, one row at a time rather
+    // than a CHECK, since SQLite cannot express "at most one true" as a
+    // constraint.
+    id: '0013_llm_endpoint_default',
+    sql: `ALTER TABLE llm_endpoints ADD COLUMN is_default INTEGER NOT NULL DEFAULT 0;`,
+  },
+  {
+    // A workflow group can name its own endpoint rather than always using
+    // the installation's default (docs/16-ai-integration.md §3): a
+    // Framework document's prompts might genuinely want a different, larger
+    // model than a quick Policy check. Null means "use the default".
+    id: '0014_workflow_group_endpoint',
+    sql: `ALTER TABLE workflow_groups ADD COLUMN endpoint_id TEXT REFERENCES llm_endpoints(id) ON DELETE SET NULL;`,
+  },
+  {
+    // Chat is not scoped to one document type the way a workflow group is,
+    // so it has nowhere to live except a settings row of its own: one
+    // endpoint id, or null to fall back to the installation default. A
+    // single fixed-id row rather than a key/value table, because there is
+    // exactly one setting today and a generic settings table for one row
+    // would be an abstraction with nothing yet to abstract.
+    id: '0015_chat_settings',
+    sql: `
+      CREATE TABLE chat_settings (
+        id         TEXT PRIMARY KEY CHECK (id = 'singleton'),
+        endpoint_id TEXT REFERENCES llm_endpoints(id) ON DELETE SET NULL,
+        updated_at TEXT NOT NULL
+      );
+    `,
+  },
+  {
+    // Splits `workflow_groups.prompts` (a flat JSON array with no identity,
+    // role or per-prompt operations) into its own table so a prompt can be
+    // added, edited, deleted and reordered on its own, and so the summary
+    // prompt -- which runs last, over every analysis prompt's output, not
+    // over the document -- can be told apart from the rest structurally
+    // instead of by convention. `position` orders the analysis prompts only;
+    // the summary row's position is meaningless and always 0. Exactly one
+    // `summary` row per group is enforced in the service layer, the same
+    // kind of invariant `clearOtherDefaults()` already enforces for
+    // `is_default`, not by a constraint SQLite has no way to express.
+    id: '0016_workflow_group_prompts',
+    sql: `
+      CREATE TABLE workflow_group_prompts (
+        id         TEXT PRIMARY KEY,
+        group_id   TEXT NOT NULL REFERENCES workflow_groups(id) ON DELETE CASCADE,
+        role       TEXT NOT NULL CHECK (role IN ('analysis','summary')),
+        position   INTEGER NOT NULL DEFAULT 0,
+        text       TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+      CREATE INDEX idx_workflow_group_prompts_group ON workflow_group_prompts(group_id, role, position);
+    `,
+    // Carries every existing group's `prompts` array and `output_summary`
+    // text across into the new table before the columns holding them are
+    // dropped in the next migration. Needs real ids (`newId()`), which pure
+    // SQL cannot produce, hence `run` rather than more `sql`. A group with no
+    // `output_summary` yet gets a placeholder summary prompt rather than
+    // none at all, so every group satisfies "exactly one summary row"
+    // immediately, with nothing left for the service layer to special-case.
+    run: (db) => {
+      const groups = db
+        .prepare('SELECT id, prompts, output_summary, created_at, updated_at FROM workflow_groups')
+        .all() as {
+        id: string;
+        prompts: string;
+        output_summary: string;
+        created_at: string;
+        updated_at: string;
+      }[];
+      const insert = db.prepare(
+        `INSERT INTO workflow_group_prompts (id, group_id, role, position, text, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      );
+      for (const group of groups) {
+        const prompts = JSON.parse(group.prompts) as string[];
+        prompts.forEach((text, position) => {
+          insert.run(newId(), group.id, 'analysis', position, text, group.created_at, group.updated_at);
+        });
+        const summaryText =
+          group.output_summary.trim().length > 0
+            ? group.output_summary
+            : 'Summarise the findings above for the document owner.';
+        insert.run(newId(), group.id, 'summary', 0, summaryText, group.created_at, group.updated_at);
+      }
+    },
+  },
+  {
+    // Now that every group's prompts live in `workflow_group_prompts`,
+    // these two columns are dead weight: nothing reads them from here on.
+    id: '0017_workflow_groups_drop_legacy_prompt_columns',
+    sql: `
+      ALTER TABLE workflow_groups DROP COLUMN prompts;
+      ALTER TABLE workflow_groups DROP COLUMN output_summary;
+    `,
+  },
 ];
 
 export function openDatabase(file: string): Database {
@@ -308,7 +415,15 @@ export function openDatabase(file: string): Database {
   return db;
 }
 
-export function migrate(db: Database): void {
+/**
+ * Applies every migration up to and including `upToId` (every one, if
+ * omitted). The `upToId` stop point exists only so a test can put the
+ * database in the exact state an install partway through this history would
+ * have been in -- most usefully, right before a migration that carries old
+ * rows into a new shape, so that migration's `run` step is exercised against
+ * real pre-existing data rather than an always-empty fresh database.
+ */
+export function migrate(db: Database, upToId?: string): void {
   db.exec(`CREATE TABLE IF NOT EXISTS schema_migrations (
     id TEXT PRIMARY KEY,
     applied_at TEXT NOT NULL
@@ -321,13 +436,15 @@ export function migrate(db: Database): void {
     if (applied.has(migration.id)) continue;
     db.exec('BEGIN');
     try {
-      db.exec(migration.sql);
+      if (migration.sql) db.exec(migration.sql);
+      if (migration.run) migration.run(db);
       record.run(migration.id, new Date().toISOString());
       db.exec('COMMIT');
     } catch (error) {
       db.exec('ROLLBACK');
       throw new Error(`Migration ${migration.id} failed: ${(error as Error).message}`);
     }
+    if (migration.id === upToId) return;
   }
 }
 

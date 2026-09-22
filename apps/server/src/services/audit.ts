@@ -37,7 +37,9 @@ export type AuditAction =
   | 'llm_endpoint.created'
   | 'llm_endpoint.updated'
   | 'llm_endpoint.deleted'
-  | 'llm_endpoint.tested';
+  | 'llm_endpoint.tested'
+  | 'chat_settings.updated'
+  | 'analysis.run';
 
 export interface AuditEntry {
   actorId: string | null;

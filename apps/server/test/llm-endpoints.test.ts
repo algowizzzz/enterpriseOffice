@@ -135,6 +135,20 @@ describe('LLM endpoints', () => {
     ).toBe(404);
   });
 
+  it('lets only one endpoint be the default', async () => {
+    const first = (
+      await call(admin, 'POST', '/api/llm-endpoints', { name: 'A', url: 'http://10.0.0.5', isDefault: true })
+    ).json().endpoint;
+    const second = (
+      await call(admin, 'POST', '/api/llm-endpoints', { name: 'B', url: 'http://10.0.0.6', isDefault: true })
+    ).json().endpoint;
+
+    const { endpoints } = (await call(admin, 'GET', '/api/llm-endpoints')).json();
+    const byId = Object.fromEntries(endpoints.map((e: { id: string; isDefault: boolean }) => [e.id, e.isDefault]));
+    expect(byId[first.id]).toBe(false);
+    expect(byId[second.id]).toBe(true);
+  });
+
   describe('test connection', () => {
     let server: Server | undefined;
     let port: number;

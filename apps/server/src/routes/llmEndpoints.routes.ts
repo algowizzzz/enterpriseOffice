@@ -18,6 +18,7 @@ const createSchema = z.object({
   authHeaderName: z.string().trim().min(1).max(200).nullable().default(null),
   authSecret: z.string().trim().min(1).max(8000).nullable().default(null),
   requestFormat: z.enum(REQUEST_FORMATS).default('openai-chat'),
+  isDefault: z.boolean().default(false),
 });
 
 const patchSchema = createSchema.partial();

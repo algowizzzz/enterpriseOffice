@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { mkdtempSync, rmSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 import { openDatabase, migrate, transaction, type Database } from '../src/db.js';
 
 const open = (): Database => openDatabase(':memory:');
@@ -45,6 +46,51 @@ describe('database', () => {
     migrate(db);
     const after = db.prepare('SELECT COUNT(*) AS n FROM schema_migrations').get() as { n: number };
     expect(Number(after.n)).toBe(Number(before.n));
+    db.close();
+  });
+
+  it('carries a pre-existing group’s flat prompts and summary into workflow_group_prompts', () => {
+    const db = new DatabaseSync(':memory:');
+    migrate(db, '0011_workflow_groups');
+    db.prepare(
+      `INSERT INTO users (id, email, email_lower, name, password_hash, role, created_at, updated_at)
+       VALUES ('u1', 'a@example.com', 'a@example.com', 'A', 'x', 'admin', 'created-0', 'updated-0')`,
+    ).run();
+    db.prepare(
+      `INSERT INTO workflow_groups
+         (id, name, description, doc_type, is_default, prompts, output_summary, created_at, updated_at, created_by)
+       VALUES ('g1', 'Legacy group', '', NULL, 0, '["First prompt","Second prompt"]', 'Old summary text', 'created-1', 'updated-1', 'u1')`,
+    ).run();
+    // A group that never had a summary written gets a placeholder, so it
+    // satisfies "exactly one summary row" immediately rather than needing
+    // the service layer to special-case a group with zero.
+    db.prepare(
+      `INSERT INTO workflow_groups
+         (id, name, description, doc_type, is_default, prompts, output_summary, created_at, updated_at, created_by)
+       VALUES ('g2', 'No summary yet', '', NULL, 0, '[]', '', 'created-2', 'updated-2', 'u1')`,
+    ).run();
+
+    migrate(db); // Runs the rest, including the data carry-over and the column drop.
+
+    const g1 = db
+      .prepare(
+        "SELECT role, position, text FROM workflow_group_prompts WHERE group_id = 'g1' ORDER BY role, position",
+      )
+      .all();
+    expect(g1).toEqual([
+      { role: 'analysis', position: 0, text: 'First prompt' },
+      { role: 'analysis', position: 1, text: 'Second prompt' },
+      { role: 'summary', position: 0, text: 'Old summary text' },
+    ]);
+
+    const g2 = db.prepare("SELECT role, text FROM workflow_group_prompts WHERE group_id = 'g2'").all();
+    expect(g2).toEqual([{ role: 'summary', text: 'Summarise the findings above for the document owner.' }]);
+
+    const columns = (db.prepare('PRAGMA table_info(workflow_groups)').all() as { name: string }[]).map(
+      (column) => column.name,
+    );
+    expect(columns).not.toContain('prompts');
+    expect(columns).not.toContain('output_summary');
     db.close();
   });
 

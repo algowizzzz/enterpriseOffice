@@ -546,6 +546,50 @@ main {
   color: var(--muted);
 }
 
+/* A workflow group's prompt editor, expanded inline under its row. */
+.prompt-manager {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  background: var(--surface-subtle);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius);
+}
+.prompt-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.prompt-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.prompt-row span {
+  flex: 1;
+}
+.prompt-row textarea {
+  flex: 1;
+}
+.prompt-row[draggable='true'] {
+  cursor: grab;
+}
+.prompt-row.is-dragging {
+  opacity: 0.5;
+}
+.prompt-row-summary {
+  background: var(--accent-subtle);
+  border-color: var(--accent);
+}
+
 .inline-form {
   display: flex;
   gap: 12px;
@@ -1278,7 +1322,19 @@ main {
   }
 }
 
-/* Chat: a preview of a document assistant, not connected to a model. */
+/* AI-generated content: a chat reply, or an analysis run's output. Shown
+   above the content it describes, the same "say so first" placement as the
+   editor's own working-copy reminder. */
+.ai-disclaimer {
+  margin: 0;
+  padding: 6px 10px;
+  font-size: 0.85em;
+  color: var(--muted);
+  background: var(--border-subtle);
+  border-radius: var(--radius);
+}
+
+/* Chat: carries the open document as context (docs/16-ai-integration.md §6). */
 .chat-panel {
   padding: 0;
 }
@@ -1320,14 +1376,48 @@ main {
   flex: 1;
 }
 
-/* Analysis: the same statement every time there is nothing to show, rather
-   than a spinner that would never resolve. */
+/* Analysis: runs a workflow group's prompts against the document
+   (docs/16-ai-integration.md §5). The same statement every time there is no
+   group set up for this kind of document, rather than an empty dropdown. */
 .analysis-empty {
   padding: 4px 0 0;
   display: flex;
   flex-direction: column;
   gap: 10px;
   align-items: flex-start;
+}
+.analysis-controls {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.analysis-controls select {
+  flex: 1;
+}
+.analysis-results {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.analysis-results details {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 6px 10px;
+  background: var(--surface);
+}
+.analysis-results summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+.analysis-summary {
+  border: 1px solid var(--accent);
+  background: var(--accent-subtle);
+  border-radius: var(--radius);
+  padding: 8px 10px;
+}
+.analysis-summary h3 {
+  margin: 0 0 4px;
+  font-size: 0.95em;
 }
 
 /* Tracked changes, drawn as Word draws them. */
