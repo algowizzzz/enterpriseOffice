@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type JSX } from 'react';
+import { Fragment, useCallback, useEffect, useRef, useState, type JSX } from 'react';
 import {
   api,
   ApiError,
@@ -6,8 +6,11 @@ import {
   DOCUMENT_TYPES,
   type DocumentSummary,
   type DocumentType,
+  type ShareEntry,
+  type User,
 } from '../lib/api';
 import { useSession } from '../lib/session';
+import { textField } from '../lib/forms';
 
 interface DocumentsPageProps {
   onOpen: (id: string) => void;
@@ -96,6 +99,64 @@ export function DocumentsPage({ onOpen }: DocumentsPageProps): JSX.Element {
       await load();
     } catch (caught) {
       setError(caught instanceof ApiError ? caught.message : 'Could not delete the document.');
+    }
+  };
+
+  // Sharing and ownership from the list, rather than making somebody open a
+  // document just to see or change who has it. One at a time: opening a
+  // second one closes whichever was open, the same as the editor's panels.
+  const [managing, setManaging] = useState<DocumentSummary | null>(null);
+  const [shares, setShares] = useState<ShareEntry[] | null>(null);
+  const [directory, setDirectory] = useState<User[]>([]);
+
+  const manageAccess = async (document: DocumentSummary): Promise<void> => {
+    if (managing?.id === document.id) {
+      setManaging(null);
+      return;
+    }
+    setError(null);
+    try {
+      const [{ shares: list }, { users }] = await Promise.all([
+        api.listShares(document.id),
+        api.listUsers(),
+      ]);
+      setShares(list);
+      setDirectory(users.filter((candidate) => candidate.id !== user?.id));
+      setManaging(document);
+    } catch (caught) {
+      setError(caught instanceof ApiError ? caught.message : 'Could not load the sharing list.');
+    }
+  };
+
+  const shareWith = async (userId: string, permission: 'view' | 'edit'): Promise<void> => {
+    if (!managing) return;
+    try {
+      const { shares: updated } = await api.share(managing.id, userId, permission);
+      setShares(updated);
+    } catch (caught) {
+      setError(caught instanceof ApiError ? caught.message : 'Could not share that document.');
+    }
+  };
+
+  const removeShare = async (userId: string): Promise<void> => {
+    if (!managing) return;
+    try {
+      const { shares: updated } = await api.unshare(managing.id, userId);
+      setShares(updated);
+    } catch (caught) {
+      setError(caught instanceof ApiError ? caught.message : 'Could not remove that share.');
+    }
+  };
+
+  const transferTo = async (userId: string, name: string): Promise<void> => {
+    if (!managing) return;
+    if (!window.confirm(`Make ${name} the owner of "${managing.title}"? You will keep edit access.`)) return;
+    try {
+      await api.transferOwnership(managing.id, userId);
+      setManaging(null);
+      await load();
+    } catch (caught) {
+      setError(caught instanceof ApiError ? caught.message : 'Could not hand the document over.');
     }
   };
 
@@ -224,33 +285,117 @@ export function DocumentsPage({ onOpen }: DocumentsPageProps): JSX.Element {
           </thead>
           <tbody>
             {documents.map((document) => (
-              <tr key={document.id}>
-                <td>
-                  <button type="button" className="link" onClick={() => onOpen(document.id)}>
-                    {document.title}
-                  </button>
-                  {document.docType ? <span className="badge badge-type">{document.docType}</span> : null}
-                  {document.origin === 'import' ? (
-                    <span className="badge" title={document.sourceName ?? ''}>
-                      imported
-                    </span>
-                  ) : null}
-                </td>
-                <td>{document.ownerId === user?.id ? 'You' : document.ownerName}</td>
-                <td>{document.wordCount}</td>
-                <td>{formatWhen(document.updatedAt)}</td>
-                <td>{document.access}</td>
-                <td className="row-actions">
-                  <button type="button" onClick={() => { void download(document.id, 'docx'); }}>
-                    Download
-                  </button>
-                  {document.access === 'owner' ? (
-                    <button type="button" className="danger" onClick={() => void remove(document)}>
-                      Delete
+              <Fragment key={document.id}>
+                <tr>
+                  <td>
+                    <button type="button" className="link" onClick={() => onOpen(document.id)}>
+                      {document.title}
                     </button>
-                  ) : null}
-                </td>
-              </tr>
+                    {document.docType ? <span className="badge badge-type">{document.docType}</span> : null}
+                    {document.origin === 'import' ? (
+                      <span className="badge" title={document.sourceName ?? ''}>
+                        imported
+                      </span>
+                    ) : null}
+                  </td>
+                  <td>{document.ownerId === user?.id ? 'You' : document.ownerName}</td>
+                  <td>{document.wordCount}</td>
+                  <td>{formatWhen(document.updatedAt)}</td>
+                  <td>{document.access}</td>
+                  <td className="row-actions">
+                    <button type="button" onClick={() => { void download(document.id, 'docx'); }}>
+                      Download
+                    </button>
+                    {document.access === 'owner' ? (
+                      <button
+                        type="button"
+                        aria-pressed={managing?.id === document.id}
+                        onClick={() => void manageAccess(document)}
+                      >
+                        Manage access
+                      </button>
+                    ) : null}
+                    {document.access === 'owner' ? (
+                      <button type="button" className="danger" onClick={() => void remove(document)}>
+                        Delete
+                      </button>
+                    ) : null}
+                  </td>
+                </tr>
+                {managing?.id === document.id && shares ? (
+                  <tr>
+                    <td colSpan={6}>
+                      <div className="panel" role="region" aria-label={`Manage access for ${document.title}`}>
+                        <h2>Sharing: {document.title}</h2>
+                        {shares.length === 0 ? (
+                          <p className="muted">Not shared with anyone yet.</p>
+                        ) : (
+                          <ul className="version-list">
+                            {shares.map((share) => (
+                              <li key={share.userId}>
+                                <span>
+                                  {share.name} can {share.permission}
+                                </span>
+                                <button
+                                  type="button"
+                                  title="Hand this document over. You keep edit access"
+                                  onClick={() => void transferTo(share.userId, share.name)}
+                                >
+                                  Make owner
+                                </button>
+                                <button
+                                  type="button"
+                                  className="danger"
+                                  onClick={() => void removeShare(share.userId)}
+                                >
+                                  Remove
+                                </button>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                        <form
+                          className="share-form"
+                          onSubmit={(event) => {
+                            event.preventDefault();
+                            const form = new FormData(event.currentTarget);
+                            const userId = textField(form, 'userId');
+                            const permission = textField(form, 'permission', 'view') as 'view' | 'edit';
+                            if (!userId) return;
+                            event.currentTarget.reset();
+                            void shareWith(userId, permission);
+                          }}
+                        >
+                          <label>
+                            Person
+                            <select name="userId" required defaultValue="">
+                              <option value="">Choose a person</option>
+                              {directory.map((candidate) => (
+                                <option key={candidate.id} value={candidate.id}>
+                                  {candidate.name} ({candidate.email})
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                          <label>
+                            Permission
+                            <select name="permission" defaultValue="view">
+                              <option value="view">Can view</option>
+                              <option value="edit">Can edit</option>
+                            </select>
+                          </label>
+                          <button type="submit" className="primary">
+                            Share
+                          </button>
+                          <button type="button" className="link" onClick={() => setManaging(null)}>
+                            Close
+                          </button>
+                        </form>
+                      </div>
+                    </td>
+                  </tr>
+                ) : null}
+              </Fragment>
             ))}
           </tbody>
         </table>

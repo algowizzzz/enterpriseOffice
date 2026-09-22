@@ -38,6 +38,7 @@ vi.mock('../src/lib/api', async () => {
       listShares: vi.fn(),
       share: vi.fn(),
       unshare: vi.fn(),
+      transferOwnership: vi.fn(),
       exportUrl: actual.api.exportUrl,
     },
     downloadExport: vi.fn(),
@@ -366,6 +367,84 @@ describe('documents page', () => {
     mocked['listDocuments'].mockRejectedValue(new ApiError(500, 'INTERNAL_ERROR', 'Something went wrong.'));
     await renderSignedIn(<DocumentsPage onOpen={() => {}} />);
     expect(await screen.findByRole('alert')).toHaveTextContent('Something went wrong.');
+  });
+
+  it('offers no "Manage access" for a document somebody else owns', async () => {
+    mocked['listDocuments'].mockResolvedValue({ documents: [summary({ access: 'edit' })] });
+    await renderSignedIn(<DocumentsPage onOpen={() => {}} />);
+    await screen.findByRole('button', { name: 'Download' });
+    expect(screen.queryByRole('button', { name: 'Manage access' })).not.toBeInTheDocument();
+  });
+
+  it('manages access from the list, without opening the document', async () => {
+    mocked['listDocuments'].mockResolvedValue({ documents: [summary()] });
+    mocked['listShares'].mockResolvedValue({
+      shares: [{ userId: 'u-other', email: 'other@localhost', name: 'Otto Other', permission: 'view' }],
+    });
+    mocked['listUsers'].mockResolvedValue({ users: [ADMIN] });
+    const user = userEvent.setup();
+    await renderSignedIn(<DocumentsPage onOpen={() => {}} />);
+
+    await user.click(await screen.findByRole('button', { name: 'Manage access' }));
+    expect(await screen.findByText('Sharing: Quarterly Report')).toBeInTheDocument();
+    expect(screen.getByText(/Otto Other can view/u)).toBeInTheDocument();
+
+    // Closes the same way it opened: the toggle button itself.
+    await user.click(screen.getByRole('button', { name: 'Manage access' }));
+    await waitFor(() => expect(screen.queryByText('Sharing: Quarterly Report')).not.toBeInTheDocument());
+  });
+
+  it('shares with the chosen person at the chosen permission, from the list', async () => {
+    mocked['listDocuments'].mockResolvedValue({ documents: [summary()] });
+    mocked['listShares'].mockResolvedValue({ shares: [] });
+    mocked['listUsers'].mockResolvedValue({ users: [ADMIN] });
+    mocked['share'].mockResolvedValue({
+      shares: [{ userId: 'u-admin', email: 'admin@localhost', name: 'Ada Admin', permission: 'edit' }],
+    });
+    const user = userEvent.setup();
+    await renderSignedIn(<DocumentsPage onOpen={() => {}} />);
+
+    await user.click(await screen.findByRole('button', { name: 'Manage access' }));
+    await user.selectOptions(await screen.findByLabelText('Person'), 'u-admin');
+    await user.selectOptions(screen.getByLabelText('Permission'), 'edit');
+    await user.click(screen.getByRole('button', { name: 'Share' }));
+
+    await waitFor(() => expect(mocked['share']).toHaveBeenCalledWith('doc-1', 'u-admin', 'edit'));
+  });
+
+  it('removes a share from the list', async () => {
+    mocked['listDocuments'].mockResolvedValue({ documents: [summary()] });
+    mocked['listShares'].mockResolvedValue({
+      shares: [{ userId: 'u-other', email: 'other@localhost', name: 'Otto Other', permission: 'view' }],
+    });
+    mocked['listUsers'].mockResolvedValue({ users: [] });
+    mocked['unshare'].mockResolvedValue({ shares: [] });
+    const user = userEvent.setup();
+    await renderSignedIn(<DocumentsPage onOpen={() => {}} />);
+
+    await user.click(await screen.findByRole('button', { name: 'Manage access' }));
+    await user.click(await screen.findByRole('button', { name: 'Remove' }));
+    await waitFor(() => expect(mocked['unshare']).toHaveBeenCalledWith('doc-1', 'u-other'));
+  });
+
+  it('hands a document over from the list, once the question is confirmed', async () => {
+    mocked['listDocuments'].mockResolvedValue({ documents: [summary()] });
+    mocked['listShares'].mockResolvedValue({
+      shares: [{ userId: 'u-other', email: 'other@localhost', name: 'Otto Other', permission: 'edit' }],
+    });
+    mocked['listUsers'].mockResolvedValue({ users: [] });
+    mocked['transferOwnership'].mockResolvedValue({ document: detail({ ownerId: 'u-other' }) });
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    const user = userEvent.setup();
+    await renderSignedIn(<DocumentsPage onOpen={() => {}} />);
+
+    await user.click(await screen.findByRole('button', { name: 'Manage access' }));
+    await user.click(await screen.findByRole('button', { name: 'Make owner' }));
+
+    expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining('Otto Other'));
+    await waitFor(() => expect(mocked['transferOwnership']).toHaveBeenCalledWith('doc-1', 'u-other'));
+    // Handing it over closes the panel and refreshes the list, the owner column included.
+    await waitFor(() => expect(screen.queryByText('Sharing: Quarterly Report')).not.toBeInTheDocument());
   });
 });
 
