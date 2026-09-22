@@ -104,6 +104,23 @@ export interface WorkflowGroup {
   createdBy: string;
 }
 
+export type LlmAuthScheme = 'none' | 'bearer' | 'header';
+export type LlmRequestFormat = 'openai-chat';
+
+export interface LlmEndpoint {
+  id: string;
+  name: string;
+  url: string;
+  authScheme: LlmAuthScheme;
+  authHeaderName: string | null;
+  /** Whether a secret is stored. The secret itself is never sent to the client. */
+  hasSecret: boolean;
+  requestFormat: LlmRequestFormat;
+  createdAt: string;
+  updatedAt: string;
+  createdBy: string;
+}
+
 export interface AuditEntry {
   id: string;
   createdAt: string;
@@ -325,6 +342,37 @@ export const api = {
 
   deleteWorkflowGroup: (id: string) =>
     request<{ ok: boolean }>(`/workflow-groups/${id}`, { method: 'DELETE' }),
+
+  listLlmEndpoints: () => request<{ endpoints: LlmEndpoint[] }>('/llm-endpoints'),
+
+  createLlmEndpoint: (payload: {
+    name: string;
+    url: string;
+    authScheme?: LlmAuthScheme;
+    authHeaderName?: string | null;
+    authSecret?: string | null;
+    requestFormat?: LlmRequestFormat;
+  }) => request<{ endpoint: LlmEndpoint }>('/llm-endpoints', { method: 'POST', ...json(payload) }),
+
+  updateLlmEndpoint: (
+    id: string,
+    payload: Partial<{
+      name: string;
+      url: string;
+      authScheme: LlmAuthScheme;
+      authHeaderName: string | null;
+      authSecret: string | null;
+      requestFormat: LlmRequestFormat;
+    }>,
+  ) => request<{ endpoint: LlmEndpoint }>(`/llm-endpoints/${id}`, { method: 'PATCH', ...json(payload) }),
+
+  deleteLlmEndpoint: (id: string) =>
+    request<{ ok: boolean }>(`/llm-endpoints/${id}`, { method: 'DELETE' }),
+
+  testLlmEndpoint: (id: string) =>
+    request<{ ok: boolean; status?: number; message: string }>(`/llm-endpoints/${id}/test`, {
+      method: 'POST',
+    }),
 };
 
 /** Trigger a browser download without leaving the page. */

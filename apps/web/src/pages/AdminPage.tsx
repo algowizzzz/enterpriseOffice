@@ -6,6 +6,8 @@ import {
   DOCUMENT_TYPES,
   type AuditEntry,
   type DocumentType,
+  type LlmAuthScheme,
+  type LlmEndpoint,
   type Role,
   type User,
   type WorkflowGroup,
@@ -18,20 +20,24 @@ export function AdminPage(): JSX.Element {
   const [users, setUsers] = useState<User[]>([]);
   const [audit, setAudit] = useState<AuditEntry[]>([]);
   const [workflowGroups, setWorkflowGroups] = useState<WorkflowGroup[]>([]);
+  const [llmEndpoints, setLlmEndpoints] = useState<LlmEndpoint[]>([]);
+  const [testResults, setTestResults] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   const load = useCallback(async () => {
     try {
-      const [{ users: list }, { entries }, { groups }] = await Promise.all([
+      const [{ users: list }, { entries }, { groups }, { endpoints }] = await Promise.all([
         api.listUsers(),
         api.listAudit(),
         api.listWorkflowGroups(),
+        api.listLlmEndpoints(),
       ]);
       setUsers(list);
       setAudit(entries);
       setWorkflowGroups(groups);
+      setLlmEndpoints(endpoints);
       setError(null);
     } catch (caught) {
       setError(caught instanceof ApiError ? caught.message : 'Could not load administration data.');
@@ -147,6 +153,62 @@ export function AdminPage(): JSX.Element {
       await load();
     } catch (caught) {
       setError(caught instanceof ApiError ? caught.message : 'Could not delete that workflow group.');
+    }
+  };
+
+  /**
+   * Where a future AI feature is allowed to send a document or a prompt.
+   * Registering one is the one thing in this product that turns on an
+   * outbound network call, and only to a private-network address: the
+   * server refuses a public one outright (docs/16-ai-integration.md §7, §12).
+   */
+  const addLlmEndpoint = async (event: FormEvent<HTMLFormElement>): Promise<void> => {
+    event.preventDefault();
+    const element = event.currentTarget;
+    const form = new FormData(element);
+    const authScheme = textField(form, 'authScheme', 'none') as LlmAuthScheme;
+    const authHeaderName = textField(form, 'authHeaderName');
+    const authSecret = textField(form, 'authSecret');
+    setBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      await api.createLlmEndpoint({
+        name: textField(form, 'name'),
+        url: textField(form, 'url'),
+        authScheme,
+        authHeaderName: authScheme === 'header' && authHeaderName ? authHeaderName : null,
+        authSecret: authSecret || null,
+      });
+      element.reset();
+      setNotice('Endpoint registered.');
+      await load();
+    } catch (caught) {
+      setError(caught instanceof ApiError ? caught.message : 'Could not register that endpoint.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const removeLlmEndpoint = async (endpoint: LlmEndpoint): Promise<void> => {
+    if (!window.confirm(`Delete the endpoint "${endpoint.name}"?`)) return;
+    setError(null);
+    try {
+      await api.deleteLlmEndpoint(endpoint.id);
+      await load();
+    } catch (caught) {
+      setError(caught instanceof ApiError ? caught.message : 'Could not delete that endpoint.');
+    }
+  };
+
+  const testEndpoint = async (endpoint: LlmEndpoint): Promise<void> => {
+    setTestResults((current) => ({ ...current, [endpoint.id]: 'Testing…' }));
+    try {
+      const result = await api.testLlmEndpoint(endpoint.id);
+      setTestResults((current) => ({ ...current, [endpoint.id]: result.message }));
+    } catch (caught) {
+      const message = caught instanceof ApiError ? caught.message : 'Could not run the test.';
+      setTestResults((current) => ({ ...current, [endpoint.id]: message }));
     }
   };
 
@@ -363,6 +425,99 @@ export function AdminPage(): JSX.Element {
                     >
                       Delete
                     </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </section>
+
+      <section>
+        <h2>LLM endpoints</h2>
+        <p className="hint">
+          Where a future AI feature is allowed to send a document or a prompt. Registering one is the
+          only thing in this product that reaches outside its own machine, and only to an address on
+          your own network: a public internet address is refused.
+        </p>
+        <form
+          className="inline-form"
+          onSubmit={(event) => {
+            void addLlmEndpoint(event);
+          }}
+        >
+          <label>
+            Endpoint name
+            <input name="name" type="text" required maxLength={200} />
+          </label>
+          <label>
+            URL
+            <input
+              name="url"
+              type="text"
+              required
+              placeholder="A private address, e.g. 10.0.0.5:8000/v1/chat/completions"
+            />
+          </label>
+          <label>
+            Authentication
+            <select name="authScheme" defaultValue="none">
+              <option value="none">None</option>
+              <option value="bearer">Bearer token</option>
+              <option value="header">Custom header</option>
+            </select>
+          </label>
+          <label>
+            Header name
+            <input name="authHeaderName" type="text" maxLength={200} placeholder="Only for a custom header" />
+          </label>
+          <label>
+            Secret
+            <input name="authSecret" type="password" placeholder="Bearer token or header value" />
+          </label>
+          <button type="submit" className="primary" disabled={busy}>
+            Register
+          </button>
+        </form>
+
+        {llmEndpoints.length === 0 ? (
+          <p className="muted">No endpoints registered yet.</p>
+        ) : (
+          <table className="grid">
+            <thead>
+              <tr>
+                <th scope="col">Name</th>
+                <th scope="col">URL</th>
+                <th scope="col">Authentication</th>
+                <th scope="col">Secret</th>
+                <th scope="col">
+                  <span className="visually-hidden">Actions</span>
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {llmEndpoints.map((endpoint) => (
+                <tr key={endpoint.id}>
+                  <td>{endpoint.name}</td>
+                  <td className="mono">{endpoint.url}</td>
+                  <td>{endpoint.authScheme}</td>
+                  <td>{endpoint.hasSecret ? 'Set' : <span className="muted">None</span>}</td>
+                  <td className="row-actions">
+                    <button type="button" onClick={() => void testEndpoint(endpoint)}>
+                      Test connection
+                    </button>
+                    <button
+                      type="button"
+                      className="danger"
+                      onClick={() => void removeLlmEndpoint(endpoint)}
+                    >
+                      Delete
+                    </button>
+                    {testResults[endpoint.id] ? (
+                      <div className="muted" role="status">
+                        {testResults[endpoint.id]}
+                      </div>
+                    ) : null}
                   </td>
                 </tr>
               ))}

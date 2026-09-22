@@ -26,9 +26,11 @@ import { registerCollabRoutes } from './routes/collab.routes.js';
 import { registerAccessRoutes } from './routes/access.routes.js';
 import { registerWordRoutes } from './routes/words.routes.js';
 import { registerWorkflowGroupRoutes } from './routes/workflowGroups.routes.js';
+import { registerLlmEndpointRoutes } from './routes/llmEndpoints.routes.js';
 import websocket from '@fastify/websocket';
 import { Rooms } from './collab/rooms.js';
 import { purgeExpiredSessions } from './services/sessions.js';
+import { loadOrCreateSecretKey } from './lib/secretKey.js';
 
 export const SESSION_COOKIE = 'docforge_session';
 
@@ -45,6 +47,8 @@ declare module 'fastify' {
     config: Config;
     /** The documents people have open together. */
     rooms: Rooms;
+    /** Encrypts and decrypts `llm_endpoints.auth_secret`. See lib/secretKey.ts. */
+    secretKey: Buffer;
     /** Rejects the request unless a valid session is present. */
     authenticate: (request: FastifyRequest) => Promise<AuthenticatedUser>;
     /** Rejects the request unless the caller is an administrator. */
@@ -105,6 +109,7 @@ export async function buildApp(options: BuildOptions = {}): Promise<FastifyInsta
   app.decorate('db', db);
   app.decorate('config', config);
   app.decorate('rooms', new Rooms(db, app.log));
+  app.decorate('secretKey', loadOrCreateSecretKey(config.llmSecretKeyFile));
   // One frame may carry a pasted picture, so the limit follows the largest
   // document the server will store rather than the library's default.
   await app.register(websocket, { options: { maxPayload: 24 * 1024 * 1024 } });
@@ -228,6 +233,7 @@ export async function buildApp(options: BuildOptions = {}): Promise<FastifyInsta
       await registerAccessRoutes(instance);
       await registerWordRoutes(instance);
       await registerWorkflowGroupRoutes(instance);
+      await registerLlmEndpointRoutes(instance);
     },
     { prefix: '/api' },
   );

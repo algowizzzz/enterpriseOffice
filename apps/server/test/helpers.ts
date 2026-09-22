@@ -20,6 +20,7 @@ export async function makeApp(): Promise<FastifyInstance> {
       loginRateLimit: 1000,
       bootstrapAdminPassword: '',
       webRoot: '/nonexistent-web-root',
+      llmSecretKeyFile: ':memory:',
     },
   });
 }

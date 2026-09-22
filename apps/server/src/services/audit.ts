@@ -33,7 +33,11 @@ export type AuditAction =
   | 'comment.removed'
   | 'workflow_group.created'
   | 'workflow_group.updated'
-  | 'workflow_group.deleted';
+  | 'workflow_group.deleted'
+  | 'llm_endpoint.created'
+  | 'llm_endpoint.updated'
+  | 'llm_endpoint.deleted'
+  | 'llm_endpoint.tested';
 
 export interface AuditEntry {
   actorId: string | null;

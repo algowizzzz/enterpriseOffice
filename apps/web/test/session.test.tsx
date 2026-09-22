@@ -19,6 +19,7 @@ vi.mock('../src/lib/api', async () => {
       listUsers: vi.fn().mockResolvedValue({ users: [] }),
       listAudit: vi.fn().mockResolvedValue({ entries: [] }),
       listWorkflowGroups: vi.fn().mockResolvedValue({ groups: [] }),
+      listLlmEndpoints: vi.fn().mockResolvedValue({ endpoints: [] }),
       createDocument: vi.fn(),
       getDocument: vi.fn(),
       exportUrl: actual.api.exportUrl,

@@ -21,6 +21,16 @@ export interface Config {
   host: string;
   port: number;
   databaseFile: string;
+  /**
+   * Where the key that encrypts `llm_endpoints.auth_secret` at rest is kept.
+   * Generated once, on first use, and read from then on: nobody types this
+   * in, unlike `bootstrapAdminPassword`, so it has no environment-variable
+   * default worth documenting for an operator, only an escape hatch for a
+   * deployment that wants it somewhere specific. The literal `:memory:`
+   * (what tests use) skips the file entirely and hands back a fresh key
+   * every time, the same convention `databaseFile` already uses.
+   */
+  llmSecretKeyFile: string;
   /** Directory holding the built web client. Served only when it exists. */
   webRoot: string;
   /** Maximum accepted upload size in bytes. */
@@ -92,6 +102,8 @@ export function loadConfig(overrides: Partial<Config> = {}): Config {
     host: process.env['DOCFORGE_HOST'] ?? '127.0.0.1',
     port: int('DOCFORGE_PORT', 8080),
     databaseFile: process.env['DOCFORGE_DB'] ?? resolve(process.cwd(), 'data/docforge.db'),
+    llmSecretKeyFile:
+      process.env['DOCFORGE_LLM_KEY_FILE'] ?? resolve(process.cwd(), 'data/.llm-secret-key'),
     webRoot: process.env['DOCFORGE_WEB_ROOT'] ?? findWebRoot(),
     // Fifty megabytes: a policy with a scanned appendix is routinely past
     // twenty-five, and a refused upload is the first thing anybody would meet.

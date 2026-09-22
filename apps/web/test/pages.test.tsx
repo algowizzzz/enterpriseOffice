@@ -27,6 +27,11 @@ vi.mock('../src/lib/api', async () => {
       createWorkflowGroup: vi.fn(),
       updateWorkflowGroup: vi.fn(),
       deleteWorkflowGroup: vi.fn(),
+      listLlmEndpoints: vi.fn(),
+      createLlmEndpoint: vi.fn(),
+      updateLlmEndpoint: vi.fn(),
+      deleteLlmEndpoint: vi.fn(),
+      testLlmEndpoint: vi.fn(),
       listDocuments: vi.fn(),
       createDocument: vi.fn(),
       getDocument: vi.fn(),
@@ -116,6 +121,7 @@ beforeEach(() => {
   mocked['listUsers'].mockResolvedValue({ users: [] });
   mocked['listAudit'].mockResolvedValue({ entries: [] });
   mocked['listWorkflowGroups'].mockResolvedValue({ groups: [] });
+  mocked['listLlmEndpoints'].mockResolvedValue({ endpoints: [] });
   mocked['listDocuments'].mockResolvedValue({ documents: [] });
 });
 
@@ -817,6 +823,125 @@ describe('administration page', () => {
 
     await user.click(await screen.findByRole('button', { name: 'Delete' }));
     await waitFor(() => expect(mocked['deleteWorkflowGroup']).toHaveBeenCalledWith('g1'));
+  });
+
+  it('says so when there are no LLM endpoints yet', async () => {
+    await renderSignedIn(<AdminPage />, ADMIN);
+    expect(await screen.findByText('No endpoints registered yet.')).toBeInTheDocument();
+  });
+
+  it('lists a registered endpoint with its authentication and whether a secret is stored', async () => {
+    mocked['listLlmEndpoints'].mockResolvedValue({
+      endpoints: [
+        {
+          id: 'e1',
+          name: 'Internal GPU box',
+          url: 'http://10.0.0.5:8000/v1/chat/completions',
+          authScheme: 'bearer',
+          authHeaderName: null,
+          hasSecret: true,
+          requestFormat: 'openai-chat',
+          createdAt: '2026-01-01T00:00:00.000Z',
+          updatedAt: '2026-01-01T00:00:00.000Z',
+          createdBy: 'u-admin',
+        },
+      ],
+    });
+    await renderSignedIn(<AdminPage />, ADMIN);
+    const row = (await screen.findByText('Internal GPU box')).closest('tr');
+    expect(row).not.toBeNull();
+    const withinRow = within(row as HTMLElement);
+    expect(withinRow.getByText('http://10.0.0.5:8000/v1/chat/completions')).toBeInTheDocument();
+    expect(withinRow.getByText('bearer')).toBeInTheDocument();
+    expect(withinRow.getByText('Set')).toBeInTheDocument();
+  });
+
+  it('registers an endpoint, sending the header name only when the scheme needs one', async () => {
+    mocked['createLlmEndpoint'].mockResolvedValue({
+      endpoint: {
+        id: 'e2',
+        name: 'Internal GPU box',
+        url: 'http://10.0.0.5:8000/v1/chat/completions',
+        authScheme: 'bearer',
+        authHeaderName: null,
+        hasSecret: true,
+        requestFormat: 'openai-chat',
+        createdAt: '2026-01-01T00:00:00.000Z',
+        updatedAt: '2026-01-01T00:00:00.000Z',
+        createdBy: 'u-admin',
+      },
+    });
+    const user = userEvent.setup();
+    await renderSignedIn(<AdminPage />, ADMIN);
+
+    await user.type(await screen.findByLabelText('Endpoint name'), 'Internal GPU box');
+    await user.type(screen.getByLabelText('URL'), 'http://10.0.0.5:8000/v1/chat/completions');
+    await user.selectOptions(screen.getByLabelText('Authentication'), 'bearer');
+    await user.type(screen.getByLabelText('Header name'), 'Should be ignored for bearer');
+    await user.type(screen.getByLabelText('Secret'), 'sk-my-secret');
+    await user.click(screen.getByRole('button', { name: 'Register' }));
+
+    await waitFor(() =>
+      expect(mocked['createLlmEndpoint']).toHaveBeenCalledWith({
+        name: 'Internal GPU box',
+        url: 'http://10.0.0.5:8000/v1/chat/completions',
+        authScheme: 'bearer',
+        authHeaderName: null,
+        authSecret: 'sk-my-secret',
+      }),
+    );
+  });
+
+  it('shows what a connection test reports', async () => {
+    mocked['listLlmEndpoints'].mockResolvedValue({
+      endpoints: [
+        {
+          id: 'e1',
+          name: 'Internal GPU box',
+          url: 'http://10.0.0.5:8000/v1/chat/completions',
+          authScheme: 'none',
+          authHeaderName: null,
+          hasSecret: false,
+          requestFormat: 'openai-chat',
+          createdAt: '2026-01-01T00:00:00.000Z',
+          updatedAt: '2026-01-01T00:00:00.000Z',
+          createdBy: 'u-admin',
+        },
+      ],
+    });
+    mocked['testLlmEndpoint'].mockResolvedValue({ ok: true, status: 200, message: 'Connected.' });
+    const user = userEvent.setup();
+    await renderSignedIn(<AdminPage />, ADMIN);
+
+    await user.click(await screen.findByRole('button', { name: 'Test connection' }));
+    expect(await screen.findByText('Connected.')).toBeInTheDocument();
+    expect(mocked['testLlmEndpoint']).toHaveBeenCalledWith('e1');
+  });
+
+  it('deletes an endpoint once the question is confirmed', async () => {
+    mocked['listLlmEndpoints'].mockResolvedValue({
+      endpoints: [
+        {
+          id: 'e1',
+          name: 'Draft endpoint',
+          url: 'http://10.0.0.5',
+          authScheme: 'none',
+          authHeaderName: null,
+          hasSecret: false,
+          requestFormat: 'openai-chat',
+          createdAt: '2026-01-01T00:00:00.000Z',
+          updatedAt: '2026-01-01T00:00:00.000Z',
+          createdBy: 'u-admin',
+        },
+      ],
+    });
+    mocked['deleteLlmEndpoint'].mockResolvedValue({ ok: true });
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    const user = userEvent.setup();
+    await renderSignedIn(<AdminPage />, ADMIN);
+
+    await user.click(await screen.findByRole('button', { name: 'Delete' }));
+    await waitFor(() => expect(mocked['deleteLlmEndpoint']).toHaveBeenCalledWith('e1'));
   });
 });
 

@@ -267,6 +267,35 @@ const MIGRATIONS: { id: string; sql: string }[] = [
       CREATE INDEX idx_workflow_groups_doc_type ON workflow_groups(doc_type);
     `,
   },
+  {
+    // Where a future AI feature is allowed to send a document or a prompt.
+    // Registering a row here is the one thing in this product that turns on
+    // an outbound network call; see docs/16-ai-integration.md §7. `url`'s
+    // host is checked at the service layer against a private-network address
+    // only, never the public internet (decided 2026-09-22, see §12).
+    // `auth_secret` is encrypted at rest (lib/crypto.ts) with a key generated
+    // once per installation (lib/secretKey.ts) and is never read back out
+    // through the API. `auth_header_name` is only meaningful when
+    // `auth_scheme` is `header`. `request_format` is a one-value enum today
+    // because only an OpenAI-compatible chat/completions body is written;
+    // it stays a CHECK constraint, the same shape `doc_type` and `role`
+    // already use, so widening it later is one migration, not a rewrite.
+    id: '0012_llm_endpoints',
+    sql: `
+      CREATE TABLE llm_endpoints (
+        id               TEXT PRIMARY KEY,
+        name             TEXT NOT NULL,
+        url              TEXT NOT NULL,
+        auth_scheme      TEXT NOT NULL DEFAULT 'none' CHECK (auth_scheme IN ('none','bearer','header')),
+        auth_header_name TEXT,
+        auth_secret      TEXT,
+        request_format   TEXT NOT NULL DEFAULT 'openai-chat' CHECK (request_format IN ('openai-chat')),
+        created_at       TEXT NOT NULL,
+        updated_at       TEXT NOT NULL,
+        created_by       TEXT NOT NULL REFERENCES users(id)
+      );
+    `,
+  },
 ];
 
 export function openDatabase(file: string): Database {

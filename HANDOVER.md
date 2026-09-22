@@ -41,12 +41,12 @@ everything below assumes it passes.
 
 | | |
 |---|---|
-| Commits | 57, all on `main` |
-| Server tests | 549 |
-| Client tests | 238 |
+| Commits | 57 on `main`, more since on `enterprise-deploy-kit` |
+| Server tests | 581 |
+| Client tests | 275 |
 | End-to-end checks | 35 |
 | Word round-trip fidelity | 1260 of 1260 measured items, across 50 documents, plus 35 from a wide corpus of three other producers |
-| Verify runs clean | Repeatedly, most recently 2026-09-22 |
+| Verify runs clean | Repeatedly, most recently 2026-09-22, after Phase 1 of `docs/16-ai-integration.md` |
 
 This section used to say 38 commits and describe comments, track changes and
 real-time co-editing as not built. Nineteen commits did exactly that in
@@ -113,8 +113,10 @@ refuse it, which is worse: a refusal is visible, silent loss is not. Hence the
     assistant" section and in `docs/15`. This is a build spec, not a plan
     only, and it is the first feature in this product's history that makes
     an outbound network call by design — read its §7 before touching
-    anything that calls out to a model, and its §12 for the two questions
-    still waiting on a decision that is not the codebase's to make.
+    anything that calls out to a model. §12's two open questions are
+    answered (private-address-only endpoints, no per-document opt-out) and
+    Phase 1 is built: `llm_endpoints`, encrypted at rest, admin-only,
+    audited, with a "Test connection" action. §10 has what phase is next.
 
 ## What to do next
 

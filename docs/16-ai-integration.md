@@ -267,6 +267,48 @@ same mistake the side session correctly avoided by not guessing:
   or `workflow_groups` either way, cheaper to add now than to retrofit
   once Chat is wired up and in use.
 
+### Answered, 2026-09-22, later the same day
+
+- **"Private address in same network."** Refuse, not warn, and with no
+  administrator override: an endpoint's URL is rejected outright at both
+  create and update unless its host resolves, without a network call, to a
+  private, loopback or link-local address; `localhost`; a bare hostname
+  with no dot (the shape of an internal DNS name with no public suffix);
+  or a name under `.internal`, `.local`, `.lan`, `.corp`, `.home` or
+  `.test`. An ordinary public domain (`api.openai.com`, `sub.example.com`)
+  is refused with a 400 and an explanation, not a warning dialog to click
+  past. Built in `apps/server/src/lib/network.ts`
+  (`isPrivateHostname`/`validateEndpointUrl`), enforced in
+  `services/llmEndpoints.ts` on both `createLlmEndpoint` and
+  `updateLlmEndpoint`, and re-checked immediately before the one call this
+  product makes to a chosen address (`testLlmEndpoint`), in case an
+  endpoint's URL changed between registration and the test. There is
+  deliberately no override field: the answer was "private address," not
+  "private address, unless somebody flips a switch."
+- **"No."** No "never send to AI" flag on a document or a document type.
+  Nothing was added to `documents` or `workflow_groups` for this, and
+  nothing should be, unless a future decision reverses it.
+
+Phase 1 (§10) is built on these answers: the `llm_endpoints` table
+(migration `0012_llm_endpoints`), `services/llmEndpoints.ts`,
+`routes/llmEndpoints.routes.ts` (admin-only, audited: `llm_endpoint.created`
+/ `.updated` / `.deleted` / `.tested`), a "Test connection" action, and the
+admin console section that registers and tests an endpoint. `auth_secret`
+is encrypted at rest with AES-256-GCM (`lib/crypto.ts`) under a key
+generated once per installation and kept beside the database
+(`lib/secretKey.ts`, `DOCFORGE_LLM_KEY_FILE` to place it elsewhere); a GET
+never returns it, only `hasSecret`. `testLlmEndpoint` is the one function
+in this codebase that reaches an address nobody bundled with the product,
+kept to an 8-second timeout and never throwing: an unreachable endpoint is
+ordinary, not a server bug. Covered by
+`apps/server/test/llm-endpoints-network.test.ts`,
+`llm-endpoints-crypto.test.ts` and `llm-endpoints.test.ts` (the last
+spins up a real loopback HTTP server to exercise a genuine request/response
+round trip, including the bearer token, without reaching outside the
+machine running the test), plus the admin-console coverage in
+`apps/web/test/pages.test.tsx`. `npm run verify` passes with these in
+place, 581 server tests and 275 client tests.
+
 ## 13. One integration point the original document could not have known
 
 `apps/web/src/pages/DocumentsPage.tsx` gained its own "Run analysis" and
