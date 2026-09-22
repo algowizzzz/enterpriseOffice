@@ -5,8 +5,12 @@ import {
   ApiError,
   DOCUMENT_TYPES,
   type AuditEntry,
+  type BodyStyle,
   type ChatSettings,
   type DocumentType,
+  type ExportTemplate,
+  type HeaderFooterSide,
+  type HeadingStyle,
   type LlmAuthScheme,
   type LlmEndpoint,
   type Role,
@@ -24,6 +28,7 @@ export function AdminPage(): JSX.Element {
   const [workflowGroups, setWorkflowGroups] = useState<WorkflowGroup[]>([]);
   const [llmEndpoints, setLlmEndpoints] = useState<LlmEndpoint[]>([]);
   const [chatSettings, setChatSettingsState] = useState<ChatSettings>({ endpointId: null });
+  const [templateDraft, setTemplateDraft] = useState<ExportTemplate | null>(null);
   const [testResults, setTestResults] = useState<Record<string, string>>({});
   const [expandedGroupId, setExpandedGroupId] = useState<string | null>(null);
   const [promptDraft, setPromptDraft] = useState('');
@@ -36,18 +41,20 @@ export function AdminPage(): JSX.Element {
 
   const load = useCallback(async () => {
     try {
-      const [{ users: list }, { entries }, { groups }, { endpoints }, settings] = await Promise.all([
+      const [{ users: list }, { entries }, { groups }, { endpoints }, settings, { template }] = await Promise.all([
         api.listUsers(),
         api.listAudit(),
         api.listWorkflowGroups(),
         api.listLlmEndpoints(),
         api.getChatSettings(),
+        api.getExportTemplate(),
       ]);
       setUsers(list);
       setAudit(entries);
       setWorkflowGroups(groups);
       setLlmEndpoints(endpoints);
       setChatSettingsState(settings);
+      setTemplateDraft(template);
       setError(null);
     } catch (caught) {
       setError(caught instanceof ApiError ? caught.message : 'Could not load administration data.');
@@ -311,6 +318,57 @@ export function AdminPage(): JSX.Element {
       setNotice('Chat settings updated.');
     } catch (caught) {
       setError(caught instanceof ApiError ? caught.message : 'Could not update chat settings.');
+    }
+  };
+
+  /**
+   * The house style for Standardized export (docs/17-standardized-export.md).
+   * Edited as a local draft and saved in one call rather than per keystroke:
+   * this form has around sixty fields, and an API call per character would
+   * be its own kind of bug.
+   */
+  const updateSide = (
+    section: 'header' | 'footer',
+    side: 'left' | 'right',
+    patch: Partial<HeaderFooterSide>,
+  ): void => {
+    setTemplateDraft((current) =>
+      current
+        ? { ...current, [section]: { ...current[section], [side]: { ...current[section][side], ...patch } } }
+        : current,
+    );
+  };
+
+  const updateHeading = (index: number, patch: Partial<HeadingStyle>): void => {
+    setTemplateDraft((current) =>
+      current
+        ? { ...current, headings: current.headings.map((h, i) => (i === index ? { ...h, ...patch } : h)) }
+        : current,
+    );
+  };
+
+  const updateBody = (patch: Partial<BodyStyle>): void => {
+    setTemplateDraft((current) => (current ? { ...current, body: { ...current.body, ...patch } } : current));
+  };
+
+  const saveExportTemplate = async (): Promise<void> => {
+    if (!templateDraft) return;
+    setBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const { template } = await api.updateExportTemplate({
+        header: templateDraft.header,
+        footer: templateDraft.footer,
+        headings: templateDraft.headings,
+        body: templateDraft.body,
+      });
+      setTemplateDraft(template);
+      setNotice('Export template saved.');
+    } catch (caught) {
+      setError(caught instanceof ApiError ? caught.message : 'Could not save the export template.');
+    } finally {
+      setBusy(false);
     }
   };
 
@@ -788,6 +846,287 @@ export function AdminPage(): JSX.Element {
             ))}
           </select>
         </label>
+      </section>
+
+      <section>
+        <h2>Export template</h2>
+        <p className="hint">
+          The house style for Standardized export: applied to any document exported that way,
+          overriding the document&rsquo;s own formatting. Header and footer content may use{' '}
+          <code>{'{{document.title}}'}</code>, <code>{'{{document.type}}'}</code>,{' '}
+          <code>{'{{date}}'}</code>, <code>{'{{page}}'}</code> and <code>{'{{pageCount}}'}</code>.
+        </p>
+        {templateDraft ? (
+          <div className="export-template-editor">
+            <h3>Header</h3>
+            <table className="grid">
+              <thead>
+                <tr>
+                  <th scope="col">Side</th>
+                  <th scope="col">Content</th>
+                  <th scope="col">Font</th>
+                  <th scope="col">Size</th>
+                  <th scope="col">Colour</th>
+                  <th scope="col">Bold</th>
+                  <th scope="col">Italic</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(['left', 'right'] as const).map((side) => (
+                  <tr key={side}>
+                    <td>{side === 'left' ? 'Left' : 'Right'}</td>
+                    <td>
+                      <input
+                        aria-label={`Header ${side} content`}
+                        value={templateDraft.header[side].content}
+                        onChange={(event) => updateSide('header', side, { content: event.target.value })}
+                      />
+                    </td>
+                    <td>
+                      <input
+                        aria-label={`Header ${side} font`}
+                        value={templateDraft.header[side].fontFamily}
+                        onChange={(event) => updateSide('header', side, { fontFamily: event.target.value })}
+                      />
+                    </td>
+                    <td>
+                      <input
+                        aria-label={`Header ${side} size`}
+                        type="number"
+                        min={6}
+                        max={96}
+                        value={templateDraft.header[side].fontSize}
+                        onChange={(event) => updateSide('header', side, { fontSize: Number(event.target.value) })}
+                      />
+                    </td>
+                    <td>
+                      <input
+                        aria-label={`Header ${side} colour`}
+                        type="color"
+                        value={templateDraft.header[side].color}
+                        onChange={(event) => updateSide('header', side, { color: event.target.value })}
+                      />
+                    </td>
+                    <td>
+                      <input
+                        aria-label={`Header ${side} bold`}
+                        type="checkbox"
+                        checked={templateDraft.header[side].bold}
+                        onChange={(event) => updateSide('header', side, { bold: event.target.checked })}
+                      />
+                    </td>
+                    <td>
+                      <input
+                        aria-label={`Header ${side} italic`}
+                        type="checkbox"
+                        checked={templateDraft.header[side].italic}
+                        onChange={(event) => updateSide('header', side, { italic: event.target.checked })}
+                      />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+
+            <h3>Footer</h3>
+            <table className="grid">
+              <thead>
+                <tr>
+                  <th scope="col">Side</th>
+                  <th scope="col">Content</th>
+                  <th scope="col">Font</th>
+                  <th scope="col">Size</th>
+                  <th scope="col">Colour</th>
+                  <th scope="col">Bold</th>
+                  <th scope="col">Italic</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(['left', 'right'] as const).map((side) => (
+                  <tr key={side}>
+                    <td>{side === 'left' ? 'Left' : 'Right'}</td>
+                    <td>
+                      <input
+                        aria-label={`Footer ${side} content`}
+                        value={templateDraft.footer[side].content}
+                        onChange={(event) => updateSide('footer', side, { content: event.target.value })}
+                      />
+                    </td>
+                    <td>
+                      <input
+                        aria-label={`Footer ${side} font`}
+                        value={templateDraft.footer[side].fontFamily}
+                        onChange={(event) => updateSide('footer', side, { fontFamily: event.target.value })}
+                      />
+                    </td>
+                    <td>
+                      <input
+                        aria-label={`Footer ${side} size`}
+                        type="number"
+                        min={6}
+                        max={96}
+                        value={templateDraft.footer[side].fontSize}
+                        onChange={(event) => updateSide('footer', side, { fontSize: Number(event.target.value) })}
+                      />
+                    </td>
+                    <td>
+                      <input
+                        aria-label={`Footer ${side} colour`}
+                        type="color"
+                        value={templateDraft.footer[side].color}
+                        onChange={(event) => updateSide('footer', side, { color: event.target.value })}
+                      />
+                    </td>
+                    <td>
+                      <input
+                        aria-label={`Footer ${side} bold`}
+                        type="checkbox"
+                        checked={templateDraft.footer[side].bold}
+                        onChange={(event) => updateSide('footer', side, { bold: event.target.checked })}
+                      />
+                    </td>
+                    <td>
+                      <input
+                        aria-label={`Footer ${side} italic`}
+                        type="checkbox"
+                        checked={templateDraft.footer[side].italic}
+                        onChange={(event) => updateSide('footer', side, { italic: event.target.checked })}
+                      />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+
+            <h3>Headings</h3>
+            <table className="grid">
+              <thead>
+                <tr>
+                  <th scope="col">Level</th>
+                  <th scope="col">Font</th>
+                  <th scope="col">Size</th>
+                  <th scope="col">Colour</th>
+                  <th scope="col">Bold</th>
+                  <th scope="col">Italic</th>
+                  <th scope="col">Space before (pt)</th>
+                  <th scope="col">Space after (pt)</th>
+                </tr>
+              </thead>
+              <tbody>
+                {templateDraft.headings.map((heading, index) => (
+                  <tr key={index}>
+                    <td>Heading {index + 1}</td>
+                    <td>
+                      <input
+                        aria-label={`Heading ${index + 1} font`}
+                        value={heading.fontFamily}
+                        onChange={(event) => updateHeading(index, { fontFamily: event.target.value })}
+                      />
+                    </td>
+                    <td>
+                      <input
+                        aria-label={`Heading ${index + 1} size`}
+                        type="number"
+                        min={6}
+                        max={96}
+                        value={heading.fontSize}
+                        onChange={(event) => updateHeading(index, { fontSize: Number(event.target.value) })}
+                      />
+                    </td>
+                    <td>
+                      <input
+                        aria-label={`Heading ${index + 1} colour`}
+                        type="color"
+                        value={heading.color}
+                        onChange={(event) => updateHeading(index, { color: event.target.value })}
+                      />
+                    </td>
+                    <td>
+                      <input
+                        aria-label={`Heading ${index + 1} bold`}
+                        type="checkbox"
+                        checked={heading.bold}
+                        onChange={(event) => updateHeading(index, { bold: event.target.checked })}
+                      />
+                    </td>
+                    <td>
+                      <input
+                        aria-label={`Heading ${index + 1} italic`}
+                        type="checkbox"
+                        checked={heading.italic}
+                        onChange={(event) => updateHeading(index, { italic: event.target.checked })}
+                      />
+                    </td>
+                    <td>
+                      <input
+                        aria-label={`Heading ${index + 1} space before`}
+                        type="number"
+                        min={0}
+                        max={144}
+                        value={heading.spacingBeforePt}
+                        onChange={(event) => updateHeading(index, { spacingBeforePt: Number(event.target.value) })}
+                      />
+                    </td>
+                    <td>
+                      <input
+                        aria-label={`Heading ${index + 1} space after`}
+                        type="number"
+                        min={0}
+                        max={144}
+                        value={heading.spacingAfterPt}
+                        onChange={(event) => updateHeading(index, { spacingAfterPt: Number(event.target.value) })}
+                      />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+
+            <h3>Body text</h3>
+            <table className="grid">
+              <thead>
+                <tr>
+                  <th scope="col">Font</th>
+                  <th scope="col">Size</th>
+                  <th scope="col">Colour</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>
+                    <input
+                      aria-label="Body font"
+                      value={templateDraft.body.fontFamily}
+                      onChange={(event) => updateBody({ fontFamily: event.target.value })}
+                    />
+                  </td>
+                  <td>
+                    <input
+                      aria-label="Body size"
+                      type="number"
+                      min={6}
+                      max={96}
+                      value={templateDraft.body.fontSize}
+                      onChange={(event) => updateBody({ fontSize: Number(event.target.value) })}
+                    />
+                  </td>
+                  <td>
+                    <input
+                      aria-label="Body colour"
+                      type="color"
+                      value={templateDraft.body.color}
+                      onChange={(event) => updateBody({ color: event.target.value })}
+                    />
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+
+            <button type="button" className="primary" disabled={busy} onClick={() => void saveExportTemplate()}>
+              Save export template
+            </button>
+          </div>
+        ) : null}
       </section>
 
       <section>

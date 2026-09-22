@@ -20,6 +20,17 @@ vi.mock('../src/lib/api', async () => {
       listAudit: vi.fn().mockResolvedValue({ entries: [] }),
       listWorkflowGroups: vi.fn().mockResolvedValue({ groups: [] }),
       listLlmEndpoints: vi.fn().mockResolvedValue({ endpoints: [] }),
+      getChatSettings: vi.fn().mockResolvedValue({ endpointId: null }),
+      getExportTemplate: vi.fn().mockResolvedValue({
+        template: {
+          header: { left: { content: '', fontFamily: 'Carlito', fontSize: 10, color: '#000000', bold: false, italic: false }, right: { content: '', fontFamily: 'Carlito', fontSize: 10, color: '#000000', bold: false, italic: false } },
+          footer: { left: { content: '', fontFamily: 'Carlito', fontSize: 10, color: '#000000', bold: false, italic: false }, right: { content: '', fontFamily: 'Carlito', fontSize: 10, color: '#000000', bold: false, italic: false } },
+          headings: Array.from({ length: 6 }, () => ({ fontFamily: 'Carlito', fontSize: 12, color: '#4472C4', bold: true, italic: false, spacingBeforePt: 12, spacingAfterPt: 6 })),
+          body: { fontFamily: 'Carlito', fontSize: 11, color: '#000000' },
+          updatedAt: '2026-01-01T00:00:00.000Z',
+          updatedBy: null,
+        },
+      }),
       createDocument: vi.fn(),
       getDocument: vi.fn(),
       exportUrl: actual.api.exportUrl,

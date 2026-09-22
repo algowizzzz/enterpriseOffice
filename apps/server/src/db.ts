@@ -403,6 +403,28 @@ const MIGRATIONS: { id: string; sql?: string; run?: (db: Database) => void }[] =
       ALTER TABLE workflow_groups DROP COLUMN output_summary;
     `,
   },
+  {
+    // The house style for "Standardized" export (docs/17-standardized-export.md):
+    // one admin-authored template, applied uniformly to any document exported
+    // this way, deliberately overriding whatever the document's own formatting
+    // is -- unlike plain `docx` export, which never touches it. One fixed-id
+    // row, the same convention `chat_settings` uses, since there is exactly one
+    // template for the first version (docs/17 §4.7); each section is its own
+    // JSON column so a later phase (logo, table style) can add a column
+    // without touching what phase 1 already reads and writes.
+    id: '0018_export_template',
+    sql: `
+      CREATE TABLE export_template (
+        id         TEXT PRIMARY KEY CHECK (id = 'singleton'),
+        header     TEXT NOT NULL,
+        footer     TEXT NOT NULL,
+        headings   TEXT NOT NULL,
+        body       TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        updated_by TEXT REFERENCES users(id) ON DELETE SET NULL
+      );
+    `,
+  },
 ];
 
 export function openDatabase(file: string): Database {

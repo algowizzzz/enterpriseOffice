@@ -41,6 +41,8 @@ vi.mock('../src/lib/api', async () => {
       setChatSettings: vi.fn(),
       sendChatMessage: vi.fn(),
       runAnalysis: vi.fn(),
+      getExportTemplate: vi.fn(),
+      updateExportTemplate: vi.fn(),
       listDocuments: vi.fn(),
       createDocument: vi.fn(),
       getDocument: vi.fn(),
@@ -73,6 +75,27 @@ const mocked = api as unknown as MockedApi;
 const ADMIN: User = { id: 'u-admin', email: 'admin@localhost', name: 'Ada Admin', role: 'admin' };
 const EDITOR: User = { id: 'u-ed', email: 'ed@localhost', name: 'Eddie Editor', role: 'editor' };
 const VIEWER: User = { id: 'u-vw', email: 'vw@localhost', name: 'Vera Viewer', role: 'viewer' };
+
+const exportTemplateFixture = () => {
+  const side = (content = '') => ({ content, fontFamily: 'Carlito', fontSize: 10, color: '#000000', bold: false, italic: false });
+  const heading = (fontSize: number) => ({
+    fontFamily: 'Carlito',
+    fontSize,
+    color: '#4472C4',
+    bold: true,
+    italic: false,
+    spacingBeforePt: 12,
+    spacingAfterPt: 6,
+  });
+  return {
+    header: { left: side(), right: side() },
+    footer: { left: side(), right: side('{{page}} of {{pageCount}}') },
+    headings: [heading(20), heading(16), heading(14), heading(12), heading(11), heading(11)],
+    body: { fontFamily: 'Carlito', fontSize: 11, color: '#000000' },
+    updatedAt: '2026-01-01T00:00:00.000Z',
+    updatedBy: null,
+  };
+};
 
 const summary = (over: Partial<DocumentSummary> = {}): DocumentSummary => ({
   id: 'doc-1',
@@ -129,6 +152,7 @@ beforeEach(() => {
   mocked['getChatSettings'].mockResolvedValue({ endpointId: null });
   mocked['listWorkflowGroupsForDocument'].mockResolvedValue({ groups: [] });
   mocked['listDocuments'].mockResolvedValue({ documents: [] });
+  mocked['getExportTemplate'].mockResolvedValue({ template: exportTemplateFixture() });
 });
 
 afterEach(() => {
@@ -995,6 +1019,48 @@ describe('administration page', () => {
 
     await user.click(await screen.findByRole('button', { name: 'Delete' }));
     await waitFor(() => expect(mocked['deleteLlmEndpoint']).toHaveBeenCalledWith('e1'));
+  });
+
+  it('loads the export template with its default values', async () => {
+    await renderSignedIn(<AdminPage />, ADMIN);
+    expect(await screen.findByRole('heading', { name: 'Body text' })).toBeInTheDocument();
+    expect(screen.getByLabelText('Body font')).toHaveValue('Carlito');
+    expect(screen.getByLabelText('Body size')).toHaveValue(11);
+    expect(screen.getByLabelText('Heading 1 font')).toHaveValue('Carlito');
+  });
+
+  it('edits a heading and the body style, then saves the whole template in one call', async () => {
+    const saved = exportTemplateFixture();
+    mocked['updateExportTemplate'].mockResolvedValue({ template: saved });
+    const user = userEvent.setup();
+    await renderSignedIn(<AdminPage />, ADMIN);
+    await screen.findByRole('heading', { name: 'Body text' });
+
+    const bodyFont = screen.getByLabelText('Body font');
+    await user.clear(bodyFont);
+    await user.type(bodyFont, 'Georgia');
+    const heading1Size = screen.getByLabelText('Heading 1 size');
+    await user.clear(heading1Size);
+    await user.type(heading1Size, '22');
+
+    await user.click(screen.getByRole('button', { name: 'Save export template' }));
+
+    await waitFor(() => expect(mocked['updateExportTemplate']).toHaveBeenCalled());
+    const call = mocked['updateExportTemplate'].mock.calls[0]![0];
+    expect(call.body.fontFamily).toBe('Georgia');
+    expect(call.headings[0].fontSize).toBe(22);
+    // Untouched fields travel unchanged, since the save writes every section at once.
+    expect(call.footer.right.content).toBe('{{page}} of {{pageCount}}');
+  });
+
+  it('refuses an unknown token, surfacing the server’s message', async () => {
+    mocked['updateExportTemplate'].mockRejectedValue(new ApiError(400, 'BAD_REQUEST', 'Unknown token {{document.owner}}.'));
+    const user = userEvent.setup();
+    await renderSignedIn(<AdminPage />, ADMIN);
+    await screen.findByRole('heading', { name: 'Body text' });
+
+    await user.click(screen.getByRole('button', { name: 'Save export template' }));
+    expect(await screen.findByText('Unknown token {{document.owner}}.')).toBeInTheDocument();
   });
 });
 

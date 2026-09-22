@@ -145,6 +145,46 @@ export interface ChatSettings {
   endpointId: string | null;
 }
 
+export interface HeaderFooterSide {
+  content: string;
+  fontFamily: string;
+  fontSize: number;
+  color: string;
+  bold: boolean;
+  italic: boolean;
+}
+
+export interface HeaderFooterConfig {
+  left: HeaderFooterSide;
+  right: HeaderFooterSide;
+}
+
+export interface HeadingStyle {
+  fontFamily: string;
+  fontSize: number;
+  color: string;
+  bold: boolean;
+  italic: boolean;
+  spacingBeforePt: number;
+  spacingAfterPt: number;
+}
+
+export interface BodyStyle {
+  fontFamily: string;
+  fontSize: number;
+  color: string;
+}
+
+export interface ExportTemplate {
+  header: HeaderFooterConfig;
+  footer: HeaderFooterConfig;
+  /** Index 0 is Heading 1 ... index 5 is Heading 6. */
+  headings: HeadingStyle[];
+  body: BodyStyle;
+  updatedAt: string;
+  updatedBy: string | null;
+}
+
 export interface ChatTurn {
   role: 'user' | 'assistant';
   content: string;
@@ -468,6 +508,17 @@ export const api = {
       method: 'POST',
       ...json({ groupId }),
     }),
+
+  getExportTemplate: () => request<{ template: ExportTemplate }>('/export-template'),
+
+  updateExportTemplate: (
+    patch: Partial<{
+      header: HeaderFooterConfig;
+      footer: HeaderFooterConfig;
+      headings: HeadingStyle[];
+      body: BodyStyle;
+    }>,
+  ) => request<{ template: ExportTemplate }>('/export-template', { method: 'PATCH', ...json(patch) }),
 };
 
 /** Trigger a browser download without leaving the page. */

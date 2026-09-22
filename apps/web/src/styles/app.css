@@ -546,6 +546,25 @@ main {
   color: var(--muted);
 }
 
+/* The Standardized-export house style form: several small tables in a row. */
+.export-template-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.export-template-editor h3 {
+  margin: 12px 0 0;
+  font-size: 0.95em;
+}
+.export-template-editor table input[type='text'],
+.export-template-editor table input:not([type]) {
+  width: 100%;
+  min-width: 90px;
+}
+.export-template-editor table input[type='number'] {
+  width: 64px;
+}
+
 /* A workflow group's prompt editor, expanded inline under its row. */
 .prompt-manager {
   display: flex;

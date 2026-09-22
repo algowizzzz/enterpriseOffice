@@ -28,6 +28,7 @@ import { registerWordRoutes } from './routes/words.routes.js';
 import { registerWorkflowGroupRoutes } from './routes/workflowGroups.routes.js';
 import { registerLlmEndpointRoutes } from './routes/llmEndpoints.routes.js';
 import { registerAiRoutes } from './routes/ai.routes.js';
+import { registerExportTemplateRoutes } from './routes/exportTemplate.routes.js';
 import websocket from '@fastify/websocket';
 import { Rooms } from './collab/rooms.js';
 import { purgeExpiredSessions } from './services/sessions.js';
@@ -236,6 +237,7 @@ export async function buildApp(options: BuildOptions = {}): Promise<FastifyInsta
       await registerWorkflowGroupRoutes(instance);
       await registerLlmEndpointRoutes(instance);
       await registerAiRoutes(instance);
+      await registerExportTemplateRoutes(instance);
     },
     { prefix: '/api' },
   );
