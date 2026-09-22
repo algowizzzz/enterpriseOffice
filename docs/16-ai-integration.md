@@ -385,3 +385,20 @@ Covered by `apps/server/test/{workflow-groups,ai-chat,ai-analysis,
 db}.test.ts` and `apps/web/test/pages.test.tsx`; `npm run verify` passes
 end to end, 606 server tests and 280 client tests, checked in a real
 browser (sign in, open a document, both AI sub-tabs, the docked launcher).
+
+### Revised further, 2026-09-22: `ribbonTab: 'home' | 'ai'` replaced
+
+The two-tab shape above did not survive contact with the rest of the
+ribbon growing (Standardized export's new buttons, in particular): "Home"
+was never really a domain, only a container for whatever had not been
+given a home of its own yet. It is gone. `EditorPage.tsx`'s ribbon is now
+five single-purpose tabs -- **Review** (track changes, comments), **Access**
+(share, lock), **Export** (every export format, page setup), **AI**
+(unchanged from above), and **History**, which performs its one action
+directly on click rather than revealing a row with a single, redundant
+button of the same name. Nothing is active by default: the formatting
+ribbon (`Toolbar.tsx`) was never gated by any of this, so there is nothing
+a neutral landing tab needs to show. See `docs/17-standardized-export.md`
+for why Export gained Page setup. 96 client tests cover the new structure;
+checked live in a browser (each tab reveals only its own row; History
+opens the version panel in one click).

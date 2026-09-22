@@ -124,6 +124,14 @@ async function openRowMenu(user: ReturnType<typeof userEvent.setup>, title: stri
   await user.click(await screen.findByRole('button', { name: `Actions for ${title}` }));
 }
 
+/** Export, history, sharing and locking each live behind their own ribbon tab now. */
+async function openRibbonTab(
+  user: ReturnType<typeof userEvent.setup>,
+  name: 'Review' | 'Access' | 'Export' | 'AI' | 'History',
+): Promise<void> {
+  await user.click(await screen.findByRole('button', { name }));
+}
+
 /** The restore control belonging to one revision in the history list. */
 async function restoreButtonFor(revision: number): Promise<HTMLElement> {
   const label = await screen.findByText(new RegExp(`Revision ${revision} by`, 'u'));
@@ -1349,6 +1357,7 @@ describe('editor page', () => {
     await user.tab();
     expect(await screen.findByRole('alert')).toHaveTextContent('Something went wrong.');
 
+    await openRibbonTab(user, 'Export');
     await user.click(screen.getByRole('button', { name: 'Export .docx' }));
     // The save still failed; downloading says nothing about that.
     expect(screen.getByRole('alert')).toHaveTextContent('Something went wrong.');
@@ -1361,7 +1370,8 @@ describe('editor page', () => {
     );
     const user = userEvent.setup();
     await renderSignedIn(<EditorPage documentId="doc-1" onBack={() => {}} />);
-    await user.click(await screen.findByRole('button', { name: 'Export .docx' }));
+    await openRibbonTab(user, 'Export');
+    await user.click(screen.getByRole('button', { name: 'Export .docx' }));
     expect(await screen.findByRole('alert')).toHaveTextContent('The export failed.');
   });
 
@@ -1376,6 +1386,7 @@ describe('editor page', () => {
     mocked['getDocument'].mockResolvedValue({ document: detail() });
     const user = userEvent.setup();
     await renderSignedIn(<EditorPage documentId="doc-1" onBack={() => {}} />);
+    await openRibbonTab(user, 'Export');
     await user.click(await screen.findByRole('button', { name: 'Export .docx' }));
     expect(downloadExport).toHaveBeenCalledWith('doc-1', 'docx');
     await user.click(screen.getByRole('button', { name: 'Export standardized' }));
@@ -1487,6 +1498,7 @@ describe('editor page', () => {
     mocked['listUsers'].mockResolvedValue({ users: [] });
     const user = userEvent.setup();
     await renderSignedIn(<EditorPage documentId="doc-1" onBack={() => {}} />);
+    await openRibbonTab(user, 'Access');
     await user.click(await screen.findByRole('button', { name: 'Share' }));
     expect(await screen.findByRole('alert')).toHaveTextContent('Something went wrong.');
   });
@@ -1498,6 +1510,7 @@ describe('editor page', () => {
     const user = userEvent.setup();
     await renderSignedIn(<EditorPage documentId="doc-1" onBack={() => {}} />);
 
+    await openRibbonTab(user, 'Access');
     await user.click(await screen.findByRole('button', { name: 'Share' }));
     expect(await screen.findByText('Not shared with anyone yet.')).toBeInTheDocument();
     await user.click(screen.getAllByRole('button', { name: 'Share' })[0] as HTMLElement);
@@ -1510,6 +1523,7 @@ describe('editor page', () => {
     mocked['listUsers'].mockResolvedValue({ users: [ADMIN] });
     const user = userEvent.setup();
     await renderSignedIn(<EditorPage documentId="doc-1" onBack={() => {}} />);
+    await openRibbonTab(user, 'Access');
     await user.click(await screen.findByRole('button', { name: 'Share' }));
     const form = document.querySelector('form.share-form') as HTMLFormElement;
     form.requestSubmit();
@@ -1525,6 +1539,7 @@ describe('editor page', () => {
     const user = userEvent.setup();
     await renderSignedIn(<EditorPage documentId="doc-1" onBack={() => {}} />);
 
+    await openRibbonTab(user, 'Access');
     await user.click(await screen.findByRole('button', { name: 'Share' }));
     expect(await screen.findByText('Sharing')).toBeInTheDocument();
     expect(screen.getByText(/Otto Other can view/u)).toBeInTheDocument();
@@ -1540,6 +1555,7 @@ describe('editor page', () => {
     const user = userEvent.setup();
     await renderSignedIn(<EditorPage documentId="doc-1" onBack={() => {}} />);
 
+    await openRibbonTab(user, 'Access');
     await user.click(await screen.findByRole('button', { name: 'Share' }));
     await user.selectOptions(await screen.findByLabelText('Person'), 'u-admin');
     await user.selectOptions(screen.getByLabelText('Permission'), 'edit');
@@ -1559,6 +1575,7 @@ describe('editor page', () => {
     const user = userEvent.setup();
     await renderSignedIn(<EditorPage documentId="doc-1" onBack={() => {}} />);
 
+    await openRibbonTab(user, 'Access');
     await user.click(await screen.findByRole('button', { name: 'Share' }));
     await user.click(await screen.findByRole('button', { name: 'Remove' }));
     await waitFor(() => expect(mocked['unshare']).toHaveBeenCalledWith('doc-1', 'u-other'));
@@ -1566,8 +1583,9 @@ describe('editor page', () => {
 
   it('hides sharing from someone who is not the owner', async () => {
     mocked['getDocument'].mockResolvedValue({ document: detail({ access: 'edit' }) });
+    const user = userEvent.setup();
     await renderSignedIn(<EditorPage documentId="doc-1" onBack={() => {}} />);
-    await screen.findByRole('button', { name: 'History' });
+    await openRibbonTab(user, 'Access');
     expect(screen.queryByRole('button', { name: 'Share' })).not.toBeInTheDocument();
   });
 
@@ -1586,6 +1604,39 @@ describe('editor page', () => {
     // A real arrow icon replaced the literal arrow character in the label.
     await user.click(await screen.findByRole('button', { name: 'Documents' }));
     expect(onBack).toHaveBeenCalled();
+  });
+
+  it('shows nothing under the ribbon until a tab is clicked, unlike the old default Home tab', async () => {
+    mocked['getDocument'].mockResolvedValue({ document: detail() });
+    await renderSignedIn(<EditorPage documentId="doc-1" onBack={() => {}} />);
+    await screen.findByRole('button', { name: 'Review' });
+    expect(screen.queryByRole('button', { name: 'Export .docx' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Track changes' })).not.toBeInTheDocument();
+  });
+
+  it('shows only the clicked tab’s own actions, hiding another tab’s when switched', async () => {
+    mocked['getDocument'].mockResolvedValue({ document: detail() });
+    const user = userEvent.setup();
+    await renderSignedIn(<EditorPage documentId="doc-1" onBack={() => {}} />);
+
+    await openRibbonTab(user, 'Review');
+    expect(screen.getByRole('button', { name: 'Track changes' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Export .docx' })).not.toBeInTheDocument();
+
+    await openRibbonTab(user, 'Export');
+    expect(screen.getByRole('button', { name: 'Export .docx' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Track changes' })).not.toBeInTheDocument();
+  });
+
+  it('opens version history directly from the History tab, with no second click', async () => {
+    mocked['getDocument'].mockResolvedValue({ document: detail() });
+    mocked['listVersions'].mockResolvedValue({
+      versions: [{ revision: 3, title: 'Q', authorName: 'E', createdAt: '2026-01-02T10:30:00.000Z' }],
+    });
+    const user = userEvent.setup();
+    await renderSignedIn(<EditorPage documentId="doc-1" onBack={() => {}} />);
+    await user.click(await screen.findByRole('button', { name: 'History' }));
+    expect(await screen.findByText('Version history')).toBeInTheDocument();
   });
 
   it('opens Chat, sends a message and shows the reply, carrying the document as context', async () => {
@@ -1672,6 +1723,7 @@ describe('page setup', () => {
     );
     expect(screen.getByLabelText('Page footer')).toHaveTextContent('Confidential');
 
+    await openRibbonTab(user, 'Export');
     await user.click(screen.getByRole('button', { name: 'Page setup' }));
     const header = screen.getByLabelText('Header');
     expect(header).toHaveValue('Company handbook');
@@ -1692,6 +1744,7 @@ describe('page setup', () => {
     });
     const user = userEvent.setup();
     await renderSignedIn(<EditorPage documentId="doc-1" onBack={() => {}} />);
+    await openRibbonTab(user, 'Export');
     await user.click(await screen.findByRole('button', { name: 'Page setup' }));
     expect(screen.getByLabelText('Orientation')).toHaveValue('landscape');
   });

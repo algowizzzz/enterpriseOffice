@@ -65,12 +65,18 @@ export function EditorPage({ documentId, onBack }: EditorPageProps): JSX.Element
   const [shares, setShares] = useState<ShareEntry[] | null>(null);
   const [setupOpen, setSetupOpen] = useState(false);
   const [navOpen, setNavOpen] = useState(false);
-  // Two top-level tabs (docs/16-ai-integration.md §2): Home, which carries
-  // everything that used to live behind a separate File tab as a section of
-  // its own rather than a further click away, and AI. Comments and Review
-  // are unaffected: they keep their own toggles regardless of which of
-  // these two is active (§11).
-  const [ribbonTab, setRibbonTab] = useState<'home' | 'ai'>('home');
+  // Five single-purpose ribbon tabs, grouped by what somebody is trying to
+  // do rather than by when the button was added -- no "Home": the
+  // formatting ribbon a person reaches for while typing (Toolbar.tsx,
+  // inside DocumentEditor below) is not gated by any of these, so there is
+  // nothing left for a neutral landing tab to show. Comments and Review
+  // share one tab (both are "a person reviewing this document"); AI stays
+  // apart, a different trust relationship, unchanged from before. Nothing
+  // is active until a tab is clicked, matching the editing surface being
+  // enough on its own by default.
+  const [ribbonTab, setRibbonTab] = useState<'review' | 'access' | 'export' | 'ai' | null>(null);
+  const toggleRibbonTab = (name: NonNullable<typeof ribbonTab>): void =>
+    setRibbonTab((current) => (current === name ? null : name));
   const [side, setSide] = useState<'comments' | 'review' | 'ai' | null>(null);
   const commentsOpen = side === 'comments';
   const setCommentsOpen = (next: boolean | ((open: boolean) => boolean)): void =>
@@ -491,42 +497,54 @@ export function EditorPage({ documentId, onBack }: EditorPageProps): JSX.Element
       </header>
 
       {/*
-       * Two top-level tabs (docs/16-ai-integration.md §2). Home carries what
-       * used to live behind a separate File tab as a section of its own,
-       * shown together with Home rather than a further click away; the
-       * formatting ribbon a person reaches for while typing is Toolbar.tsx,
-       * inside DocumentEditor below, and is not gated by either tab. AI opens
-       * the Chat/Analysis panel, which also has its own docked entry point
-       * below so it is reachable without first switching tabs.
+       * Five single-purpose ribbon tabs, grouped by what somebody is trying
+       * to do rather than by when a button was added. The formatting ribbon
+       * a person reaches for while typing (Toolbar.tsx, inside
+       * DocumentEditor below) is not gated by any of these. AI opens the
+       * Chat/Analysis panel, which also has its own docked entry point below
+       * so it is reachable without first switching tabs.
        */}
       <nav className="ribbon-tabs" aria-label="Ribbon">
+        {(
+          [
+            ['review', 'Review', GitCompareArrows],
+            ['access', 'Access', Share2],
+            ['export', 'Export', FileDown],
+            ['ai', 'AI', Sparkles],
+          ] as const
+        ).map(([key, label, Icon]) => (
+          <button
+            key={key}
+            type="button"
+            className={`ribbon-tab${ribbonTab === key ? ' is-active' : ''}`}
+            aria-pressed={ribbonTab === key}
+            onClick={() => {
+              toggleRibbonTab(key);
+              if (key === 'ai') setSide((current) => (current === 'ai' ? null : 'ai'));
+            }}
+          >
+            <IconLabel icon={Icon} size={14}>
+              {label}
+            </IconLabel>
+          </button>
+        ))}
+        {/* One action, so the tab performs it directly rather than revealing a row with a single, redundant button. */}
         <button
           type="button"
-          className={`ribbon-tab${ribbonTab === 'home' ? ' is-active' : ''}`}
-          aria-pressed={ribbonTab === 'home'}
-          onClick={() => setRibbonTab('home')}
+          className={`ribbon-tab${versions !== null ? ' is-active' : ''}`}
+          aria-pressed={versions !== null}
+          onClick={() => void openVersions()}
         >
-          Home
-        </button>
-        <button
-          type="button"
-          className={`ribbon-tab${ribbonTab === 'ai' ? ' is-active' : ''}`}
-          aria-pressed={ribbonTab === 'ai'}
-          onClick={() => {
-            setRibbonTab('ai');
-            setSide('ai');
-          }}
-        >
-          <IconLabel icon={Sparkles} size={14}>
-            AI
+          <IconLabel icon={HistoryIcon} size={14}>
+            History
           </IconLabel>
         </button>
       </nav>
       {/*
-       * A second, docked way into the same panel (docs/16 §2: "not only
+       * A second, docked way into the AI panel (docs/16 §2: "not only
        * reachable by first switching to the AI ribbon tab"), the
        * floating-launcher pattern most chat products use. Independent of
-       * `ribbonTab`, so it works from Home too.
+       * `ribbonTab`.
        */}
       <button
         type="button"
@@ -538,27 +556,9 @@ export function EditorPage({ documentId, onBack }: EditorPageProps): JSX.Element
         <Sparkles size={18} aria-hidden="true" />
         <span className="visually-hidden">Open AI panel</span>
       </button>
-      {ribbonTab === 'home' ? (
+
+      {ribbonTab === 'review' ? (
         <div className="actions ribbon-file">
-          <button type="button" onClick={() => { void download('docx'); }}>
-            <IconLabel icon={FileType}>Export .docx</IconLabel>
-          </button>
-          <button
-            type="button"
-            title="The organisation's house style: fixed header, footer and heading fonts, set in Administration"
-            onClick={() => { void download('standard'); }}
-          >
-            <IconLabel icon={FileDown}>Export standardized</IconLabel>
-          </button>
-          {document.origin === 'import' ? (
-            <button
-              type="button"
-              title="Download the file exactly as it was uploaded"
-              onClick={() => { void download('original'); }}
-            >
-              <IconLabel icon={FileText}>Original</IconLabel>
-            </button>
-          ) : null}
           <button
             type="button"
             title="Track changes as you type, and accept or reject them"
@@ -566,7 +566,7 @@ export function EditorPage({ documentId, onBack }: EditorPageProps): JSX.Element
             onClick={() => setSide((current) => (current === 'review' ? null : 'review'))}
           >
             <IconLabel icon={GitCompareArrows}>
-              Review{tracking ? ' (tracking)' : ''}
+              Track changes{tracking ? ' (tracking)' : ''}
             </IconLabel>
           </button>
           <button
@@ -579,12 +579,11 @@ export function EditorPage({ documentId, onBack }: EditorPageProps): JSX.Element
               Comments{openComments ? ` (${openComments})` : ''}
             </IconLabel>
           </button>
-          <button type="button" onClick={() => setSetupOpen((open) => !open)}>
-            <IconLabel icon={Settings2}>Page setup</IconLabel>
-          </button>
-          <button type="button" onClick={() => void openVersions()}>
-            <IconLabel icon={HistoryIcon}>History</IconLabel>
-          </button>
+        </div>
+      ) : null}
+
+      {ribbonTab === 'access' ? (
+        <div className="actions ribbon-file">
           {document.access === 'owner' ? (
             <button
               type="button"
@@ -618,6 +617,33 @@ export function EditorPage({ documentId, onBack }: EditorPageProps): JSX.Element
               <IconLabel icon={Share2}>Share</IconLabel>
             </button>
           ) : null}
+        </div>
+      ) : null}
+
+      {ribbonTab === 'export' ? (
+        <div className="actions ribbon-file">
+          <button type="button" onClick={() => { void download('docx'); }}>
+            <IconLabel icon={FileType}>Export .docx</IconLabel>
+          </button>
+          <button
+            type="button"
+            title="The organisation's house style: fixed header, footer and heading fonts, set in Administration"
+            onClick={() => { void download('standard'); }}
+          >
+            <IconLabel icon={FileDown}>Export standardized</IconLabel>
+          </button>
+          {document.origin === 'import' ? (
+            <button
+              type="button"
+              title="Download the file exactly as it was uploaded"
+              onClick={() => { void download('original'); }}
+            >
+              <IconLabel icon={FileText}>Original</IconLabel>
+            </button>
+          ) : null}
+          <button type="button" onClick={() => setSetupOpen((open) => !open)}>
+            <IconLabel icon={Settings2}>Page setup</IconLabel>
+          </button>
         </div>
       ) : null}
 
