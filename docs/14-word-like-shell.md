@@ -108,6 +108,11 @@ grep against `apps/web/test/`).
 
 ## A document assistant: interface only, on purpose
 
+**Superseded, 2026-09-22, later the same day: see `docs/16-ai-integration.md`.
+AI is now in scope.** The section below is kept as the historical record of
+what was deliberately built inert and why; it no longer describes the
+target state.
+
 On 2026-09-22, at the user's direction, three pieces of UI/admin scaffolding
 were added for a possible future document assistant, **with no model behind
 any of it**:

@@ -52,7 +52,10 @@ the exported Word file exactly as they came. Editing them means editing in Word.
 
 ## Not built
 
-Nothing from the agreed scope. Out of scope by decision: AI features, OCR of
+Nothing from the agreed scope against which this status was measured, on the
+date at the top of this document. **AI features are no longer out of scope:
+see `docs/16-ai-integration.md`, decided 2026-09-22**, after this page was
+written. Also out of scope by decision, unchanged: OCR of
 scanned PDFs, macros, mail merge, SmartArt and equation editing, single sign-on.
 Two things worth doing next, neither asked for: editing the text inside a text
 box, and controls for margins, columns and section breaks.

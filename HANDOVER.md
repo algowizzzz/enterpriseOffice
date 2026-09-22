@@ -107,6 +107,14 @@ refuse it, which is worse: a refusal is visible, silent loss is not. Hence the
     home and administration console reconsidered, the rename to DocAI, and
     the house-style/branding system, planned in technical detail but not yet
     built. Read this before doing any further UI work: it sets the order.
+15. `docs/16-ai-integration.md`, decided 2026-09-22: **AI is now in scope**,
+    superseding the "out of scope by decision" framing in `docs/11-status.md`
+    and the "no model behind this yet" framing in `docs/14`'s "A document
+    assistant" section and in `docs/15`. This is a build spec, not a plan
+    only, and it is the first feature in this product's history that makes
+    an outbound network call by design — read its §7 before touching
+    anything that calls out to a model, and its §12 for the two questions
+    still waiting on a decision that is not the codebase's to make.
 
 ## What to do next
 
