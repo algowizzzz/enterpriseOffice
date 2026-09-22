@@ -107,7 +107,9 @@ apps/server/src/
   app.ts               Fastify factory, security headers, error handling
   db.ts                schema and migrations (append a migration, never edit one)
   routes/              HTTP, validation of the request, audit entries
-  services/            all the real logic: users, sessions, documents, audit
+  services/            all the real logic: users, sessions, documents, audit, workflow groups
+                          (workflow groups are prompt configuration for a future document
+                          assistant; no route or service calls a model, see docs/14)
   docx/ooxml/          the Word reader: xml.ts, package.ts, toDocument.ts
   docx/export.ts       the Word writer
 apps/web/src/

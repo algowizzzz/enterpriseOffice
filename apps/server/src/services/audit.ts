@@ -30,7 +30,10 @@ export type AuditAction =
   | 'comment.edited'
   | 'comment.resolved'
   | 'comment.reopened'
-  | 'comment.removed';
+  | 'comment.removed'
+  | 'workflow_group.created'
+  | 'workflow_group.updated'
+  | 'workflow_group.deleted';
 
 export interface AuditEntry {
   actorId: string | null;

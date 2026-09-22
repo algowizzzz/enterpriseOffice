@@ -106,6 +106,43 @@ small quick-access cluster next to it. No new state, no test rework beyond
 whatever selectors, if any, key off the current layout (none do today, per
 grep against `apps/web/test/`).
 
+## A document assistant: interface only, on purpose
+
+On 2026-09-22, at the user's direction, three pieces of UI/admin scaffolding
+were added for a possible future document assistant, **with no model behind
+any of it**:
+
+- **`Chat`** and **`Analysis`**, two more buttons beside Review and Comments
+  in the File tab. Each opens a right-hand panel
+  (`apps/web/src/components/ChatPanel.tsx`, `AnalysisPanel.tsx`) that says
+  plainly it is not connected to a model: Chat echoes that back after
+  anything is typed, and Analysis shows a permanently disabled "Run
+  analysis" button rather than a spinner that would never resolve. Nothing
+  either panel does reaches the network or a local process.
+- **Workflow groups**, under Administration: a named set of prompts for one
+  kind of document, and a summary of what running them together is meant to
+  produce (`apps/server/src/services/workflowGroups.ts`,
+  `workflowGroups.routes.ts`, migration `0011_workflow_groups`, and a new
+  section of `AdminPage.tsx`). This is configuration storage, the same kind
+  of thing `page_setup` or a document's styles already are: creating,
+  editing and deleting a group is ordinary CRUD, admin-only, audited, with a
+  real test suite. At most one group can be the default for a given document
+  type, the same "one at a time" rule a document has one owner.
+
+**This is deliberately half of a feature.** `docs/11-status.md` says AI
+features are "out of scope by decision," which was a real decision, made for
+a real reason: the product's whole pitch is zero network calls, ever, on an
+air-gapped machine, and an assistant needs a model to talk to, either over
+the network (breaks the air gap) or bundled to run locally (real
+infrastructure: a GPU or slow CPU inference, not "unzip and run"). Building
+the interface first, and saying so in the interface itself, was a specific
+choice: it means a workflow group can be set up and reviewed today, and
+wiring an actual model to read it later is an isolated decision, not a
+rewrite of the admin console and the editor's UI at the same time. Nobody
+should read `ChatPanel.tsx` or the workflow-groups table and conclude AI
+analysis works; the panels themselves are written to make that reading hard
+to reach by accident.
+
 ## What is left, ranked, and where each idea comes from
 
 Checked against real projects rather than assumed, on 2026-09-22:

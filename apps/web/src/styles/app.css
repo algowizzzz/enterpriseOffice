@@ -331,6 +331,28 @@ main {
   border-radius: var(--radius);
 }
 
+/* A checkbox reads better beside its label than stacked under it, which is
+   what the plain flex-column `label` rule above would otherwise do. */
+.inline-form .checkbox-field {
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  padding-bottom: 6px;
+}
+
+/* A textarea in an otherwise single-line form: give it the whole row rather
+   than the width `label`'s flex-column would otherwise leave it. */
+.inline-form .full-width {
+  flex-basis: 100%;
+}
+.inline-form textarea {
+  font: inherit;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  resize: vertical;
+}
+
 /* Editor */
 
 .editor-page {
@@ -995,6 +1017,58 @@ main {
     background: none;
     border: none;
   }
+}
+
+/* Chat: a preview of a document assistant, not connected to a model. */
+.chat-panel {
+  padding: 0;
+}
+.chat-panel .comments-head,
+.chat-panel .hint {
+  padding: 12px 12px 0;
+}
+.chat-messages {
+  flex: 1;
+  min-height: 120px;
+  overflow-y: auto;
+  padding: 8px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.chat-message {
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: 10px;
+  max-width: 90%;
+  overflow-wrap: anywhere;
+}
+.chat-message-assistant {
+  align-self: flex-start;
+  background: #eef0f3;
+}
+.chat-message-me {
+  align-self: flex-end;
+  background: rgba(45, 91, 215, 0.12);
+}
+.chat-form {
+  display: flex;
+  gap: 8px;
+  padding: 10px 12px;
+  border-top: 1px solid #d9dee5;
+}
+.chat-form input {
+  flex: 1;
+}
+
+/* Analysis: the same statement every time there is nothing to show, rather
+   than a spinner that would never resolve. */
+.analysis-empty {
+  padding: 4px 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: flex-start;
 }
 
 /* Tracked changes, drawn as Word draws them. */

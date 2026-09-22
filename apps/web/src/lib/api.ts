@@ -86,6 +86,24 @@ export interface ShareEntry {
   permission: Permission;
 }
 
+/**
+ * An administrator-defined set of prompts for one kind of document, and a
+ * summary of what running them together is meant to produce. Configuration
+ * only: nothing here calls a model yet.
+ */
+export interface WorkflowGroup {
+  id: string;
+  name: string;
+  description: string;
+  docType: DocumentType | null;
+  isDefault: boolean;
+  prompts: string[];
+  outputSummary: string;
+  createdAt: string;
+  updatedAt: string;
+  createdBy: string;
+}
+
 export interface AuditEntry {
   id: string;
   createdAt: string;
@@ -281,6 +299,32 @@ export const api = {
     `/api/documents/${id}/export?format=${format}${options.changes ? `&changes=${options.changes}` : ''}${
       options.compare ? `&compare=${options.compare}` : ''
     }`,
+
+  listWorkflowGroups: () => request<{ groups: WorkflowGroup[] }>('/workflow-groups'),
+
+  createWorkflowGroup: (payload: {
+    name: string;
+    description?: string;
+    docType?: DocumentType | null;
+    isDefault?: boolean;
+    prompts?: string[];
+    outputSummary?: string;
+  }) => request<{ group: WorkflowGroup }>('/workflow-groups', { method: 'POST', ...json(payload) }),
+
+  updateWorkflowGroup: (
+    id: string,
+    payload: Partial<{
+      name: string;
+      description: string;
+      docType: DocumentType | null;
+      isDefault: boolean;
+      prompts: string[];
+      outputSummary: string;
+    }>,
+  ) => request<{ group: WorkflowGroup }>(`/workflow-groups/${id}`, { method: 'PATCH', ...json(payload) }),
+
+  deleteWorkflowGroup: (id: string) =>
+    request<{ ok: boolean }>(`/workflow-groups/${id}`, { method: 'DELETE' }),
 };
 
 /** Trigger a browser download without leaving the page. */

@@ -23,6 +23,10 @@ vi.mock('../src/lib/api', async () => {
       updateUser: vi.fn(),
       resetUserPassword: vi.fn(),
       listAudit: vi.fn(),
+      listWorkflowGroups: vi.fn(),
+      createWorkflowGroup: vi.fn(),
+      updateWorkflowGroup: vi.fn(),
+      deleteWorkflowGroup: vi.fn(),
       listDocuments: vi.fn(),
       createDocument: vi.fn(),
       getDocument: vi.fn(),
@@ -105,6 +109,7 @@ beforeEach(() => {
   (downloadExport as unknown as ReturnType<typeof vi.fn>).mockReset();
   mocked['listUsers'].mockResolvedValue({ users: [] });
   mocked['listAudit'].mockResolvedValue({ entries: [] });
+  mocked['listWorkflowGroups'].mockResolvedValue({ groups: [] });
   mocked['listDocuments'].mockResolvedValue({ documents: [] });
 });
 
@@ -513,6 +518,105 @@ describe('administration page', () => {
     });
     await renderSignedIn(<AdminPage />, ADMIN);
     expect(await screen.findByText('anonymous')).toBeInTheDocument();
+  });
+
+  it('says so when there are no workflow groups yet', async () => {
+    await renderSignedIn(<AdminPage />, ADMIN);
+    expect(await screen.findByText('No workflow groups yet.')).toBeInTheDocument();
+  });
+
+  it('lists a workflow group with its document type, default badge and prompt count', async () => {
+    mocked['listWorkflowGroups'].mockResolvedValue({
+      groups: [
+        {
+          id: 'g1',
+          name: 'Policy prompts',
+          description: 'Checked against the template.',
+          docType: 'Policy',
+          isDefault: true,
+          prompts: ['Does it name an owner?', 'Is the review date within a year?'],
+          outputSummary: 'Gaps against the template.',
+          createdAt: '2026-01-01T00:00:00.000Z',
+          updatedAt: '2026-01-01T00:00:00.000Z',
+          createdBy: 'u-admin',
+        },
+      ],
+    });
+    await renderSignedIn(<AdminPage />, ADMIN);
+    expect(await screen.findByText('Policy prompts')).toBeInTheDocument();
+    expect(screen.getByText('Checked against the template.')).toBeInTheDocument();
+    expect(screen.getByText('Gaps against the template.')).toBeInTheDocument();
+    // "Policy" also names an option in the document-type select above the
+    // table, so the row itself is what everything else here is checked against.
+    const row = screen.getByText('Policy prompts').closest('tr');
+    expect(row).not.toBeNull();
+    const withinRow = within(row as HTMLElement);
+    expect(withinRow.getByText('Policy')).toBeInTheDocument();
+    expect(withinRow.getByText('Yes')).toBeInTheDocument();
+    // Two prompts, shown as a count rather than the prompts themselves.
+    expect(withinRow.getByRole('cell', { name: '2' })).toBeInTheDocument();
+  });
+
+  it('creates a workflow group from one prompt per line and a summary of what they produce', async () => {
+    mocked['createWorkflowGroup'].mockResolvedValue({
+      group: {
+        id: 'g2',
+        name: 'Standard prompts',
+        description: '',
+        docType: 'Standard',
+        isDefault: false,
+        prompts: ['First prompt.', 'Second prompt.'],
+        outputSummary: 'A short list of gaps.',
+        createdAt: '2026-01-01T00:00:00.000Z',
+        updatedAt: '2026-01-01T00:00:00.000Z',
+        createdBy: 'u-admin',
+      },
+    });
+    const user = userEvent.setup();
+    await renderSignedIn(<AdminPage />, ADMIN);
+
+    await user.type(await screen.findByLabelText('Group name'), 'Standard prompts');
+    await user.selectOptions(screen.getByLabelText('Document type'), 'Standard');
+    await user.type(screen.getByLabelText('Prompts, one per line'), 'First prompt.\nSecond prompt.');
+    await user.type(screen.getByLabelText('Summary of the prompt outputs'), 'A short list of gaps.');
+    await user.click(screen.getByRole('button', { name: 'Add group' }));
+
+    await waitFor(() =>
+      expect(mocked['createWorkflowGroup']).toHaveBeenCalledWith({
+        name: 'Standard prompts',
+        description: '',
+        docType: 'Standard',
+        isDefault: false,
+        prompts: ['First prompt.', 'Second prompt.'],
+        outputSummary: 'A short list of gaps.',
+      }),
+    );
+  });
+
+  it('deletes a workflow group once the question is confirmed', async () => {
+    mocked['listWorkflowGroups'].mockResolvedValue({
+      groups: [
+        {
+          id: 'g1',
+          name: 'Draft group',
+          description: '',
+          docType: null,
+          isDefault: false,
+          prompts: [],
+          outputSummary: '',
+          createdAt: '2026-01-01T00:00:00.000Z',
+          updatedAt: '2026-01-01T00:00:00.000Z',
+          createdBy: 'u-admin',
+        },
+      ],
+    });
+    mocked['deleteWorkflowGroup'].mockResolvedValue({ ok: true });
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    const user = userEvent.setup();
+    await renderSignedIn(<AdminPage />, ADMIN);
+
+    await user.click(await screen.findByRole('button', { name: 'Delete' }));
+    await waitFor(() => expect(mocked['deleteWorkflowGroup']).toHaveBeenCalledWith('g1'));
   });
 });
 
@@ -1060,6 +1164,33 @@ describe('editor page', () => {
     // A real arrow icon replaced the literal arrow character in the label.
     await user.click(await screen.findByRole('button', { name: 'Documents' }));
     expect(onBack).toHaveBeenCalled();
+  });
+
+  it('opens a chat preview that sends nothing anywhere', async () => {
+    mocked['getDocument'].mockResolvedValue({ document: detail() });
+    const user = userEvent.setup();
+    await renderSignedIn(<EditorPage documentId="doc-1" onBack={() => {}} />);
+    await openFileTab(user);
+
+    await user.click(await screen.findByRole('button', { name: 'Chat' }));
+    expect(await screen.findByText('Welcome. Ask a question about this document.')).toBeInTheDocument();
+
+    await user.type(screen.getByLabelText('Message'), 'Is this connected to anything?');
+    await user.click(screen.getByRole('button', { name: 'Send' }));
+    expect(
+      await screen.findByText(/not connected to a model in this build/u),
+    ).toBeInTheDocument();
+  });
+
+  it('opens an analysis preview that states plainly it is not connected to a model', async () => {
+    mocked['getDocument'].mockResolvedValue({ document: detail() });
+    const user = userEvent.setup();
+    await renderSignedIn(<EditorPage documentId="doc-1" onBack={() => {}} />);
+    await openFileTab(user);
+
+    await user.click(await screen.findByRole('button', { name: 'Analysis' }));
+    expect(await screen.findByText('Document analysis')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Run analysis' })).toBeDisabled();
   });
 });
 

@@ -16,6 +16,8 @@ import { DocumentEditor, type SaveState } from '../components/DocumentEditor';
 import { CommentsPanel } from '../components/CommentsPanel';
 import { ReviewPanel } from '../components/ReviewPanel';
 import { NavigationPane } from '../components/NavigationPane';
+import { ChatPanel } from '../components/ChatPanel';
+import { AnalysisPanel } from '../components/AnalysisPanel';
 import { AccessRequests } from '../components/AccessRequests';
 import { IconLabel } from '../components/IconLabel';
 import {
@@ -27,10 +29,12 @@ import {
   GitCompareArrows,
   History as HistoryIcon,
   Lock as LockIcon,
+  MessageCircle,
   MessageSquare,
   PencilLine,
   Settings2,
   Share2,
+  Sparkles,
   Unlock as UnlockIcon,
 } from 'lucide-react';
 import { setTracking } from '../components/trackChanges';
@@ -66,13 +70,16 @@ export function EditorPage({ documentId, onBack }: EditorPageProps): JSX.Element
   // Export, history, sharing and locking live behind their own tab, the way
   // Word's own File tab does, rather than lined up next to the title.
   const [ribbonTab, setRibbonTab] = useState<'home' | 'file'>('home');
-  const [side, setSide] = useState<'comments' | 'review' | null>(null);
+  const [side, setSide] = useState<'comments' | 'review' | 'chat' | 'analysis' | null>(null);
   const commentsOpen = side === 'comments';
   const setCommentsOpen = (next: boolean | ((open: boolean) => boolean)): void =>
     setSide((current) => {
       const open = typeof next === 'function' ? next(current === 'comments') : next;
       return open ? 'comments' : current === 'comments' ? null : current;
     });
+  /** One slot on the right; opening one of these closes whichever else was open. */
+  const toggleSide = (name: 'review' | 'chat' | 'analysis'): void =>
+    setSide((current) => (current === name ? null : name));
   // Which text is on the page: the document, the file as it was first
   // uploaded, or what has changed between the two.
   const [view, setView] = useState<'document' | 'original' | 'redline'>('document');
@@ -552,6 +559,22 @@ export function EditorPage({ documentId, onBack }: EditorPageProps): JSX.Element
               Comments{openComments ? ` (${openComments})` : ''}
             </IconLabel>
           </button>
+          <button
+            type="button"
+            title="A preview of a document assistant. Not connected to a model in this build"
+            aria-pressed={side === 'chat'}
+            onClick={() => toggleSide('chat')}
+          >
+            <IconLabel icon={MessageCircle}>Chat</IconLabel>
+          </button>
+          <button
+            type="button"
+            title="A preview of AI-assisted analysis. Not connected to a model in this build"
+            aria-pressed={side === 'analysis'}
+            onClick={() => toggleSide('analysis')}
+          >
+            <IconLabel icon={Sparkles}>Analysis</IconLabel>
+          </button>
           <button type="button" onClick={() => setSetupOpen((open) => !open)}>
             <IconLabel icon={Settings2}>Page setup</IconLabel>
           </button>
@@ -899,6 +922,8 @@ export function EditorPage({ documentId, onBack }: EditorPageProps): JSX.Element
               onCount={setOpenComments}
             />
           ) : null}
+          {side === 'chat' ? <ChatPanel onClose={() => setSide(null)} /> : null}
+          {side === 'analysis' ? <AnalysisPanel onClose={() => setSide(null)} /> : null}
           </div>
         </div>
       </div>

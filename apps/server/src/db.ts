@@ -239,6 +239,34 @@ const MIGRATIONS: { id: string; sql: string }[] = [
       CREATE INDEX idx_document_media_hash ON document_media(hash);
     `,
   },
+  {
+    // A workflow group names a set of prompts an administrator has written
+    // for one kind of document, plus what the group's output is meant to add
+    // up to. This is configuration, not a running assistant: nothing here
+    // calls a model. It is the shape ready for that to be wired in later,
+    // the same way page_setup was carried on documents before there was
+    // anything to change it beyond the header and footer. `prompts` is a
+    // JSON array of plain strings, the same pattern as `fragments` and
+    // `styles` on document_sources: an ordered list that is only ever read
+    // and replaced whole, never queried by its contents, so a child table
+    // would only add a join nothing here needs.
+    id: '0011_workflow_groups',
+    sql: `
+      CREATE TABLE workflow_groups (
+        id             TEXT PRIMARY KEY,
+        name           TEXT NOT NULL,
+        description    TEXT NOT NULL DEFAULT '',
+        doc_type       TEXT,
+        is_default     INTEGER NOT NULL DEFAULT 0,
+        prompts        TEXT NOT NULL DEFAULT '[]',
+        output_summary TEXT NOT NULL DEFAULT '',
+        created_at     TEXT NOT NULL,
+        updated_at     TEXT NOT NULL,
+        created_by     TEXT NOT NULL REFERENCES users(id)
+      );
+      CREATE INDEX idx_workflow_groups_doc_type ON workflow_groups(doc_type);
+    `,
+  },
 ];
 
 export function openDatabase(file: string): Database {
