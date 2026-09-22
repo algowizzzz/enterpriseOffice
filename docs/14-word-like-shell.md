@@ -38,6 +38,23 @@ should be pointed at those features directly, not told they are coming.
   deliberately not here" sections were rewritten: they had not been touched
   since roughly commit 38 of 57 and still described comments, track changes
   and co-editing as unbuilt.
+- **Every text-label control became an icon**, in the toolbar and the editor
+  header: `lucide-react` (ISC, already an allowed licence), the icon set used
+  by shadcn/ui and Radix's own examples and, at 45,000+ GitHub stars, one of
+  the most widely used in the React ecosystem. A short glyph like "S" for
+  Strikethrough or "Righ" (clipped) for Align right is exactly what made the
+  toolbar read as a prototype rather than a product; a recognisable icon with
+  a tooltip is what Word, Google Docs and OnlyOffice all do instead, and it
+  incidentally fixed the label-clipping visible in the screenshot that started
+  this pass, simply because icon buttons are a fixed, small width instead of
+  however wide a word happens to be. Every button's `title`/`aria-label` was
+  left untouched, so this needed no test rewrites: 238 client tests still
+  pass, one test updated on purpose (`pages.test.tsx`, "goes back to the
+  list": the button's name changed from the literal character "← Documents"
+  to "Documents" now that a real arrow icon sits next to it, and the test was
+  asserting a cosmetic detail rather than the behaviour it meant to check).
+  `IconLabel` (`apps/web/src/components/IconLabel.tsx`) is the shared
+  icon-plus-optional-word helper both `Toolbar.tsx` and `EditorPage.tsx` use.
 
 ## Deliberately not attempted in the same pass: the tabbed ribbon
 
@@ -88,3 +105,46 @@ title bar is, and consider moving Undo/Redo (already in `Toolbar.tsx`) into a
 small quick-access cluster next to it. No new state, no test rework beyond
 whatever selectors, if any, key off the current layout (none do today, per
 grep against `apps/web/test/`).
+
+## What is left, ranked, and where each idea comes from
+
+Checked against real projects rather than assumed, on 2026-09-22:
+
+1. **Custom-styled dropdowns.** Every `<select>` (paragraph style, font, size,
+   spelling, standard tables) is still a native browser control: correct
+   height and radius were added to match the buttons in this pass, but the
+   OS still draws the control itself, which is why it still looks slightly
+   out of place next to an icon button. [shadcn/ui](https://github.com/shadcn-ui/ui)
+   and the [Radix UI](https://github.com/radix-ui/primitives) primitives it
+   is built from (both MIT, both copy-the-source rather than a heavy runtime
+   dependency) are the standard reference for an accessible, consistently
+   styled `Select`/`DropdownMenu` in React; this is the natural next
+   dependency to reach for rather than hand-rolling one.
+2. **The tabbed ribbon.** Scoped above. `docs/07-roadmap.md`'s original ranking
+   put comments and tracked changes ahead of this kind of shell work; both are
+   done now, so this is next in line.
+3. **A floating selection toolbar.** Word, Google Docs and Notion all show a
+   small toolbar next to the selection itself for the handful of things done
+   most often (bold, italic, link, comment), rather than sending the eye back
+   up to a fixed bar every time. Tiptap ships this as
+   `@tiptap/extension-bubble-menu` (MIT, same family as every other Tiptap
+   package already in `apps/web/package.json`), and the
+   [official Tiptap UI Components / Simple Editor template](https://github.com/ueberdosis/tiptap-ui-components)
+   (MIT, built by the same team as the editor engine this product already
+   runs on) is worth reading directly for how they structure exactly this: it
+   is the single closest reference available, because it is not merely
+   "popular", it is the same dependency tree.
+4. **Consolidate the header.** Eleven buttons in one row, even iconised, is
+   still eleven decisions. OnlyOffice's own tab set —
+   [File, Home, Insert, Draw, Layout, References, Collaboration, Protection,
+   Plugins](https://helpcenter.onlyoffice.com/docs/userguides/document_editor/programinterface.aspx) —
+   groups exactly this kind of thing (export, history, sharing, protection)
+   under one or two tabs rather than a flat row; Google Docs instead puts
+   everything infrequent behind a "File" menu and keeps only Share visible.
+   Either pattern beats the current flat row; the ribbon work above is the
+   natural place to make this choice, not a separate change.
+5. **Dark mode.** `app.css` already centralises colour in custom properties
+   (`--surface`, `--border`, `--text`, `--muted`, `--accent`); a
+   `@media (prefers-color-scheme: dark)` block redefining those tokens is a
+   contained, low-risk addition whenever it is prioritised, and is what the
+   Tiptap Simple Editor template above ships out of the box.

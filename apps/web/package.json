@@ -27,6 +27,7 @@
     "@tiptap/starter-kit": "^3.31.3",
     "dictionary-en": "^4.0.0",
     "dictionary-en-gb": "^3.0.0",
+    "lucide-react": "^1.47.0",
     "nspell": "^2.1.5",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",

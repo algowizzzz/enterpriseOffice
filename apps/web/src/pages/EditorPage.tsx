@@ -17,6 +17,22 @@ import { CommentsPanel } from '../components/CommentsPanel';
 import { ReviewPanel } from '../components/ReviewPanel';
 import { NavigationPane } from '../components/NavigationPane';
 import { AccessRequests } from '../components/AccessRequests';
+import { IconLabel } from '../components/IconLabel';
+import {
+  ArrowLeft,
+  Compass,
+  FileDown,
+  FileText,
+  FileType,
+  GitCompareArrows,
+  History as HistoryIcon,
+  Lock as LockIcon,
+  MessageSquare,
+  PencilLine,
+  Settings2,
+  Share2,
+  Unlock as UnlockIcon,
+} from 'lucide-react';
 import { setTracking } from '../components/trackChanges';
 import { joinShared, othersPresent, type Presence, type SharedSession } from '../lib/collab';
 import { useSession } from '../lib/session';
@@ -388,7 +404,7 @@ export function EditorPage({ documentId, onBack }: EditorPageProps): JSX.Element
     <div className="editor-page">
       <header className="editor-header">
         <button type="button" className="link" onClick={onBack}>
-          ← Documents
+          <IconLabel icon={ArrowLeft}>Documents</IconLabel>
         </button>
         <input
           className="title-input"
@@ -440,20 +456,20 @@ export function EditorPage({ documentId, onBack }: EditorPageProps): JSX.Element
             aria-pressed={navOpen}
             onClick={() => setNavOpen((open) => !open)}
           >
-            Navigation
+            <IconLabel icon={Compass}>Navigation</IconLabel>
           </button>
           <button type="button" onClick={() => { void download('docx'); }}>
-            Export .docx
+            <IconLabel icon={FileType}>Export .docx</IconLabel>
           </button>
           <button
             type="button"
             title="A paginated PDF with the header, the footer and page numbers"
             onClick={() => { void download('pdf'); }}
           >
-            Export .pdf
+            <IconLabel icon={FileDown}>Export .pdf</IconLabel>
           </button>
           <button type="button" onClick={() => { void download('txt'); }}>
-            Export .txt
+            <IconLabel icon={FileText}>Export .txt</IconLabel>
           </button>
           {document.origin === 'import' ? (
             <button
@@ -461,7 +477,7 @@ export function EditorPage({ documentId, onBack }: EditorPageProps): JSX.Element
               title="Download the file exactly as it was uploaded"
               onClick={() => { void download('original'); }}
             >
-              Original
+              <IconLabel icon={FileText}>Original</IconLabel>
             </button>
           ) : null}
           <button
@@ -470,7 +486,9 @@ export function EditorPage({ documentId, onBack }: EditorPageProps): JSX.Element
             aria-pressed={side === 'review'}
             onClick={() => setSide((current) => (current === 'review' ? null : 'review'))}
           >
-            Review{tracking ? ' (tracking)' : ''}
+            <IconLabel icon={GitCompareArrows}>
+              Review{tracking ? ' (tracking)' : ''}
+            </IconLabel>
           </button>
           <button
             type="button"
@@ -478,13 +496,15 @@ export function EditorPage({ documentId, onBack }: EditorPageProps): JSX.Element
             aria-pressed={commentsOpen}
             onClick={() => setCommentsOpen((open) => !open)}
           >
-            Comments{openComments ? ` (${openComments})` : ''}
+            <IconLabel icon={MessageSquare}>
+              Comments{openComments ? ` (${openComments})` : ''}
+            </IconLabel>
           </button>
           <button type="button" onClick={() => setSetupOpen((open) => !open)}>
-            Page setup
+            <IconLabel icon={Settings2}>Page setup</IconLabel>
           </button>
           <button type="button" onClick={() => void openVersions()}>
-            History
+            <IconLabel icon={HistoryIcon}>History</IconLabel>
           </button>
           {document.access === 'view' && !document.locked && user?.role !== 'viewer' ? (
             <button
@@ -501,7 +521,7 @@ export function EditorPage({ documentId, onBack }: EditorPageProps): JSX.Element
                   );
               }}
             >
-              Ask to edit
+              <IconLabel icon={PencilLine}>Ask to edit</IconLabel>
             </button>
           ) : null}
           {document.access === 'owner' ? (
@@ -527,12 +547,14 @@ export function EditorPage({ documentId, onBack }: EditorPageProps): JSX.Element
                 })();
               }}
             >
-              {document.locked ? 'Unlock' : 'Lock'}
+              <IconLabel icon={document.locked ? UnlockIcon : LockIcon}>
+                {document.locked ? 'Unlock' : 'Lock'}
+              </IconLabel>
             </button>
           ) : null}
           {document.access === 'owner' ? (
             <button type="button" onClick={() => void openSharing()}>
-              Share
+              <IconLabel icon={Share2}>Share</IconLabel>
             </button>
           ) : null}
         </div>
@@ -737,11 +759,16 @@ export function EditorPage({ documentId, onBack }: EditorPageProps): JSX.Element
           <nav className="view-tabs" aria-label="What is shown">
             {(
               [
-                ['document', 'Document', 'The document as it stands, for editing'],
-                ['original', 'Original', 'The document as it was first created or uploaded'],
-                ['redline', 'Redline', 'Everything that has changed since the original: removed text struck out, new text underlined'],
+                ['document', 'Document', 'The document as it stands, for editing', FileText],
+                ['original', 'Original', 'The document as it was first created or uploaded', HistoryIcon],
+                [
+                  'redline',
+                  'Redline',
+                  'Everything that has changed since the original: removed text struck out, new text underlined',
+                  GitCompareArrows,
+                ],
               ] as const
-            ).map(([name, label, hint]) => (
+            ).map(([name, label, hint, Icon]) => (
               <button
                 key={name}
                 type="button"
@@ -750,7 +777,9 @@ export function EditorPage({ documentId, onBack }: EditorPageProps): JSX.Element
                 aria-pressed={view === name}
                 onClick={() => void show(name)}
               >
-                {label}
+                <IconLabel icon={Icon} size={14}>
+                  {label}
+                </IconLabel>
               </button>
             ))}
             {view === 'redline' ? (
@@ -760,7 +789,9 @@ export function EditorPage({ documentId, onBack }: EditorPageProps): JSX.Element
                 title="Download this comparison as a Word file with revision marks that can be accepted or rejected in Word"
                 onClick={() => void download('docx', { compare: '1' })}
               >
-                Export redline to Word
+                <IconLabel icon={FileDown} size={14}>
+                  Export redline to Word
+                </IconLabel>
               </button>
             ) : null}
             {view === 'document' ? (
@@ -770,7 +801,9 @@ export function EditorPage({ documentId, onBack }: EditorPageProps): JSX.Element
                 title="Download the document with every tracked change accepted"
                 onClick={() => void download('docx', { changes: 'accepted' })}
               >
-                Export with changes accepted
+                <IconLabel icon={FileDown} size={14}>
+                  Export with changes accepted
+                </IconLabel>
               </button>
             ) : null}
           </nav>

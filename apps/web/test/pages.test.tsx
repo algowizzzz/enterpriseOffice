@@ -1034,7 +1034,8 @@ describe('editor page', () => {
     const onBack = vi.fn();
     const user = userEvent.setup();
     await renderSignedIn(<EditorPage documentId="doc-1" onBack={onBack} />);
-    await user.click(await screen.findByRole('button', { name: '← Documents' }));
+    // A real arrow icon replaced the literal arrow character in the label.
+    await user.click(await screen.findByRole('button', { name: 'Documents' }));
     expect(onBack).toHaveBeenCalled();
   });
 });

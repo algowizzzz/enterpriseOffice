@@ -1,8 +1,46 @@
-import { useCallback, useEffect, useRef, useState, type JSX } from 'react';
+import { useCallback, useEffect, useRef, useState, type JSX, type ReactNode } from 'react';
 import type { PMNode, StyleTable } from '@docforge/model';
 import type { SpellLanguage } from './spellcheck';
 import { useEditorState, type Editor } from '@tiptap/react';
 import { FONT_FAMILIES, FONT_SIZES } from './editorExtensions';
+import {
+  AlignCenter,
+  AlignJustify,
+  AlignLeft,
+  AlignRight,
+  Bold,
+  Columns3,
+  CornerDownLeft,
+  Eraser,
+  Highlighter,
+  Image as ImageIcon,
+  IndentDecrease,
+  IndentIncrease,
+  Italic,
+  Link as LinkIcon,
+  List,
+  ListOrdered,
+  ListTree,
+  Merge,
+  Minus,
+  PaintRoller,
+  Printer,
+  Quote,
+  Redo2,
+  Rows3,
+  Search,
+  SeparatorHorizontal,
+  SpellCheck2,
+  Split,
+  Strikethrough,
+  Subscript as SubscriptIcon,
+  Superscript as SuperscriptIcon,
+  Table as TableIcon,
+  TableProperties,
+  Underline,
+  Undo2,
+} from 'lucide-react';
+import { IconLabel } from './IconLabel';
 
 interface ToolbarProps {
   editor: Editor;
@@ -16,7 +54,13 @@ interface ToolbarProps {
 }
 
 interface ButtonProps {
-  label: string;
+  /**
+   * What is inside the button. `title` alone carries the accessible name and
+   * the tooltip, so this can be an icon, an icon and a word, or plain text,
+   * without ever changing what a screen reader or a test that queries by
+   * role and name sees.
+   */
+  label: ReactNode;
   title: string;
   active?: boolean;
   disabled?: boolean;
@@ -305,13 +349,13 @@ export function Toolbar({
     <div className="toolbar" role="toolbar" aria-label="Formatting" aria-disabled={disabled}>
       <div className="tool-group">
         <ToolButton
-          label="Undo"
+          label={<IconLabel icon={Undo2} />}
           title="Undo"
           disabled={disabled || !state.canUndo}
           onClick={() => chain().undo().run()}
         />
         <ToolButton
-          label="Redo"
+          label={<IconLabel icon={Redo2} />}
           title="Redo"
           disabled={disabled || !state.canRedo}
           onClick={() => chain().redo().run()}
@@ -413,49 +457,49 @@ export function Toolbar({
 
       <div className="tool-group">
         <ToolButton
-          label="B"
+          label={<IconLabel icon={Bold} />}
           title="Bold"
           active={state.bold}
           disabled={disabled}
           onClick={() => chain().toggleBold().run()}
         />
         <ToolButton
-          label="I"
+          label={<IconLabel icon={Italic} />}
           title="Italic"
           active={state.italic}
           disabled={disabled}
           onClick={() => chain().toggleItalic().run()}
         />
         <ToolButton
-          label="U"
+          label={<IconLabel icon={Underline} />}
           title="Underline"
           active={state.underline}
           disabled={disabled}
           onClick={() => chain().toggleUnderline().run()}
         />
         <ToolButton
-          label="S"
+          label={<IconLabel icon={Strikethrough} />}
           title="Strikethrough"
           active={state.strike}
           disabled={disabled}
           onClick={() => chain().toggleStrike().run()}
         />
         <ToolButton
-          label="x²"
+          label={<IconLabel icon={SuperscriptIcon} />}
           title="Superscript"
           active={state.superscript}
           disabled={disabled}
           onClick={() => chain().toggleSuperscript().run()}
         />
         <ToolButton
-          label="x₂"
+          label={<IconLabel icon={SubscriptIcon} />}
           title="Subscript"
           active={state.subscript}
           disabled={disabled}
           onClick={() => chain().toggleSubscript().run()}
         />
         <ToolButton
-          label="Mark"
+          label={<IconLabel icon={Highlighter} />}
           title="Highlight"
           active={state.highlight}
           disabled={disabled}
@@ -494,14 +538,14 @@ export function Toolbar({
           />
         </label>
         <ToolButton
-          label="Painter"
+          label={<IconLabel icon={PaintRoller} />}
           title="Format painter: copies the formatting where the cursor is. Then select the text to give it to"
           active={painting}
           disabled={disabled}
           onClick={togglePainter}
         />
         <ToolButton
-          label="Clear"
+          label={<IconLabel icon={Eraser} />}
           title="Clear formatting"
           disabled={disabled}
           onClick={() => chain().unsetAllMarks().clearNodes().run()}
@@ -509,14 +553,17 @@ export function Toolbar({
       </div>
 
       <div className="tool-group">
-        {ALIGNMENTS.map((alignment) => (
+        {(
+          [
+            ['left', AlignLeft],
+            ['center', AlignCenter],
+            ['right', AlignRight],
+            ['justify', AlignJustify],
+          ] as const
+        ).map(([alignment, Icon]) => (
           <ToolButton
             key={alignment}
-            label={
-              alignment === 'justify'
-                ? 'Just'
-                : alignment.slice(0, 1).toUpperCase() + alignment.slice(1, 4)
-            }
+            label={<IconLabel icon={Icon} />}
             title={`Align ${alignment}`}
             active={state.alignment === alignment}
             disabled={disabled}
@@ -527,34 +574,34 @@ export function Toolbar({
 
       <div className="tool-group">
         <ToolButton
-          label="Bullets"
+          label={<IconLabel icon={List} />}
           title="Bulleted list"
           active={state.bulletList}
           disabled={disabled}
           onClick={() => chain().toggleBulletList().run()}
         />
         <ToolButton
-          label="Numbers"
+          label={<IconLabel icon={ListOrdered} />}
           title="Numbered list"
           active={state.orderedList}
           disabled={disabled}
           onClick={() => chain().toggleOrderedList().run()}
         />
         <ToolButton
-          label="Quote"
+          label={<IconLabel icon={Quote} />}
           title="Block quote"
           active={state.blockquote}
           disabled={disabled}
           onClick={() => chain().toggleBlockquote().run()}
         />
         <ToolButton
-          label="Indent-"
+          label={<IconLabel icon={IndentDecrease} />}
           title="Decrease indent (in a list: up a level)"
           disabled={disabled || (!state.inList && state.indentLeft <= 0)}
           onClick={() => indent(-1)}
         />
         <ToolButton
-          label="Indent+"
+          label={<IconLabel icon={IndentIncrease} />}
           title="Increase indent (in a list: down a level)"
           disabled={disabled}
           onClick={() => indent(1)}
@@ -583,52 +630,52 @@ export function Toolbar({
       </div>
 
       <div className="tool-group">
-        <ToolButton label="Link" title="Insert link" disabled={disabled} onClick={setLink} />
-        <ToolButton label="Image" title="Insert image" disabled={disabled} onClick={insertImage} />
+        <ToolButton label={<IconLabel icon={LinkIcon} />} title="Insert link" disabled={disabled} onClick={setLink} />
+        <ToolButton label={<IconLabel icon={ImageIcon} />} title="Insert image" disabled={disabled} onClick={insertImage} />
         <ToolButton
-          label="Table"
+          label={<IconLabel icon={TableIcon} />}
           title="Insert table"
           disabled={disabled}
           onClick={() => chain().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run()}
         />
         <ToolButton
-          label="Row+"
+          label={<IconLabel icon={Rows3}>Row+</IconLabel>}
           title="Add row below"
           disabled={disabled || !state.canAddRow}
           onClick={() => chain().addRowAfter().run()}
         />
         <ToolButton
-          label="Col+"
+          label={<IconLabel icon={Columns3}>Col+</IconLabel>}
           title="Add column after"
           disabled={disabled || !state.canAddColumn}
           onClick={() => chain().addColumnAfter().run()}
         />
         <ToolButton
-          label="Del row"
+          label={<IconLabel icon={Rows3}>Del</IconLabel>}
           title="Delete row"
           disabled={disabled || !state.canDeleteRow}
           onClick={() => chain().deleteRow().run()}
         />
         <ToolButton
-          label="Del col"
+          label={<IconLabel icon={Columns3}>Del</IconLabel>}
           title="Delete column"
           disabled={disabled || !state.inTable}
           onClick={() => chain().deleteColumn().run()}
         />
         <ToolButton
-          label="Merge"
+          label={<IconLabel icon={Merge} />}
           title="Merge the selected cells"
           disabled={disabled || !state.canMerge}
           onClick={() => chain().mergeCells().run()}
         />
         <ToolButton
-          label="Split"
+          label={<IconLabel icon={Split} />}
           title="Split a merged cell"
           disabled={disabled || !state.canSplit}
           onClick={() => chain().splitCell().run()}
         />
         <ToolButton
-          label="Header"
+          label={<IconLabel icon={TableProperties}>Header</IconLabel>}
           title="Make the first row a header row, repeated at the top of each page in Word"
           disabled={disabled || !state.inTable}
           onClick={() => chain().toggleHeaderRow().run()}
@@ -643,19 +690,19 @@ export function Toolbar({
           />
         </label>
         <ToolButton
-          label="Del table"
+          label={<IconLabel icon={TableIcon}>Delete</IconLabel>}
           title="Delete the whole table"
           disabled={disabled || !state.inTable}
           onClick={() => chain().deleteTable().run()}
         />
         <ToolButton
-          label="Rule"
+          label={<IconLabel icon={Minus} />}
           title="Horizontal rule"
           disabled={disabled}
           onClick={() => chain().setHorizontalRule().run()}
         />
         <ToolButton
-          label="Break"
+          label={<IconLabel icon={SeparatorHorizontal}>Break</IconLabel>}
           title="Page break"
           disabled={disabled}
           onClick={() =>
@@ -668,7 +715,7 @@ export function Toolbar({
           }
         />
         <ToolButton
-          label="Footnote"
+          label={<IconLabel icon={CornerDownLeft}>Footnote</IconLabel>}
           title="Insert a footnote where the cursor is"
           disabled={disabled}
           onClick={() => {
@@ -680,7 +727,7 @@ export function Toolbar({
           }}
         />
         <ToolButton
-          label="Contents"
+          label={<IconLabel icon={ListTree}>Contents</IconLabel>}
           title="Insert a table of contents built from the headings. It keeps itself up to date here, and Word updates its page numbers"
           disabled={disabled}
           onClick={() =>
@@ -713,12 +760,17 @@ export function Toolbar({
       </div>
 
       <div className="tool-group">
-        {onFind ? <ToolButton label="Find" title="Find and replace (Ctrl+F)" onClick={onFind} /> : null}
+        {onFind ? (
+          <ToolButton label={<IconLabel icon={Search} />} title="Find and replace (Ctrl+F)" onClick={onFind} />
+        ) : null}
         {onSpelling ? (
           <>
             <label className="visually-hidden" htmlFor="tb-spelling">
               Spelling
             </label>
+            <span className="tool-select-icon" aria-hidden="true">
+              <SpellCheck2 size={14} />
+            </span>
             <select
               id="tb-spelling"
               className="tool-select"
@@ -732,7 +784,11 @@ export function Toolbar({
             </select>
           </>
         ) : null}
-        <ToolButton label="Print" title="Print, or save as PDF from the print dialog" onClick={() => window.print()} />
+        <ToolButton
+          label={<IconLabel icon={Printer} />}
+          title="Print, or save as PDF from the print dialog"
+          onClick={() => window.print()}
+        />
       </div>
     </div>
   );

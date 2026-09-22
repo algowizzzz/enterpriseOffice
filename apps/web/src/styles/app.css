@@ -39,6 +39,10 @@ body {
 }
 
 button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
   font: inherit;
   padding: 6px 12px;
   border: 1px solid var(--border);
@@ -46,6 +50,13 @@ button {
   background: var(--surface);
   color: var(--text);
   cursor: pointer;
+}
+
+/* Icon buttons throughout: an SVG from lucide-react, sized by the component
+   itself, that should never squash when its label wraps or its button is
+   narrow. */
+button svg {
+  flex-shrink: 0;
 }
 
 button:hover:not(:disabled) {
@@ -431,9 +442,27 @@ main {
 }
 
 .tool {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
   min-width: 30px;
-  padding: 4px 8px;
+  height: 30px;
+  padding: 4px 7px;
   font-size: 13px;
+  line-height: 1;
+}
+
+/* An icon button stays square; one with a word beside the icon (the table
+   commands, mainly, where the icon alone would be ambiguous) is free to
+   widen instead of squeezing the word. */
+.tool:has(.tool-word) {
+  min-width: auto;
+}
+
+.tool-word {
+  font-size: 12px;
+  white-space: nowrap;
 }
 
 .tool.is-active {
@@ -443,12 +472,23 @@ main {
 }
 
 .tool-select {
+  height: 30px;
   padding: 4px 6px;
   font-size: 13px;
+  border-radius: var(--radius);
 }
 
 .tool-select-narrow {
   width: 72px;
+}
+
+/* A small glyph in front of a plain <select>, so it reads as one family with
+   the icon buttons either side of it instead of a stray native control. */
+.tool-select-icon {
+  display: inline-flex;
+  align-items: center;
+  color: var(--muted);
+  margin-right: -2px;
 }
 
 .tool-color input {

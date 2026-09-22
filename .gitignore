@@ -23,4 +23,5 @@ apps/web/dist/
 data/
 release/
 THIRD-PARTY-NOTICES.txt
+sbom.cdx.json
 .cache/
