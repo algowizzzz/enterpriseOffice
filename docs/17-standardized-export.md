@@ -364,3 +364,42 @@ Covered by `apps/server/test/standard-export.test.ts` (the generated
 created a document, clicked "Export standardized", confirmed a genuine
 `.docx` came back with the admin's own font baked into `styles.xml`).
 `npm run verify` passes end to end: 621 server tests, 283 client tests.
+
+## 11. Built, 2026-09-22, later the same day: phase 3, the logo
+
+Raster only (PNG/JPEG), per §9's recommendation: this codebase has no
+SVG-sanitization code anywhere, and building one was not part of this
+phase. `services/exportTemplate.ts`'s `sniffImageMediaType` checks the
+file's own magic bytes, not its declared upload mimetype or extension --
+the same discipline `.docx` import already applies to a zip signature --
+so an SVG (or anything else) is refused regardless of what it claims to
+be, without needing a special case for it. Capped at 512 KB and
+2000×2000 pixels (`LOGO_MAX_BYTES`, `LOGO_MAX_DIMENSION`), checked with
+the existing `docx/imageSize.ts` reader already used for document images.
+
+Uploaded through its own route (`POST /export-template/logo`, real
+multipart, admin-only), not the JSON `PATCH`, and stored as its own
+columns on the same singleton row (`logo_media_type`, `logo_bytes`) so
+uploading or removing it never disturbs the text fields already saved.
+Returned to the admin UI as a data URL (`GET /export-template`'s
+`template.logo.dataUrl`) for a live preview, the same shape a document's
+own embedded pictures already use.
+
+At export time (`docx/standardTemplate.ts`), the logo is scaled to a fixed
+28px display height (proportional width) and placed as the first child of
+the footer's left-side run, ahead of its text -- a real `ImageRun`,
+embedded in `word/media/`, not a link to anything.
+
+Covered by 12 new server tests (magic-byte sniffing, the size and
+dimension caps, that an upload never touches the text fields, that
+removal actually removes it) and 2 more in `standard-export.test.ts`
+(the image is a real embedded part referenced by the footer's XML; no
+media part exists at all when no logo is set), plus 4 new admin-UI tests.
+Checked live end to end in a browser: uploaded a real PNG through the
+actual multipart route, confirmed the preview and "Remove logo" appeared,
+then downloaded a real document's Standardized export and confirmed
+`word/media/` was genuinely present in the bytes that came back.
+`npm run verify` passes end to end: 634 server tests, 290 client tests.
+
+Not built, and not part of this phase: table default styling and
+`TOC1`-`TOC3` styling (§4.5, §4.6) remain open, per §9.

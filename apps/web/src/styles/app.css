@@ -564,6 +564,20 @@ main {
 .export-template-editor table input[type='number'] {
   width: 64px;
 }
+.logo-editor {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.logo-preview {
+  max-height: 40px;
+  max-width: 160px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 4px;
+  background: var(--surface);
+}
 
 /* A workflow group's prompt editor, expanded inline under its row. */
 .prompt-manager {

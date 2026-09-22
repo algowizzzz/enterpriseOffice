@@ -175,12 +175,19 @@ export interface BodyStyle {
   color: string;
 }
 
+export interface ExportLogo {
+  mediaType: 'image/png' | 'image/jpeg';
+  dataUrl: string;
+}
+
 export interface ExportTemplate {
   header: HeaderFooterConfig;
   footer: HeaderFooterConfig;
   /** Index 0 is Heading 1 ... index 5 is Heading 6. */
   headings: HeadingStyle[];
   body: BodyStyle;
+  /** Footer, left side. Set and cleared through their own upload route, not this object's PATCH. */
+  logo: ExportLogo | null;
   updatedAt: string;
   updatedBy: string | null;
 }
@@ -519,6 +526,15 @@ export const api = {
       body: BodyStyle;
     }>,
   ) => request<{ template: ExportTemplate }>('/export-template', { method: 'PATCH', ...json(patch) }),
+
+  uploadExportLogo: (file: File) => {
+    const form = new FormData();
+    form.append('file', file, file.name);
+    return request<{ template: ExportTemplate }>('/export-template/logo', { method: 'POST', body: form });
+  },
+
+  removeExportLogo: () =>
+    request<{ template: ExportTemplate }>('/export-template/logo', { method: 'DELETE' }),
 };
 
 /** Trigger a browser download without leaving the page. */

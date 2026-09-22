@@ -43,6 +43,8 @@ vi.mock('../src/lib/api', async () => {
       runAnalysis: vi.fn(),
       getExportTemplate: vi.fn(),
       updateExportTemplate: vi.fn(),
+      uploadExportLogo: vi.fn(),
+      removeExportLogo: vi.fn(),
       listDocuments: vi.fn(),
       createDocument: vi.fn(),
       getDocument: vi.fn(),
@@ -92,6 +94,7 @@ const exportTemplateFixture = () => {
     footer: { left: side(), right: side('{{page}} of {{pageCount}}') },
     headings: [heading(20), heading(16), heading(14), heading(12), heading(11), heading(11)],
     body: { fontFamily: 'Carlito', fontSize: 11, color: '#000000' },
+    logo: null,
     updatedAt: '2026-01-01T00:00:00.000Z',
     updatedBy: null,
   };
@@ -1065,6 +1068,60 @@ describe('administration page', () => {
 
     await user.click(screen.getByRole('button', { name: 'Save export template' }));
     expect(await screen.findByText('Unknown token {{document.owner}}.')).toBeInTheDocument();
+  });
+
+  it('says so when no logo is set', async () => {
+    await renderSignedIn(<AdminPage />, ADMIN);
+    expect(await screen.findByText('No logo set.')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Remove logo' })).not.toBeInTheDocument();
+  });
+
+  it('uploads a logo and shows the preview once one is set', async () => {
+    const withLogo = { ...exportTemplateFixture(), logo: { mediaType: 'image/png', dataUrl: 'data:image/png;base64,abc' } };
+    mocked['uploadExportLogo'].mockResolvedValue({ template: withLogo });
+    const user = userEvent.setup();
+    await renderSignedIn(<AdminPage />, ADMIN);
+    await screen.findByText('No logo set.');
+
+    const file = new File(['fake'], 'logo.png', { type: 'image/png' });
+    const input = screen.getByLabelText('Logo file');
+    await user.upload(input, file);
+    await user.click(screen.getByRole('button', { name: 'Upload' }));
+
+    expect(mocked['uploadExportLogo']).toHaveBeenCalledWith(file);
+    expect(await screen.findByAltText('Current footer logo')).toHaveAttribute('src', withLogo.logo.dataUrl);
+    expect(screen.getByRole('button', { name: 'Remove logo' })).toBeInTheDocument();
+  });
+
+  it('removes the logo', async () => {
+    mocked['getExportTemplate'].mockResolvedValue({
+      template: { ...exportTemplateFixture(), logo: { mediaType: 'image/png', dataUrl: 'data:image/png;base64,abc' } },
+    });
+    mocked['removeExportLogo'].mockResolvedValue({ template: exportTemplateFixture() });
+    const user = userEvent.setup();
+    await renderSignedIn(<AdminPage />, ADMIN);
+    await screen.findByAltText('Current footer logo');
+
+    await user.click(screen.getByRole('button', { name: 'Remove logo' }));
+    expect(mocked['removeExportLogo']).toHaveBeenCalled();
+    expect(await screen.findByText('No logo set.')).toBeInTheDocument();
+  });
+
+  it('reports a logo the server refused', async () => {
+    // A browser only checks the file's declared type, not its real bytes; an
+    // SVG (or anything else) can arrive claiming to be a PNG. The server's
+    // own magic-byte check is what actually refuses it, so this test uses a
+    // file that would pass the input's own `accept` filter, the same as the
+    // real case this message exists for.
+    mocked['uploadExportLogo'].mockRejectedValue(new ApiError(415, 'UNSUPPORTED_MEDIA_TYPE', 'The logo must be a PNG or JPEG image.'));
+    const user = userEvent.setup();
+    await renderSignedIn(<AdminPage />, ADMIN);
+    await screen.findByText('No logo set.');
+
+    const file = new File(['<svg xmlns="http://www.w3.org/2000/svg"></svg>'], 'logo.png', { type: 'image/png' });
+    await user.upload(screen.getByLabelText('Logo file'), file);
+    await user.click(screen.getByRole('button', { name: 'Upload' }));
+    expect(await screen.findByText('The logo must be a PNG or JPEG image.')).toBeInTheDocument();
   });
 });
 

@@ -13,6 +13,7 @@ import {
   Document,
   Footer,
   Header,
+  ImageRun,
   PageNumber,
   PageOrientation,
   Packer,
@@ -20,9 +21,11 @@ import {
   TabStopType,
   TextRun,
   type IRunOptions,
+  type ParagraphChild,
 } from 'docx';
 import { defaultPageSetup, type PageSetup } from '@docforge/model';
-import type { ExportTemplate, HeaderFooterSide } from '../services/exportTemplate.js';
+import type { ExportLogo, ExportTemplate, HeaderFooterSide } from '../services/exportTemplate.js';
+import { measureImage } from './imageSize.js';
 
 export interface StandardTemplateContext {
   documentTitle: string;
@@ -80,14 +83,38 @@ function sideRun(side: HeaderFooterSide, ctx: StandardTemplateContext): TextRun 
 }
 
 /** Left content, a tab, then right content pushed to the page's right margin. Empty if neither side has content. */
-function runningLine(config: { left: HeaderFooterSide; right: HeaderFooterSide }, ctx: StandardTemplateContext): Paragraph[] {
-  if (!config.left.content && !config.right.content) return [];
+function runningLine(
+  config: { left: HeaderFooterSide; right: HeaderFooterSide },
+  ctx: StandardTemplateContext,
+  leadingChildren: ParagraphChild[] = [],
+): Paragraph[] {
+  if (!config.left.content && !config.right.content && leadingChildren.length === 0) return [];
   return [
     new Paragraph({
       tabStops: [{ type: TabStopType.RIGHT, position: RIGHT_TAB_STOP }],
-      children: [sideRun(config.left, ctx), new TextRun({ text: '\t' }), sideRun(config.right, ctx)],
+      children: [...leadingChildren, sideRun(config.left, ctx), new TextRun({ text: '\t' }), sideRun(config.right, ctx)],
     }),
   ];
+}
+
+/** A modest logo size for a footer line: tall enough to read, never so tall it crowds the text beside it. */
+const LOGO_DISPLAY_HEIGHT = 28;
+
+/** The footer's logo (docs/17-standardized-export.md §4.2), scaled to a fixed height, its width kept proportional. */
+function logoRun(logo: ExportLogo | null): ImageRun | null {
+  if (!logo) return null;
+  const match = /^data:(image\/(?:png|jpeg));base64,(.+)$/u.exec(logo.dataUrl);
+  if (!match) return null;
+  const mediaType = match[1];
+  const data = Buffer.from(match[2] ?? '', 'base64');
+  const size = measureImage(logo.dataUrl);
+  const height = LOGO_DISPLAY_HEIGHT;
+  const width = size && size.height > 0 ? Math.round((size.width / size.height) * height) : height;
+  return new ImageRun({
+    data,
+    type: mediaType === 'image/png' ? 'png' : 'jpg',
+    transformation: { width, height },
+  });
 }
 
 function headingDefault(style: ExportTemplate['headings'][number] | undefined) {
@@ -111,6 +138,7 @@ export async function buildStandardTemplatePackage(
   ctx: StandardTemplateContext,
   pageSetup: PageSetup = defaultPageSetup(),
 ): Promise<Buffer> {
+  const logoImage = logoRun(template.logo);
   const document = new Document({
     title: ctx.documentTitle,
     creator: 'DocForge',
@@ -140,7 +168,11 @@ export async function buildStandardTemplatePackage(
             : {}),
         },
         headers: { default: new Header({ children: runningLine(template.header, ctx) }) },
-        footers: { default: new Footer({ children: runningLine(template.footer, ctx) }) },
+        footers: {
+          default: new Footer({
+            children: runningLine(template.footer, ctx, logoImage ? [logoImage] : []),
+          }),
+        },
         children: [new Paragraph({})],
       },
     ],

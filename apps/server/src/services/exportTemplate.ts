@@ -51,12 +51,30 @@ export interface BodyStyle {
   color: string;
 }
 
+/** Raster only (PNG/JPEG), never SVG -- see migration 0019's comment for why. */
+export interface ExportLogo {
+  mediaType: 'image/png' | 'image/jpeg';
+  dataUrl: string;
+}
+
+export const LOGO_MAX_BYTES = 512 * 1024;
+export const LOGO_MAX_DIMENSION = 2000;
+
+/** Checks the file's own bytes, not the declared upload mimetype, the same discipline `.docx` import applies to a zip signature. */
+export function sniffImageMediaType(bytes: Buffer): ExportLogo['mediaType'] | null {
+  if (bytes.length >= 8 && bytes.readUInt32BE(0) === 0x89504e47) return 'image/png';
+  if (bytes.length >= 3 && bytes.readUInt16BE(0) === 0xffd8 && bytes[2] === 0xff) return 'image/jpeg';
+  return null;
+}
+
 export interface ExportTemplate {
   header: HeaderFooterConfig;
   footer: HeaderFooterConfig;
   /** Index 0 is Heading 1, ... index 5 is Heading 6. */
   headings: HeadingStyle[];
   body: BodyStyle;
+  /** Footer, left side (docs/17 §4.2). Set and cleared through its own upload route, not the JSON patch. */
+  logo: ExportLogo | null;
   updatedAt: string;
   updatedBy: string | null;
 }
@@ -100,6 +118,7 @@ export function defaultExportTemplate(): ExportTemplate {
       defaultHeading(11, { color: '#000000', bold: false, italic: true }),
     ],
     body: { fontFamily: 'Carlito', fontSize: 11, color: '#000000' },
+    logo: null,
     updatedAt: now(),
     updatedBy: null,
   };
@@ -160,7 +179,13 @@ function bodyFrom(value: unknown, fallback: BodyStyle): BodyStyle {
   };
 }
 
-/** Never throws: an unreadable or missing field falls back to the default rather than refusing the whole row. */
+/**
+ * Never throws: an unreadable or missing field falls back to the default
+ * rather than refusing the whole row. Parses the text fields only -- the
+ * logo is binary, set and cleared through its own route, and every caller
+ * here is responsible for carrying the real current `logo` value through
+ * afterwards rather than letting it reset to null.
+ */
 export function exportTemplateFrom(value: unknown, updatedAt: string, updatedBy: string | null): ExportTemplate {
   const raw = (value ?? {}) as Record<string, unknown>;
   const fallback = defaultExportTemplate();
@@ -170,6 +195,7 @@ export function exportTemplateFrom(value: unknown, updatedAt: string, updatedBy:
     footer: headerFooterFrom(raw['footer'], fallback.footer),
     headings: fallback.headings.map((defaultLevel, index) => headingFrom(headingsRaw[index], defaultLevel)),
     body: bodyFrom(raw['body'], fallback.body),
+    logo: fallback.logo,
     updatedAt,
     updatedBy,
   };
@@ -190,32 +216,48 @@ interface ExportTemplateRow {
   footer: string;
   headings: string;
   body: string;
+  logo_media_type: string | null;
+  logo_bytes: Uint8Array | null;
   updated_at: string;
   updated_by: string | null;
 }
 
-export function getExportTemplate(db: Database): ExportTemplate {
-  const row = db.prepare('SELECT * FROM export_template WHERE id = ?').get(SINGLETON_ID) as
+function getRow(db: Database): ExportTemplateRow | undefined {
+  return db.prepare('SELECT * FROM export_template WHERE id = ?').get(SINGLETON_ID) as
     | ExportTemplateRow
     | undefined;
+}
+
+function logoFrom(row: Pick<ExportTemplateRow, 'logo_media_type' | 'logo_bytes'> | undefined): ExportLogo | null {
+  if (!row?.logo_bytes || !row.logo_media_type) return null;
+  const mediaType = row.logo_media_type === 'image/png' || row.logo_media_type === 'image/jpeg' ? row.logo_media_type : null;
+  if (!mediaType) return null;
+  return { mediaType, dataUrl: `data:${mediaType};base64,${Buffer.from(row.logo_bytes).toString('base64')}` };
+}
+
+export function getExportTemplate(db: Database): ExportTemplate {
+  const row = getRow(db);
   if (!row) return defaultExportTemplate();
-  return exportTemplateFrom(
-    {
-      header: JSON.parse(row.header),
-      footer: JSON.parse(row.footer),
-      headings: JSON.parse(row.headings),
-      body: JSON.parse(row.body),
-    },
-    row.updated_at,
-    row.updated_by,
-  );
+  return {
+    ...exportTemplateFrom(
+      {
+        header: JSON.parse(row.header),
+        footer: JSON.parse(row.footer),
+        headings: JSON.parse(row.headings),
+        body: JSON.parse(row.body),
+      },
+      row.updated_at,
+      row.updated_by,
+    ),
+    logo: logoFrom(row),
+  };
 }
 
 export type ExportTemplatePatch = Partial<Pick<ExportTemplate, 'header' | 'footer' | 'headings' | 'body'>>;
 
 export function updateExportTemplate(db: Database, patch: ExportTemplatePatch, actorId: string): ExportTemplate {
   const current = getExportTemplate(db);
-  const next = exportTemplateFrom({ ...current, ...patch }, now(), actorId);
+  const merged = exportTemplateFrom({ ...current, ...patch }, now(), actorId);
   db.prepare(
     `INSERT INTO export_template (id, header, footer, headings, body, updated_at, updated_by)
      VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -224,12 +266,61 @@ export function updateExportTemplate(db: Database, patch: ExportTemplatePatch, a
        body = excluded.body, updated_at = excluded.updated_at, updated_by = excluded.updated_by`,
   ).run(
     SINGLETON_ID,
-    JSON.stringify(next.header),
-    JSON.stringify(next.footer),
-    JSON.stringify(next.headings),
-    JSON.stringify(next.body),
-    next.updatedAt,
-    next.updatedBy,
+    JSON.stringify(merged.header),
+    JSON.stringify(merged.footer),
+    JSON.stringify(merged.headings),
+    JSON.stringify(merged.body),
+    merged.updatedAt,
+    merged.updatedBy,
   );
-  return next;
+  // This route never touches the logo; carry the real one through rather
+  // than the `null` `exportTemplateFrom` had to fill in to satisfy the type.
+  return { ...merged, logo: current.logo };
+}
+
+/** Sets the footer's logo, leaving every text field as it was. Bootstraps the row with defaults if nobody has saved one yet. */
+export function setExportTemplateLogo(
+  db: Database,
+  mediaType: ExportLogo['mediaType'],
+  bytes: Buffer,
+  actorId: string,
+): ExportTemplate {
+  const current = getExportTemplate(db);
+  db.prepare(
+    `INSERT INTO export_template (id, header, footer, headings, body, logo_media_type, logo_bytes, updated_at, updated_by)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT (id) DO UPDATE SET
+       logo_media_type = excluded.logo_media_type, logo_bytes = excluded.logo_bytes,
+       updated_at = excluded.updated_at, updated_by = excluded.updated_by`,
+  ).run(
+    SINGLETON_ID,
+    JSON.stringify(current.header),
+    JSON.stringify(current.footer),
+    JSON.stringify(current.headings),
+    JSON.stringify(current.body),
+    mediaType,
+    bytes,
+    now(),
+    actorId,
+  );
+  return getExportTemplate(db);
+}
+
+export function clearExportTemplateLogo(db: Database, actorId: string): ExportTemplate {
+  const current = getExportTemplate(db);
+  db.prepare(
+    `INSERT INTO export_template (id, header, footer, headings, body, logo_media_type, logo_bytes, updated_at, updated_by)
+     VALUES (?, ?, ?, ?, ?, NULL, NULL, ?, ?)
+     ON CONFLICT (id) DO UPDATE SET
+       logo_media_type = NULL, logo_bytes = NULL, updated_at = excluded.updated_at, updated_by = excluded.updated_by`,
+  ).run(
+    SINGLETON_ID,
+    JSON.stringify(current.header),
+    JSON.stringify(current.footer),
+    JSON.stringify(current.headings),
+    JSON.stringify(current.body),
+    now(),
+    actorId,
+  );
+  return getExportTemplate(db);
 }

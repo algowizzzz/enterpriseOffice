@@ -372,6 +372,37 @@ export function AdminPage(): JSX.Element {
     }
   };
 
+  const uploadExportLogo = async (event: FormEvent<HTMLFormElement>): Promise<void> => {
+    event.preventDefault();
+    const element = event.currentTarget;
+    const input = element.elements.namedItem('logo') as HTMLInputElement | null;
+    const file = input?.files?.[0];
+    if (!file) return;
+    setBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const { template } = await api.uploadExportLogo(file);
+      setTemplateDraft(template);
+      element.reset();
+      setNotice('Logo uploaded.');
+    } catch (caught) {
+      setError(caught instanceof ApiError ? caught.message : 'Could not upload that logo.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const removeExportLogo = async (): Promise<void> => {
+    setError(null);
+    try {
+      const { template } = await api.removeExportLogo();
+      setTemplateDraft(template);
+    } catch (caught) {
+      setError(caught instanceof ApiError ? caught.message : 'Could not remove the logo.');
+    }
+  };
+
   return (
     <div className="page-wrap">
       <h1>Administration</h1>
@@ -858,6 +889,38 @@ export function AdminPage(): JSX.Element {
         </p>
         {templateDraft ? (
           <div className="export-template-editor">
+            <h3>Footer logo</h3>
+            <p className="hint">
+              Shown at the footer&rsquo;s left, beside its text. PNG or JPEG only, up to 512 KB and
+              2000&times;2000 pixels.
+            </p>
+            <div className="logo-editor">
+              {templateDraft.logo ? (
+                <img src={templateDraft.logo.dataUrl} alt="Current footer logo" className="logo-preview" />
+              ) : (
+                <span className="muted">No logo set.</span>
+              )}
+              <form
+                className="inline-form"
+                onSubmit={(event) => {
+                  void uploadExportLogo(event);
+                }}
+              >
+                <label className="visually-hidden" htmlFor="logo-upload">
+                  Logo file
+                </label>
+                <input id="logo-upload" name="logo" type="file" accept="image/png,image/jpeg" />
+                <button type="submit" disabled={busy}>
+                  Upload
+                </button>
+              </form>
+              {templateDraft.logo ? (
+                <button type="button" className="danger" onClick={() => void removeExportLogo()}>
+                  Remove logo
+                </button>
+              ) : null}
+            </div>
+
             <h3>Header</h3>
             <table className="grid">
               <thead>

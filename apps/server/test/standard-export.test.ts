@@ -81,4 +81,35 @@ describe('Standardized export', () => {
     expect(footer).toContain('House style footer');
     expect(footer).not.toContain('own footer');
   });
+
+  it('embeds the footer’s logo as a real image part', async () => {
+    const tinyPng = Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+      'base64',
+    );
+    const template = defaultExportTemplate();
+    template.logo = { mediaType: 'image/png', dataUrl: `data:image/png;base64,${tinyPng.toString('base64')}` };
+    const buffer = await exportDocx(doc, {
+      title: 'Quarterly report',
+      standardTemplate: { template, documentType: null },
+    });
+    const parts = unzipSync(new Uint8Array(buffer));
+    const imageFile = Object.keys(parts).find((name) => /^word\/media\/.+\.png$/u.test(name));
+    expect(imageFile).toBeDefined();
+    expect(Buffer.from(parts[imageFile as string]!)).toEqual(tinyPng);
+
+    const footerFile = Object.keys(parts).find((name) => /^word\/footer\d+\.xml$/u.test(name));
+    const footer = strFromU8(parts[footerFile as string]!);
+    expect(footer).toContain('<w:drawing>');
+  });
+
+  it('produces no footer image part when no logo is set', async () => {
+    const template = defaultExportTemplate();
+    const buffer = await exportDocx(doc, {
+      title: 'Quarterly report',
+      standardTemplate: { template, documentType: null },
+    });
+    const parts = unzipSync(new Uint8Array(buffer));
+    expect(Object.keys(parts).some((name) => /^word\/media\//u.test(name))).toBe(false);
+  });
 });

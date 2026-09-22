@@ -425,6 +425,19 @@ const MIGRATIONS: { id: string; sql?: string; run?: (db: Database) => void }[] =
       );
     `,
   },
+  {
+    // The footer's logo (docs/17-standardized-export.md §4.2): raster only
+    // (PNG/JPEG), never SVG, because this codebase has no SVG-sanitization
+    // code anywhere and an SVG can carry a script or a remote reference in
+    // a way a raster header check cannot. Columns rather than a separate
+    // table, since there is exactly one logo, the same reasoning as the
+    // singleton row itself.
+    id: '0019_export_template_logo',
+    sql: `
+      ALTER TABLE export_template ADD COLUMN logo_media_type TEXT;
+      ALTER TABLE export_template ADD COLUMN logo_bytes BLOB;
+    `,
+  },
 ];
 
 export function openDatabase(file: string): Database {

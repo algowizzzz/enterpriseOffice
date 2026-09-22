@@ -1,8 +1,19 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { badRequest } from '../errors.js';
+import { badRequest, payloadTooLarge, unsupportedMedia } from '../errors.js';
 import { recordAudit } from '../services/audit.js';
-import { KNOWN_TOKENS, getExportTemplate, unknownTokensIn, updateExportTemplate } from '../services/exportTemplate.js';
+import {
+  KNOWN_TOKENS,
+  LOGO_MAX_BYTES,
+  LOGO_MAX_DIMENSION,
+  clearExportTemplateLogo,
+  getExportTemplate,
+  setExportTemplateLogo,
+  sniffImageMediaType,
+  unknownTokensIn,
+  updateExportTemplate,
+} from '../services/exportTemplate.js';
+import { measureImage } from '../docx/imageSize.js';
 
 const hexColor = z.string().regex(/^#[0-9a-fA-F]{6}$/u, 'Must be a hex colour, e.g. #4472C4');
 
@@ -78,6 +89,50 @@ export async function registerExportTemplateRoutes(app: FastifyInstance): Promis
       action: 'export_template.updated',
       targetType: 'export_template',
       detail: { sections: Object.keys(body) },
+      ip: request.ip,
+    });
+    return { template: updated };
+  });
+
+  app.post('/export-template/logo', async (request) => {
+    const actor = await app.requireAdmin(request);
+    const file = await request.file();
+    if (!file) throw badRequest('Attach a PNG or JPEG image.');
+    const buffer = await file.toBuffer();
+    if (file.file.truncated || buffer.length > LOGO_MAX_BYTES) {
+      throw payloadTooLarge(`The logo must be under ${Math.round(LOGO_MAX_BYTES / 1024)} KB.`);
+    }
+    if (buffer.length === 0) throw badRequest('That file is empty.');
+    // The file's own bytes decide the type, not the declared upload
+    // mimetype or its extension -- the same discipline `.docx` import
+    // applies to a zip signature. SVG is refused by construction: it never
+    // matches either magic-byte check, so it never needs a special case
+    // (docs/17-standardized-export.md §4.2 -- no sanitizer exists for it).
+    const mediaType = sniffImageMediaType(buffer);
+    if (!mediaType) throw unsupportedMedia('The logo must be a PNG or JPEG image.');
+    const size = measureImage(`data:${mediaType};base64,${buffer.toString('base64')}`);
+    if (!size || size.width > LOGO_MAX_DIMENSION || size.height > LOGO_MAX_DIMENSION) {
+      throw badRequest(`The logo must be ${LOGO_MAX_DIMENSION}×${LOGO_MAX_DIMENSION} pixels or smaller.`);
+    }
+    const updated = setExportTemplateLogo(app.db, mediaType, buffer, actor.id);
+    recordAudit(app.db, {
+      actorId: actor.id,
+      action: 'export_template.updated',
+      targetType: 'export_template',
+      detail: { sections: ['logo'] },
+      ip: request.ip,
+    });
+    return { template: updated };
+  });
+
+  app.delete('/export-template/logo', async (request) => {
+    const actor = await app.requireAdmin(request);
+    const updated = clearExportTemplateLogo(app.db, actor.id);
+    recordAudit(app.db, {
+      actorId: actor.id,
+      action: 'export_template.updated',
+      targetType: 'export_template',
+      detail: { sections: ['logo'], removed: true },
       ip: request.ip,
     });
     return { template: updated };
