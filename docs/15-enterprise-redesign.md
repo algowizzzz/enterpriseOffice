@@ -49,7 +49,7 @@ once the new interface exists to put it in; renaming it into the current
 interface and then redesigning around it is two changes to the same
 surface. The internal package/env names should very likely never change.
 
-## 2. A design system, not a icon pass
+## 2. A design system, not an icon pass
 
 Checked against two real references before proposing anything, since this
 is exactly the kind of claim that should not be asserted from memory:
@@ -101,7 +101,90 @@ everything visual after it, because a redesign built on nine tokens will
 need redoing the next time someone asks for dark mode or a different
 accent colour.
 
-## 3. Information architecture: three surfaces, reconsidered
+**Two concrete asks fall directly out of having this token layer, added
+2026-09-22:**
+
+- **A site-wide font-size control**, a dropdown (not only the editor's own
+  zoom, which resizes the page, not the interface around it) that scales
+  the type-scale tokens above — one CSS custom property, `--type-scale`,
+  multiplying every token's size, switched from a control in the nav bar
+  and kept in `localStorage` the way spelling and zoom already are per
+  browser. Small, and worth building as part of the token rewrite itself
+  rather than after it, since it is the first real proof the tokens work.
+- **A switchable theme**, light and dark, from a control in the UI rather
+  than only `prefers-color-scheme`. This is what the token layer is *for*:
+  a second set of values for the same token names
+  (`:root[data-theme="dark"]`), swapped by one attribute on `<html>`,
+  touching no component. The specific ask was a theme "based on
+  www.bmo.com" for light and a dark-navy theme for dark. **The first half
+  of that is not something to build**: styling this product to visually
+  match a specific real company's public website is exactly what this
+  project's own rule against client-identifying content exists to prevent
+  — the rule is not only about the word "BMO" appearing in a file, it is
+  about a customer being identifiable by implication, and a theme built to
+  look like a specific bank's site does that as plainly as the name would.
+  It is also a real brand risk in its own right: a public repository
+  visually imitating a specific financial institution's site, unauthorised,
+  reads as impersonation regardless of intent. **What is worth building
+  instead**: a light theme in a generic, professional "enterprise blue" —
+  the register of colour every bank, insurer and consultancy's software
+  uses, without matching any one of them — and a dark theme in a dark navy
+  background, exactly as asked, since a dark theme built from a colour
+  family is not the same claim as a theme built to resemble one company's
+  actual site. Both come from the token layer above; neither needs a
+  screenshot of anyone's website to build.
+
+## 3. A vendored front-end library: Bootstrap, not jQuery
+
+Also relayed 2026-09-22: use Bootstrap and jQuery, style tables with
+Bootstrap's own table styling, vendor both rather than loading either from
+a CDN, and do not use a table plugin (DataTables was named specifically).
+
+**Bootstrap: yes, and it fits what section 2 already proposes.** Bootstrap
+(MIT) ships exactly the kind of token system section 2 argues for — colour,
+spacing, a type scale, a grid — battle-tested across more production
+software than a bespoke system will be for years. Vendoring it is no
+different from the two spelling dictionaries already vendored: download it
+once at build time, commit the lockfile, ship the file, no runtime fetch,
+`npm run audit:airgap` unaffected because nothing calls out to a CDN. It
+can supply the token *values* section 2 names, or sit underneath them as
+the layer those tokens reference — either way, it replaces months of
+building a design system from nothing with adopting one, which is the
+right trade for a two-person team competing with products built by much
+larger ones. Bootstrap's own table classes (`.table`, `.table-striped`,
+`.table-hover`) are a reasonable match for `.grid` throughout the app today
+and would need no new component, only a class rename.
+
+**jQuery: no, and this is worth saying plainly rather than quietly
+dropping.** The entire client is React — the document editor is Tiptap,
+which is built on React bindings and cannot be rebuilt in jQuery without
+replacing the editor itself, which is most of this product. Every other
+page (Documents, Administration, sign-in) is React too. Adding jQuery
+alongside React is not "using two good tools together": jQuery and React
+both want to own the same DOM nodes, and a well-known, well-documented
+class of bug is exactly this pairing — jQuery detaches or rewrites a node
+React still thinks it manages, and the next render throws or silently
+loses the change. React already does everything jQuery is for (DOM
+updates, event handling) in a way the whole rest of this codebase, and its
+2,000-plus tests, already assume. Recommendation: take the request as "a
+polished, battle-tested visual library, vendored, no CDN, no home-grown
+plugins" — which Bootstrap's CSS alone delivers in full — and leave jQuery
+out, because the thing it would be used for is a thing this codebase
+already has a better, safer tool for.
+
+**No DataTables, and every table gets pagination, sort, search, and a
+configurable page size — hand-built, not a plugin.** This was going to be
+true regardless: `.grid` (Documents, Accounts, Audit trail, Workflow
+groups) is plain React already, so "no DataTables" costs nothing — the
+alternative was never a jQuery plugin, it was a small `useTable`-style hook
+(sort state, a search string filtered client-side, a page-size dropdown
+defaulting to a sensible number, kept in `localStorage` per table the way
+zoom and spelling already are) applied to every `.grid` in the app. Audit
+trail already paginates server-side (`limit`/`offset` in `GET /audit`); the
+others do not yet and would need the same, once a table is expected to
+hold more than what fits one screen.
+
+## 4. Information architecture: three surfaces, reconsidered
 
 **Documents home.** Today: a title, two buttons, an upload-options strip
 that is always visible even to someone who is not uploading anything, and a
@@ -134,7 +217,7 @@ settings shell pattern (Accounts, Workflow groups, House style, Audit
 trail, each its own page) rather than one page that scrolls further every
 time a feature is added.
 
-## 4. House style: what "don't build it yet" actually needs, thought through
+## 5. House style: what "don't build it yet" actually needs, thought through
 
 The ask, restated precisely: an administrator sets, once, what every
 exported document should look like — the colour and font of each heading
@@ -215,22 +298,30 @@ its own piece of work, not folded into the visual redesign above, because
 its risk (touching the Word writer) and its reward (a real product
 capability) are both different in kind from a CSS rewrite.
 
-## 5. Sequencing
+## 6. Sequencing
 
-1. **Design tokens** (section 2): the precondition for everything visual;
-   touches only `app.css`, no behaviour changes, so it is the lowest-risk
-   place to start and the thing every later step should be built against.
-2. **Documents home redesign** (section 3): the page every session starts
-   on, and the one most recently touched, so the context is freshest.
-3. **The tabbed ribbon** (already scoped in `docs/14`): the largest single
+1. **Design tokens, the font-size control and the theme switch** (section
+   2): the precondition for everything visual; touches only `app.css` plus
+   one small nav-bar control each, no behaviour changes to anything else,
+   so it is the lowest-risk place to start and the thing every later step
+   should be built against.
+2. **Vendor Bootstrap** (section 3): brings in the colour, spacing and type
+   values section 2 needs rather than inventing them, and the `.grid` →
+   Bootstrap table class rename. jQuery is not part of this step, for the
+   reasons in section 3.
+3. **Documents home redesign, including per-table sort/search/pagination/
+   page size** (section 4): the page every session starts on, and the one
+   most recently touched, so the context is freshest.
+4. **The tabbed ribbon** (already scoped in `docs/14`): the largest single
    piece of UI work outstanding, now built against the token system instead
    of ad hoc values.
-4. **Administration as a left-nav shell** (section 3): needed regardless of
-   whether house style ships, since workflow groups already made the single
-   page too long.
-5. **The rename to DocAI** (section 1): last, once there is a finished
+5. **Administration as a left-nav shell**, its tables gaining the same
+   sort/search/pagination (section 4): needed regardless of whether house
+   style ships, since workflow groups already made the single page too
+   long.
+6. **The rename to DocAI** (section 1): last, once there is a finished
    interface to put the name in.
-6. **House style** (section 4): sequenced independently of the above, since
+7. **House style** (section 5): sequenced independently of the above, since
    it touches the Word writer rather than the client, and should not be
    bottlenecked behind a UI redesign or block one.
 
