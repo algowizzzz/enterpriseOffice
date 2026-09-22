@@ -1,14 +1,21 @@
 #!/bin/sh
-# Install or upgrade DocForge on a Linux server with systemd. No network needed.
+# Install DocForge as a systemd service on a Linux server. Nothing is
+# downloaded and nothing else needs installing first: this release already
+# carries the Node runtime it needs, next to this script.
 #
-#   sudo sh install.sh                          # node is already on the machine
-#   sudo sh install.sh --node-archive node-v22.x.y-linux-x64.tar.xz
+#   sudo sh install.sh                          # uses the Node bundled here
+#   sudo sh install.sh --node-archive node-v24.x.y-linux-x64.tar.xz
 #   sudo sh install.sh --node /usr/local/bin/node
 #   sudo sh install.sh --uninstall              # leaves the data where it is
 #
-# Run it from the unpacked release. Running it again is an upgrade: the program
-# files are replaced, the database is copied aside first, and the settings in
-# /etc/docforge/docforge.env are never touched once they exist.
+# The two flags above are for an organisation that would rather run its own
+# approved copy of Node than the one this release brought; most people need
+# neither. Run it from the unpacked release. Running it again is an upgrade:
+# the program files are replaced, the database is copied aside first, and the
+# settings in /etc/docforge/docforge.env are never touched once they exist.
+#
+# No sudo, or would rather not touch systemd at all? Run run-standalone.sh
+# instead, from this same folder: no root, no service, works the same way.
 #
 # POSIX sh on purpose. A hardened image may not have bash.
 set -eu
@@ -51,27 +58,57 @@ if [ "$UNINSTALL" -eq 1 ]; then
 fi
 
 say "Runtime"
+# Only decided here, not yet written anywhere: preflight has to run against
+# the Node that would be used before anything is touched, and $APP must stay
+# exactly as it was until preflight, and everything after it, has agreed to
+# go ahead. Writing the new runtime into $APP at this point, before knowing
+# whether the rest of the install proceeds, would mean a failed preflight on
+# an upgrade leaves a working install with its Node already swapped under it.
+NODE_STAGE_SRC=""
+TMP_NODE_EXTRACT=""
+cleanup() { [ -n "$TMP_NODE_EXTRACT" ] && rm -rf "$TMP_NODE_EXTRACT"; }
+trap cleanup EXIT
+
 if [ -n "$NODE_ARCHIVE" ]; then
 	[ -f "$NODE_ARCHIVE" ] || { echo "No such file: $NODE_ARCHIVE" >&2; exit 1; }
 	# The official archive has one top-level directory, node-vX-linux-ARCH.
 	# Strip it so the path is the same after every upgrade of Node.
-	rm -rf "$APP/node.new"
-	mkdir -p "$APP/node.new"
+	TMP_NODE_EXTRACT="$(mktemp -d)"
 	case "$NODE_ARCHIVE" in
-		*.tar.xz) tar -xJf "$NODE_ARCHIVE" -C "$APP/node.new" --strip-components=1 ;;
-		*.tar.gz|*.tgz) tar -xzf "$NODE_ARCHIVE" -C "$APP/node.new" --strip-components=1 ;;
+		*.tar.xz) tar -xJf "$NODE_ARCHIVE" -C "$TMP_NODE_EXTRACT" --strip-components=1 ;;
+		*.tar.gz|*.tgz) tar -xzf "$NODE_ARCHIVE" -C "$TMP_NODE_EXTRACT" --strip-components=1 ;;
 		*) echo "Expected a .tar.xz or .tar.gz archive of Node" >&2; exit 1 ;;
 	esac
-	rm -rf "$APP/node"
-	mv "$APP/node.new" "$APP/node"
+	NODE_STAGE_SRC="$TMP_NODE_EXTRACT"
+	NODE="$TMP_NODE_EXTRACT/bin/node"
+elif [ -n "$NODE" ]; then
+	: # --node points at a path the admin says is stable (a system-wide
+	  # install, or their own organisation's approved copy); used as given,
+	  # nothing to stage into $APP.
+elif [ -x "$HERE/node/bin/node" ]; then
+	# The common case: this release already carries its own Node, staged right
+	# next to this script. Nothing to fetch, nothing to ask for. Not run
+	# directly out of $HERE, though: $HERE is wherever this was unpacked, an
+	# admin routinely deletes that folder once "install" has run, and a
+	# systemd unit pointed at a deleted path fails silently on the next
+	# reboot, long after anyone remembers running this script. It is copied
+	# into $APP, like every other program file, once preflight has passed.
+	echo "Found the Node runtime bundled with this release."
+	NODE_STAGE_SRC="$HERE/node"
+	NODE="$HERE/node/bin/node"
+elif [ -x "$APP/node/bin/node" ]; then
+	# An earlier install left one behind; a rebuild that used --skip-verify
+	# without re-bundling Node can land here on an upgrade. Already in its
+	# final place, so there is nothing further to stage.
 	NODE="$APP/node/bin/node"
 fi
 if [ -z "$NODE" ]; then
-	if [ -x "$APP/node/bin/node" ]; then NODE="$APP/node/bin/node"; else NODE="$(command -v node || true)"; fi
+	NODE="$(command -v node || true)"
 fi
 [ -n "$NODE" ] && [ -x "$NODE" ] || {
-	echo "Node was not found. Copy the official Linux archive of Node 22 onto this" >&2
-	echo "machine and pass it with --node-archive, or pass --node /path/to/node." >&2
+	echo "No Node runtime found: not bundled with this release, not already" >&2
+	echo "installed at $APP, and not on PATH. Pass --node-archive or --node," >&2
+	echo "or use a release archive that bundles Node for this machine's platform." >&2
 	exit 1
 }
 echo "Using $NODE ($("$NODE" -v))"
@@ -108,6 +145,18 @@ if [ -f "$DATA/docforge.db" ]; then
 fi
 
 say "Program files"
+if [ -n "$NODE_STAGE_SRC" ]; then
+	# Preflight has passed; safe now to replace what a running service (if any)
+	# depends on. Written under a temporary name and renamed into place so that
+	# nothing ever sees a half-copied runtime.
+	rm -rf "$APP/node.new"
+	mkdir -p "$APP/node.new"
+	cp -R "$NODE_STAGE_SRC/." "$APP/node.new/"
+	rm -rf "$APP/node"
+	mv "$APP/node.new" "$APP/node"
+	NODE="$APP/node/bin/node"
+	echo "Installed the Node runtime into $APP/node"
+fi
 cp "$HERE/server.mjs" "$APP/server.mjs.new"
 mv "$APP/server.mjs.new" "$APP/server.mjs"
 rm -rf "$APP/web.new"

@@ -79,13 +79,17 @@ refuse it, which is worse: a refusal is visible, silent loss is not. Hence the
 5. `docs/04-security.md` before touching authentication, sessions or uploads.
 6. `docs/03-api-reference.md` when adding or changing an endpoint.
 7. `docs/07-roadmap.md` for the open work, ranked, with the reasoning.
-8. `docs/08-enterprise-deployment.md` for installing on an air-gapped Linux server.
+8. `docs/08-enterprise-deployment.md` for installing on an air-gapped Linux server,
+   or `docs/13-windows-quickstart.md` for a Windows laptop. Neither needs anything
+   installed on the target first: the release archive already carries Node.
+9. `docs/09-requirements-fit.md` for where the build stands against an enterprise
+   policy workflow. Its build order replaces the roadmap's where they differ.
 10. `docs/10-product-requirements.md` for what the product has to be, its scope and
     its build order. It replaces the order in 07 and 09.
 11. `docs/11-status.md` for where the build stands against it: done, partial, not
     built, and what to expect of PDF. **Read this one first.**
-9. `docs/09-requirements-fit.md` for where the build stands against an enterprise
-   policy workflow. Its build order replaces the roadmap's where they differ.
+12. `docs/12-requirements-and-bom.md` for the plain-language requirements list and
+    full bill of materials to hand to a security or infrastructure review.
 
 ## What to do next
 

@@ -18,52 +18,10 @@
 import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { allowed, electedFrom, recogniseLicence, REVIEWED } from './licence-policy.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const lock = JSON.parse(readFileSync(join(ROOT, 'package-lock.json'), 'utf8'));
-
-/** SPDX identifiers the project accepts. See CLAUDE.md, invariant 2. */
-const ALLOWED = new Set([
-  'MIT', 'MIT-0', 'ISC', '0BSD', 'BSD-2-Clause', 'BSD-3-Clause', 'Apache-2.0',
-  'MPL-2.0', 'OFL-1.1', 'BlueOak-1.0.0', 'Zlib', 'CC0-1.0', 'Unlicense',
-]);
-
-/**
- * Whether an SPDX expression can be satisfied from the allowed set. "A OR B"
- * needs one side, "A AND B" needs both. jszip is "MIT OR GPL-3.0-or-later": it
- * is taken under MIT, and the notice says so.
- */
-function allowed(expression) {
-  const clean = expression.replace(/[()]/gu, '').trim();
-  if (/\sOR\s/u.test(clean)) return clean.split(/\sOR\s/u).some((side) => allowed(side));
-  if (/\sAND\s/u.test(clean)) return clean.split(/\sAND\s/u).every((side) => allowed(side));
-  return ALLOWED.has(clean);
-}
-/**
- * Licences read by a person, with what they found. Add to this only after
- * reading the text the package ships, and say what it says.
- */
-const REVIEWED = {
-  'dictionary-en':
-    'The SCOWL word lists (Kevin Atkinson and contributors). Permission to use, copy, modify, distribute and sell for any purpose without fee, with the notices kept; parts are public domain; the WordNet notice is the same kind of grant. No copyleft. The same lists ship in Firefox and LibreOffice.',
-  'dictionary-en-gb':
-    'The SCOWL word lists, British spelling, on the same terms as dictionary-en, plus the UKACD list, which may be redistributed freely with its notice.',
-};
-
-/** The licence a text is, when it is unmistakably one of the common permissive ones. */
-function recogniseLicence(text) {
-  const flat = text.replace(/\s+/gu, ' ');
-  if (/Permission is hereby granted, free of charge, to any person obtaining a copy/u.test(flat) && /THE SOFTWARE IS PROVIDED "AS IS"/u.test(flat)) return 'MIT';
-  if (/Permission to use, copy, modify, and\/or distribute this software for any purpose with or without fee/u.test(flat)) return 'ISC';
-  if (/Apache License,? Version 2\.0/u.test(flat)) return 'Apache-2.0';
-  if (/Redistribution and use in source and binary forms/u.test(flat)) {
-    return /Neither the name of/u.test(flat) ? 'BSD-3-Clause' : 'BSD-2-Clause';
-  }
-  return null;
-}
-
-const electedFrom = (expression) =>
-  expression.replace(/[()]/gu, '').split(/\sOR\s/u).map((side) => side.trim()).find((side) => allowed(side));
 
 const entries = [];
 const problems = [];
@@ -137,7 +95,7 @@ const lines = [
 ];
 for (const entry of entries) {
   lines.push('='.repeat(78), `${entry.name} ${entry.version}`, `Licence: ${entry.licence}`);
-  if (REVIEWED[entry.name]) lines.push(`Reviewed by hand: ${REVIEWED[entry.name]}`);
+  if (REVIEWED[entry.name]) lines.push(`Reviewed by hand: ${REVIEWED[entry.name].description}`);
   if (entry.fromFile) lines.push('The package manifest declares no licence. This is the licence of the text it ships, below.');
   if (entry.elected) lines.push(`Offered under a choice of licences. DocForge uses it under: ${entry.elected}`);
   if (entry.homepage) lines.push(`Source: ${entry.homepage.replace(/^git\+/u, '').replace(/\.git$/u, '')}`);

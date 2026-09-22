@@ -1,19 +1,27 @@
 # Deploying on an air-gapped Linux server
 
 For the person doing the install, and for the person reviewing it. Everything
-here works with no network on the target machine. If a step reaches for the
-network, that is a defect: report it.
+here works with no network on the target machine, and nothing needs to be
+installed there first: **the release archive already carries the Node.js
+runtime it needs.** If a step reaches for the network, that is a defect:
+report it.
 
-The short version:
+For a Windows laptop instead of a Linux server, see
+`docs/13-windows-quickstart.md`: unpack the Windows archive, double-click
+`start-docforge.cmd`, nothing else.
+
+The short version, for Linux:
 
 ```sh
-# on a machine that can reach a package registry
-npm ci && npm run release            # writes release/docforge-<version>.tar.gz
+# on a machine with internet access, once
+npm ci && npm run release        # writes one archive per platform under release/
 
-# on the server, with the archive and an official Node 22 archive copied over
-tar -xzf docforge-*.tar.gz && cd docforge-*/
-sh preflight.sh                      # changes nothing, needs no root
-sudo sh install.sh --node-archive ../node-v22.*-linux-x64.tar.xz
+# on the server: no install, no root, run as yourself
+tar -xzf docforge-*-linux-x64.tar.gz && cd docforge-*/
+sh run-standalone.sh
+
+# or, for a persistent service that survives a reboot (needs root once)
+sudo sh install.sh
 ```
 
 ## 1. What is being deployed
@@ -22,12 +30,12 @@ sudo sh install.sh --node-archive ../node-v22.*-linux-x64.tar.xz
 |---|---|---|
 | `server.mjs` | about 9 MB | The whole server in one file. Every dependency is compiled in. |
 | `web/` | under 1 MB | The browser client: one page, one script, one stylesheet. |
-| Node 22 | about 30 MB packed | The runtime. Not in the archive: bring your own approved copy. |
+| `node/` | about 45–95 MB, by platform | The exact Node.js runtime this release needs, already inside the archive. Nothing to separately obtain, fetch or approve at install time. |
 
 There is no `node_modules` directory, no package manager, no compiler and no
 database server on the target. Storage is SQLite, which is built into Node, in
-one file under `/var/lib/docforge`. `npm` runs on the build machine and never on
-the server.
+one file under `/var/lib/docforge` (or a local `./data` folder for
+`run-standalone.sh`). `npm` runs on the build machine and never on the server.
 
 The server makes no outbound connections. It does not check for updates, load
 fonts, report usage or fetch anything. The release gate proves it: the end to
@@ -39,103 +47,139 @@ a property of the machine as well.
 
 | Need | Detail |
 |---|---|
-| Processor | x86-64 or 64-bit ARM |
+| Processor | x86-64 or 64-bit ARM. Choose the matching archive: `linux-x64` or `linux-arm64` |
 | Operating system | Any Linux with glibc 2.28 or newer: RHEL, Rocky, Alma or Oracle 8 and later, Ubuntu 20.04 and later, Debian 10 and later, SLES 15 SP3 and later |
-| Service manager | systemd. Without it, run `server.mjs` under whatever you use; see section 12 |
-| Node | 22.5 or newer. This is a hard floor: the storage layer is `node:sqlite` |
+| Node | Already inside the archive. Nothing to install |
+| Service manager | Only if you want a persistent service (`install.sh`): systemd. Without it, `run-standalone.sh` needs nothing beyond the operating system; see section 12 |
 | Memory and CPU | 1 GB and one core is comfortable for a team. Word conversion is the only heavy work |
-| Disk | The program is under 40 MB with Node. Allow for the database: every save is kept as a version |
-| Access | root for the install. The service runs as its own unprivileged account |
+| Disk | Under 150 MB unpacked, Node included. Allow for the database: every save is kept as a version |
+| Access | None for `run-standalone.sh`. Root, once, for `install.sh`, to create a service account and register with systemd |
 | Network | One inbound port, 8080 by default, normally reached only by a reverse proxy on the same machine |
 
-`preflight.sh` checks every row of that table on the actual machine.
+`preflight.sh` checks every row of that table on the actual machine, and needs
+no root either.
 
-### Getting Node onto the machine
+### If your organisation would rather use its own approved Node
 
-Use the official Linux archive, `node-v22.x.y-linux-x64.tar.xz` (or
-`-linux-arm64`), from wherever your organisation keeps approved runtimes. If you
-fetch it yourself, fetch `SHASUMS256.txt` from the same release and compare
-before it crosses the gap. The installer unpacks it into `/opt/docforge/node`,
-so it does not touch any Node the system already has, and nothing else on the
-machine starts using it.
-
-A distribution's own `nodejs` package is fine if it is 22.5 or newer and was
-built with SQLite. Preflight tests that directly instead of trusting the version.
+`install.sh` accepts `--node-archive <file>` (another official Node tarball)
+or `--node /path/to/node` (a system-wide copy already on the machine), and
+uses that instead of the one bundled with the release. Most people need
+neither flag.
 
 ## 3. Building the release
 
-On a machine that can reach a package registry, public or an internal mirror:
+On a machine that can reach a package registry, public or an internal mirror,
+**and can reach `nodejs.org`** (this is the one and only place the network is
+used in this whole process, and it is this build machine, never the target):
 
 ```sh
 git clone <this repository> && cd enterpriseOffice
 node -v                  # 22.5 or newer
 npm ci                   # exact versions from the lockfile
-npm run release
+npm run release          # builds a kit for Linux x64, Linux arm64 and Windows x64
 ```
+
+Building only some platforms: `npm run release -- --platform linux-x64`.
 
 `npm run release` runs the whole gate first (lint, types, both test suites, the
-build, the air-gap audit and the end to end run), then starts the packaged copy
-on its own, with nothing beside it, to prove it serves the page. It writes:
+build, the air-gap audit and the end to end run), downloads and checksum-verifies
+the official Node runtime for each requested platform straight from
+`nodejs.org` (cached under `.cache/node-runtimes/` so this only happens once
+per version), then proves the packaged copy of the server runs on its own,
+with nothing beside it. It writes, per platform:
 
 ```
-release/docforge-<version>-<date>-<commit>.tar.gz
-release/docforge-<version>-<date>-<commit>.tar.gz.sha256
+release/docforge-<version>-<date>-<commit>-linux-x64.tar.gz
+release/docforge-<version>-<date>-<commit>-linux-x64.tar.gz.sha256
+release/docforge-<version>-<date>-<commit>-linux-arm64.tar.gz    (and .sha256)
+release/docforge-<version>-<date>-<commit>-windows-x64.zip       (and .sha256)
 ```
 
 Behind an internal registry mirror, point npm at it before `npm ci`
 (`npm config set registry https://<your mirror>/`). npm swaps the public
 registry's host for yours when it reads the lockfile, so the lockfile does not
 need editing. If the mirror is missing a package, `npm ci` names it: that list
-is what to ask the mirror's owners for.
+is what to ask the mirror's owners for. The Node runtime download is separate
+from npm and is not affected by an npm mirror; if `nodejs.org` itself is
+blocked from the build machine, ask your organisation for its own approved
+Node 22.5+ Linux/Windows binaries and place them under
+`.cache/node-runtimes/v<version>-<platform>/` in the same layout
+`fetch-node-runtime.mjs` produces (`bin/node` for Linux, `node.exe` for
+Windows) before running `npm run release`.
 
-Inside the archive:
+Inside each Linux archive:
 
 | File | Purpose |
 |---|---|
 | `server.mjs`, `web/` | The program |
-| `install.sh` | Install, upgrade, uninstall |
-| `preflight.sh` | Can this machine run it? Changes nothing |
+| `node/` | The Node.js runtime, bundled |
+| `run-standalone.sh` | Run it now, as any user, no install, no root |
+| `install.sh` | Install as a systemd service (needs root once), upgrade, uninstall |
+| `preflight.sh` | Can this machine run it? Changes nothing, needs no root |
 | `verify-install.sh` | Is the running service actually serving? |
 | `docforge.service` | The systemd unit, sandboxed |
 | `env.example` | Every setting, with production values |
-| `THIRD-PARTY-NOTICES.txt` | Every package that ships, its version, licence and licence text |
+| `THIRD-PARTY-NOTICES.txt`, `sbom.cdx.json` | Every package that ships: the human-readable and the machine-readable bill of materials. See `docs/12-requirements-and-bom.md` |
+| `NODE-VERSION.txt` | The exact Node version bundled, and the checksum it was verified against |
 | `SHA256SUMS` | A hash of every file above |
 | `VERSION`, `LICENSE`, `DEPLOY.md` | What this is, and this guide |
 
+The Windows archive carries the same `server.mjs`, `web/`, `node/`,
+`THIRD-PARTY-NOTICES.txt`, `sbom.cdx.json`, `SHA256SUMS` and `VERSION`, plus
+`start-docforge.cmd` and `README-FIRST.md` (`docs/13-windows-quickstart.md`)
+in place of the Linux scripts.
+
 ## 4. Moving it across
 
-Copy two files by whatever route your organisation allows: the release archive
-and the Node archive. On the server:
+Copy one file: the release archive for the target's platform. Nothing else.
+On the server:
 
 ```sh
-sha256sum -c docforge-*.tar.gz.sha256
-tar -xzf docforge-*.tar.gz
+sha256sum -c docforge-*-linux-x64.tar.gz.sha256
+tar -xzf docforge-*-linux-x64.tar.gz
 cd docforge-*/
 sha256sum -c SHA256SUMS
 ```
 
 Both checks should print `OK` for every line. A mismatch means the copy was
-damaged or altered on the way: stop there.
+damaged or altered on the way: stop there. (Windows: verify with
+PowerShell's `Get-FileHash`, or check the `.sha256` file by eye; there is no
+`sha256sum` on Windows by default.)
 
 ## 5. Preflight
 
 ```sh
-sh preflight.sh /path/to/node        # or no argument if node is on the PATH
+sh preflight.sh              # checks the Node runtime already bundled here
 ```
 
-No root, no changes. If Node is still packed, unpack it anywhere first
-(`tar -xJf node-v22*.tar.xz`) and point preflight at `node-v22*/bin/node`. Keep
-the output: it is the first thing anybody will ask for if something goes wrong.
+No root, no changes. Run it from inside the unpacked archive, before doing
+anything else. Keep the output: it is the first thing anybody will ask for if
+something goes wrong.
 
 ## 6. Install
 
+Two ways to run it, both using the Node bundled in the archive: nothing to
+separately fetch or approve.
+
+**No install, no root, run it now**, as any user, in the foreground:
+
 ```sh
-sudo sh install.sh --node-archive /path/to/node-v22.x.y-linux-x64.tar.xz
+sh run-standalone.sh
 ```
 
-What it does, in order: unpacks Node into `/opt/docforge/node`; runs preflight
-and stops if it fails; creates the `docforge` system account; copies the program
-to `/opt/docforge`; writes `/etc/docforge/docforge.env` from the template if
+Its data lives in a `./data` folder next to it. Good for a trial, a single
+approver, or a machine where installing anything at all is off the table.
+Stop it with Ctrl+C; start it again the same way.
+
+**As a persistent service that survives a reboot**, needs root once:
+
+```sh
+sudo sh install.sh
+```
+
+What it does, in order: runs preflight and stops if it fails; creates the
+`docforge` system account; copies the program and the bundled Node runtime to
+`/opt/docforge`; writes `/etc/docforge/docforge.env` from the template if
 there is none; installs the systemd unit; applies SELinux labels where SELinux
 is present. On a first install it then stops and tells you to set the first
 administrator's password:
@@ -303,7 +347,8 @@ configure in the application.
 
 ## 12. Without systemd
 
-`install.sh` is a convenience, not a requirement. The program is one command:
+`run-standalone.sh` (section 6) is the no-install answer to this. If you would
+rather run it under your own process supervisor, the program is one command:
 
 ```sh
 DOCFORGE_DB=/var/lib/docforge/docforge.db DOCFORGE_HOST=127.0.0.1 \
@@ -312,8 +357,9 @@ DOCFORGE_DB=/var/lib/docforge/docforge.db DOCFORGE_HOST=127.0.0.1 \
 
 It finds `web/` beside itself. Run it as an unprivileged account under your own
 supervisor, and give that account write access to the database directory only.
-`--disable-warning=ExperimentalWarning` hides one line Node 22 prints because
-`node:sqlite` is still marked experimental there; see section 15.
+`--disable-warning=ExperimentalWarning` hides one line Node prints because
+`node:sqlite` is not yet fully stable; see section 15 for exactly what that
+means for the version this release bundles.
 
 ## 13. Trying your own documents before a rollout
 
@@ -367,34 +413,48 @@ all the same: the journal records the email addresses of people who sign in.
 ## 15. For the security and licence review
 
 - **Licences.** DocForge is MIT. Everything compiled into it is MIT, ISC,
-  BSD-3-Clause, BlueOak-1.0.0 or Zlib: no GPL, no AGPL, no licence that places
+  BSD-3-Clause, Apache-2.0, BlueOak-1.0.0, 0BSD or Zlib, plus two spelling
+  dictionaries under the SCOWL word-list terms (permissive, read by hand,
+  not an SPDX identifier): no GPL, no AGPL, no licence that places
   conditions on the software using it. One package, jszip, is offered under
-  "MIT or GPL-3.0" and is used under MIT. `THIRD-PARTY-NOTICES.txt` lists every
-  shipped package with its version and licence text, and `npm run notices`
-  fails the release if a dependency ever arrives under anything else.
+  "MIT or GPL-3.0" and is used under MIT. `THIRD-PARTY-NOTICES.txt` and
+  `sbom.cdx.json` (CycloneDX, for a scanner) list every shipped package with
+  its version and licence, and `npm run notices` fails the release if a
+  dependency ever arrives under anything else. See `docs/12-requirements-and-bom.md`.
 - **No outbound traffic.** Tested on every build, and enforced by the unit.
-- **Data at rest.** One SQLite file. Documents are stored as JSON with pictures
-  embedded; uploaded Word files are converted and not kept as files on disk.
-  Disk encryption is the platform's job.
+- **No LibreOffice, ever, in the running application.** PDF reading and
+  writing are both plain JavaScript inside `server.mjs`. LibreOffice appears
+  exactly once in this codebase, in a developer's own test-fixture generator
+  that runs on a developer's machine only and is never packaged or shipped.
+- **Data at rest.** One SQLite file. Documents are stored as JSON; a picture
+  over 64 KB is kept in a table of its own, referenced by the document rather
+  than embedded in it. Uploaded Word and PDF files are converted and not kept
+  as files on disk (the original bytes are kept, to answer "export the
+  original", in the same database). Disk encryption is the platform's job.
 - **Sandboxing.** The unit runs the service unprivileged with a read-only view
   of the system, a private `/tmp`, no new privileges and write access to its
   data directory alone. `MemoryDenyWriteExecute` is deliberately not set: it is
   incompatible with any JIT runtime, Node included, and the unit says so.
-- **Uploads.** Size capped, rate limited, checked as a zip before being read,
-  and refused if they expand beyond 200 MB; XML is parsed with no DTDs and no
-  entity declarations. Pictures over 2 MB each, or 8 MB in total, are left out
-  of the imported document and the import says so. Links are limited
-  to http, https and mailto; pictures to embedded data.
+- **Uploads.** Size capped at 50 MB, rate limited, checked as a zip before
+  being read, and refused if they expand beyond 200 MB; XML is parsed with no
+  DTDs and no entity declarations. A picture over 25 MB, or pictures totalling
+  over 40 MB in one document, is left out of the editor and the import says
+  so, though the original file (and the picture) is always still there to
+  export again unchanged. Links are limited to http, https and mailto;
+  pictures to embedded data or this server's own picture store.
 - **The WebSocket.** One, to this origin only, signed in by the same session
   cookie, refused for anybody the document is not shared with. Somebody with
   view access receives the document and what they send to change it is dropped
   on the server.
 - **PDF handling.** Both directions are JavaScript inside `server.mjs`: no
   LibreOffice, no Ghostscript, no external process, nothing native.
-- **Known limits to raise in review, not discover later.** `node:sqlite` is
-  marked experimental in Node 22, stable enough to pass this project's tests
-  but a label a change board may ask about. Storage is one file, so one
-  instance: no clustering. There is no single sign-on yet.
+- **Known limits to raise in review, not discover later.** The Node version
+  bundled with each release is recorded in `NODE-VERSION.txt` inside it; as of
+  this release that is a current Node LTS line, where `node:sqlite` is a
+  release candidate (further along than "experimental", not yet declared fully
+  stable), which is more settled than the project's documented floor of Node
+  22.5. Storage is one file, so one instance: no clustering. There is no
+  single sign-on yet.
 
 ## 16. Removing it
 

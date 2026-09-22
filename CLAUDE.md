@@ -24,9 +24,16 @@ node scripts/fidelity/run.mjs          # 50-document Word round trip, scored
 node scripts/fidelity/run.mjs --shots  # the same, photographing each document
 node scripts/ui-walkthrough.mjs        # drive the built portal in a browser
 npm run try -- <files or folders>      # round trip your own Word documents
-sh scripts/fidelity/wide/make_all.sh data/wide-corpus   # 35 documents from three other producers
-npm run release                        # the air-gapped archive
+sh scripts/fidelity/wide/make_all.sh data/wide-corpus   # 35 documents from three other producers, dev-only, uses LibreOffice
+node scripts/seed-library.mjs          # load the test corpus into a running local instance to browse
+npm run release                        # self-contained kits: Linux x64, Linux arm64, Windows x64, Node bundled in each
+node scripts/generate-sbom.mjs         # CycloneDX bill of materials; kept in step with third-party-notices.mjs
 ```
+
+`scripts/fidelity/wide/make_all.sh` is the one place LibreOffice appears anywhere
+in this repository. It builds throwaway test documents on a developer's own
+machine and is never invoked by `npm run release` or anything that ships. Do
+not let it become a dependency of anything that runs on a target machine.
 
 `npm run verify` is the gate. It must pass before any commit. It takes about
 forty seconds.
@@ -108,8 +115,15 @@ apps/web/src/
   pages/               sign in, documents, editor, administration
   lib/                 the API wrapper and the session provider
 scripts/fidelity/      the Word round-trip harness
+scripts/make-release.mjs        builds the self-contained kit for every platform
+scripts/fetch-node-runtime.mjs  build-time only: downloads and verifies Node from nodejs.org
+scripts/licence-policy.mjs      the one place a licence is resolved and checked; shared by
+                                   third-party-notices.mjs and generate-sbom.mjs, keep them in step
 docs/                  architecture, features, API, security, testing, fidelity
-deploy/                Docker, systemd, Windows launcher
+deploy/
+  linux/     install.sh (systemd, needs root once), run-standalone.sh (no install, no root),
+             preflight.sh, verify-install.sh
+  windows/   start-docforge.cmd, double-click, no install
 ```
 
 ## Things that will bite you
