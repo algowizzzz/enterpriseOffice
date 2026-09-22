@@ -1,8 +1,23 @@
 # The enterprise-grade pass: DocAI
 
-Written 2026-09-22, at the user's direction, as a plan only. Nothing in this
-document has been built. It exists so the next several sessions of UI work
-have a destination and an order, instead of each one guessing.
+Written 2026-09-22, at the user's direction, as a plan. It exists so the next
+several sessions of UI work have a destination and an order, instead of each
+one guessing. One piece has since been built; the rest has not.
+
+**Done, 2026-09-22: sequencing item 1, design tokens, dark mode and text
+size.** Section 2 below is now what shipped, not only what was proposed:
+`app.css`'s roughly seventy hard-coded colours became a real token system
+(`--surface-subtle`, `--surface-raised`, `--border-subtle`, and a `-subtle`
+background for every status colour), `:root[data-theme="dark"]` redefines
+them once for a generic "enterprise blue" dark-navy theme (not a specific
+company's brand, per the reasoning in section 2), and a sun/moon toggle plus
+a text-size dropdown sit in the nav bar on every page. The document itself
+(`.page` and everything drawn inside it) is deliberately never themed, in
+either mode: it stays paper-coloured because that is what it is when it is
+printed or exported. `apps/web/src/lib/preferences.ts` holds the logic; 8
+new tests; verified by hand in both themes across Documents, the row menu
+and the editor. Sections 3 onward are still exactly what they were: planned,
+not built.
 
 ## Where this leaves off
 
