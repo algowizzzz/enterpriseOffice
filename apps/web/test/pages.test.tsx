@@ -77,6 +77,11 @@ const detail = (over: Partial<DocumentDetail> = {}): DocumentDetail => ({
   ...over,
 });
 
+/** Export, history, sharing and locking live behind the File tab. */
+async function openFileTab(user: ReturnType<typeof userEvent.setup>): Promise<void> {
+  await user.click(await screen.findByRole('button', { name: 'File' }));
+}
+
 /** The restore control belonging to one revision in the history list. */
 async function restoreButtonFor(revision: number): Promise<HTMLElement> {
   const label = await screen.findByText(new RegExp(`Revision ${revision} by`, 'u'));
@@ -713,6 +718,7 @@ describe('editor page', () => {
 
     const user = userEvent.setup();
     await renderSignedIn(<EditorPage documentId="doc-1" onBack={() => {}} />);
+    await openFileTab(user);
 
     const title = await screen.findByLabelText('Document title');
     await user.clear(title);
@@ -765,6 +771,7 @@ describe('editor page', () => {
 
     const user = userEvent.setup();
     await renderSignedIn(<EditorPage documentId="doc-1" onBack={() => {}} />);
+    await openFileTab(user);
 
     const title = await screen.findByLabelText('Document title');
     await user.clear(title);
@@ -793,6 +800,7 @@ describe('editor page', () => {
     mocked['saveDocument'].mockRejectedValue(new ApiError(500, 'INTERNAL_ERROR', 'Something went wrong.'));
     const user = userEvent.setup();
     await renderSignedIn(<EditorPage documentId="doc-1" onBack={() => {}} />);
+    await openFileTab(user);
 
     const title = await screen.findByLabelText('Document title');
     await user.clear(title);
@@ -812,6 +820,7 @@ describe('editor page', () => {
     );
     const user = userEvent.setup();
     await renderSignedIn(<EditorPage documentId="doc-1" onBack={() => {}} />);
+    await openFileTab(user);
     await user.click(await screen.findByRole('button', { name: 'Export .docx' }));
     expect(await screen.findByRole('alert')).toHaveTextContent('The export failed.');
   });
@@ -827,6 +836,7 @@ describe('editor page', () => {
     mocked['getDocument'].mockResolvedValue({ document: detail() });
     const user = userEvent.setup();
     await renderSignedIn(<EditorPage documentId="doc-1" onBack={() => {}} />);
+    await openFileTab(user);
     await user.click(await screen.findByRole('button', { name: 'Export .docx' }));
     expect(downloadExport).toHaveBeenCalledWith('doc-1', 'docx');
     await user.click(screen.getByRole('button', { name: 'Export .txt' }));
@@ -843,6 +853,7 @@ describe('editor page', () => {
     });
     const user = userEvent.setup();
     await renderSignedIn(<EditorPage documentId="doc-1" onBack={() => {}} />);
+    await openFileTab(user);
 
     await user.click(await screen.findByRole('button', { name: 'History' }));
     expect(await screen.findByText('Version history')).toBeInTheDocument();
@@ -874,6 +885,7 @@ describe('editor page', () => {
     vi.spyOn(window, 'confirm').mockReturnValue(true);
     const user = userEvent.setup();
     await renderSignedIn(<EditorPage documentId="doc-1" onBack={() => {}} />);
+    await openFileTab(user);
 
     await user.click(await screen.findByRole('button', { name: 'History' }));
     await user.click(await restoreButtonFor(1));
@@ -901,6 +913,7 @@ describe('editor page', () => {
     vi.spyOn(window, 'confirm').mockReturnValue(false);
     const user = userEvent.setup();
     await renderSignedIn(<EditorPage documentId="doc-1" onBack={() => {}} />);
+    await openFileTab(user);
     await user.click(await screen.findByRole('button', { name: 'History' }));
     await user.click(await restoreButtonFor(1));
     expect(mocked['restoreVersion']).not.toHaveBeenCalled();
@@ -918,6 +931,7 @@ describe('editor page', () => {
     vi.spyOn(window, 'confirm').mockReturnValue(true);
     const user = userEvent.setup();
     await renderSignedIn(<EditorPage documentId="doc-1" onBack={() => {}} />);
+    await openFileTab(user);
     await user.click(await screen.findByRole('button', { name: 'History' }));
     await user.click(await restoreButtonFor(1));
     expect(await screen.findByRole('alert')).toHaveTextContent('Version not found');
@@ -928,6 +942,7 @@ describe('editor page', () => {
     mocked['listVersions'].mockRejectedValue(new ApiError(500, 'INTERNAL_ERROR', 'Something went wrong.'));
     const user = userEvent.setup();
     await renderSignedIn(<EditorPage documentId="doc-1" onBack={() => {}} />);
+    await openFileTab(user);
     await user.click(await screen.findByRole('button', { name: 'History' }));
     expect(await screen.findByRole('alert')).toHaveTextContent('Something went wrong.');
   });
@@ -938,6 +953,7 @@ describe('editor page', () => {
     mocked['listUsers'].mockResolvedValue({ users: [] });
     const user = userEvent.setup();
     await renderSignedIn(<EditorPage documentId="doc-1" onBack={() => {}} />);
+    await openFileTab(user);
     await user.click(await screen.findByRole('button', { name: 'Share' }));
     expect(await screen.findByRole('alert')).toHaveTextContent('Something went wrong.');
   });
@@ -948,6 +964,7 @@ describe('editor page', () => {
     mocked['listUsers'].mockResolvedValue({ users: [] });
     const user = userEvent.setup();
     await renderSignedIn(<EditorPage documentId="doc-1" onBack={() => {}} />);
+    await openFileTab(user);
 
     await user.click(await screen.findByRole('button', { name: 'Share' }));
     expect(await screen.findByText('Not shared with anyone yet.')).toBeInTheDocument();
@@ -961,6 +978,7 @@ describe('editor page', () => {
     mocked['listUsers'].mockResolvedValue({ users: [ADMIN] });
     const user = userEvent.setup();
     await renderSignedIn(<EditorPage documentId="doc-1" onBack={() => {}} />);
+    await openFileTab(user);
     await user.click(await screen.findByRole('button', { name: 'Share' }));
     const form = document.querySelector('form.share-form') as HTMLFormElement;
     form.requestSubmit();
@@ -975,6 +993,7 @@ describe('editor page', () => {
     mocked['listUsers'].mockResolvedValue({ users: [EDITOR, { ...ADMIN }] });
     const user = userEvent.setup();
     await renderSignedIn(<EditorPage documentId="doc-1" onBack={() => {}} />);
+    await openFileTab(user);
 
     await user.click(await screen.findByRole('button', { name: 'Share' }));
     expect(await screen.findByText('Sharing')).toBeInTheDocument();
@@ -990,6 +1009,7 @@ describe('editor page', () => {
     });
     const user = userEvent.setup();
     await renderSignedIn(<EditorPage documentId="doc-1" onBack={() => {}} />);
+    await openFileTab(user);
 
     await user.click(await screen.findByRole('button', { name: 'Share' }));
     await user.selectOptions(await screen.findByLabelText('Person'), 'u-admin');
@@ -1009,6 +1029,7 @@ describe('editor page', () => {
     mocked['unshare'].mockResolvedValue({ shares: [] });
     const user = userEvent.setup();
     await renderSignedIn(<EditorPage documentId="doc-1" onBack={() => {}} />);
+    await openFileTab(user);
 
     await user.click(await screen.findByRole('button', { name: 'Share' }));
     await user.click(await screen.findByRole('button', { name: 'Remove' }));
@@ -1017,7 +1038,9 @@ describe('editor page', () => {
 
   it('hides sharing from someone who is not the owner', async () => {
     mocked['getDocument'].mockResolvedValue({ document: detail({ access: 'edit' }) });
+    const user = userEvent.setup();
     await renderSignedIn(<EditorPage documentId="doc-1" onBack={() => {}} />);
+    await openFileTab(user);
     await screen.findByRole('button', { name: 'History' });
     expect(screen.queryByRole('button', { name: 'Share' })).not.toBeInTheDocument();
   });
@@ -1052,6 +1075,7 @@ describe('page setup', () => {
     mocked['saveDocument'].mockResolvedValue({ document: detail() });
     const user = userEvent.setup();
     await renderSignedIn(<EditorPage documentId="doc-1" onBack={() => {}} />);
+    await openFileTab(user);
 
     await waitFor(() =>
       expect(screen.getByLabelText('Page header')).toHaveTextContent('Company handbook'),
@@ -1078,6 +1102,7 @@ describe('page setup', () => {
     });
     const user = userEvent.setup();
     await renderSignedIn(<EditorPage documentId="doc-1" onBack={() => {}} />);
+    await openFileTab(user);
     await user.click(await screen.findByRole('button', { name: 'Page setup' }));
     expect(screen.getByLabelText('Orientation')).toHaveValue('landscape');
   });

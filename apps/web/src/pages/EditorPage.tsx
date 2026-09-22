@@ -63,6 +63,9 @@ export function EditorPage({ documentId, onBack }: EditorPageProps): JSX.Element
   const [shares, setShares] = useState<ShareEntry[] | null>(null);
   const [setupOpen, setSetupOpen] = useState(false);
   const [navOpen, setNavOpen] = useState(false);
+  // Export, history, sharing and locking live behind their own tab, the way
+  // Word's own File tab does, rather than lined up next to the title.
+  const [ribbonTab, setRibbonTab] = useState<'home' | 'file'>('home');
   const [side, setSide] = useState<'comments' | 'review' | null>(null);
   const commentsOpen = side === 'comments';
   const setCommentsOpen = (next: boolean | ((open: boolean) => boolean)): void =>
@@ -458,6 +461,55 @@ export function EditorPage({ documentId, onBack }: EditorPageProps): JSX.Element
           >
             <IconLabel icon={Compass}>Navigation</IconLabel>
           </button>
+          {document.access === 'view' && !document.locked && user?.role !== 'viewer' ? (
+            <button
+              type="button"
+              title="Ask the owner of this document to let you edit it"
+              onClick={() => {
+                const note = window.prompt('Tell the owner why you need to edit this document (optional)');
+                if (note === null) return;
+                void api
+                  .requestEdit(documentId, note)
+                  .then(() => setNotice('Your request has gone to the owner of this document.'))
+                  .catch((caught: unknown) =>
+                    setError(caught instanceof ApiError ? caught.message : 'Could not send the request.'),
+                  );
+              }}
+            >
+              <IconLabel icon={PencilLine}>Ask to edit</IconLabel>
+            </button>
+          ) : null}
+        </div>
+      </header>
+
+      {/*
+       * File-level actions (export, history, sharing, locking) behind their
+       * own tab, the way Word's own File tab holds Save As, Info and Share
+       * rather than lining them up next to the formatting controls. Home is
+       * the default and shows nothing here: the formatting ribbon a person
+       * reaches for while typing is Toolbar.tsx, inside DocumentEditor below,
+       * and is not gated by this tab at all.
+       */}
+      <nav className="ribbon-tabs" aria-label="Ribbon">
+        <button
+          type="button"
+          className={`ribbon-tab${ribbonTab === 'home' ? ' is-active' : ''}`}
+          aria-pressed={ribbonTab === 'home'}
+          onClick={() => setRibbonTab('home')}
+        >
+          Home
+        </button>
+        <button
+          type="button"
+          className={`ribbon-tab${ribbonTab === 'file' ? ' is-active' : ''}`}
+          aria-pressed={ribbonTab === 'file'}
+          onClick={() => setRibbonTab('file')}
+        >
+          File
+        </button>
+      </nav>
+      {ribbonTab === 'file' ? (
+        <div className="actions ribbon-file">
           <button type="button" onClick={() => { void download('docx'); }}>
             <IconLabel icon={FileType}>Export .docx</IconLabel>
           </button>
@@ -506,24 +558,6 @@ export function EditorPage({ documentId, onBack }: EditorPageProps): JSX.Element
           <button type="button" onClick={() => void openVersions()}>
             <IconLabel icon={HistoryIcon}>History</IconLabel>
           </button>
-          {document.access === 'view' && !document.locked && user?.role !== 'viewer' ? (
-            <button
-              type="button"
-              title="Ask the owner of this document to let you edit it"
-              onClick={() => {
-                const note = window.prompt('Tell the owner why you need to edit this document (optional)');
-                if (note === null) return;
-                void api
-                  .requestEdit(documentId, note)
-                  .then(() => setNotice('Your request has gone to the owner of this document.'))
-                  .catch((caught: unknown) =>
-                    setError(caught instanceof ApiError ? caught.message : 'Could not send the request.'),
-                  );
-              }}
-            >
-              <IconLabel icon={PencilLine}>Ask to edit</IconLabel>
-            </button>
-          ) : null}
           {document.access === 'owner' ? (
             <button
               type="button"
@@ -558,7 +592,7 @@ export function EditorPage({ documentId, onBack }: EditorPageProps): JSX.Element
             </button>
           ) : null}
         </div>
-      </header>
+      ) : null}
 
       {error ? (
         <p className="error" role="alert">
