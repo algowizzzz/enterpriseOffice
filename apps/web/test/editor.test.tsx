@@ -195,6 +195,26 @@ describe('DocumentEditor', () => {
     expect(screen.getByRole('textbox')).toHaveAttribute('contenteditable', 'false');
   });
 
+  it('remembers zoom per person, in local storage, and offers zoom in and out', async () => {
+    window.localStorage.removeItem('docforge-zoom');
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    render(
+      <DocumentEditor initialContent={startingDoc} readOnly={false} onChange={() => {}} onDirty={() => {}} />,
+    );
+    await waitFor(() => expect(screen.getByRole('textbox')).toBeInTheDocument());
+
+    const zoomSelect = screen.getByTitle<HTMLSelectElement>('Zoom');
+    expect(zoomSelect.value).toBe('100');
+
+    await user.selectOptions(zoomSelect, '150');
+    expect(zoomSelect.value).toBe('150');
+    expect(window.localStorage.getItem('docforge-zoom')).toBe('150');
+
+    await user.click(screen.getByTitle('Zoom out'));
+    expect(zoomSelect.value).toBe('140');
+    expect(window.localStorage.getItem('docforge-zoom')).toBe('140');
+  });
+
   it('shows the formatting toolbar with the expected controls', async () => {
     render(
       <DocumentEditor

@@ -41,12 +41,18 @@ everything below assumes it passes.
 
 | | |
 |---|---|
-| Commits | 38, all on `main` |
-| Server tests | 380 |
-| Client tests | 187 |
-| End-to-end checks | 29 |
-| Word round-trip fidelity | 1260 of 1260 measured items, across 50 documents |
-| Verify runs clean | Five consecutive, repeatedly |
+| Commits | 57, all on `main` |
+| Server tests | 549 |
+| Client tests | 238 |
+| End-to-end checks | 35 |
+| Word round-trip fidelity | 1260 of 1260 measured items, across 50 documents, plus 35 from a wide corpus of three other producers |
+| Verify runs clean | Repeatedly, most recently 2026-09-22 |
+
+This section used to say 38 commits and describe comments, track changes and
+real-time co-editing as not built. Nineteen commits did exactly that in
+between, and this file was not updated to match: **`docs/11-status.md` is the
+current source of truth for what exists**, not this section or
+`docs/07-roadmap.md`'s "what to do next". Read it first.
 
 Six adversarial review rounds have been run against the code, each one reading
 the previous round's fix. The defect table in `docs/05-testing.md` lists what
@@ -78,7 +84,10 @@ refuse it, which is worse: a refusal is visible, silent loss is not. Hence the
 4. `docs/06-fidelity.md` for what survives a Word round trip, and what does not.
 5. `docs/04-security.md` before touching authentication, sessions or uploads.
 6. `docs/03-api-reference.md` when adding or changing an endpoint.
-7. `docs/07-roadmap.md` for the open work, ranked, with the reasoning.
+7. `docs/07-roadmap.md` for the reasoning behind the original build order. Its
+   ranked list itself is superseded twice over by items 9 and 10 below, and
+   most of it has since been built regardless (see item 11): read it for
+   context, not for what to do next.
 8. `docs/08-enterprise-deployment.md` for installing on an air-gapped Linux server,
    or `docs/13-windows-quickstart.md` for a Windows laptop. Neither needs anything
    installed on the target first: the release archive already carries Node.
@@ -90,19 +99,31 @@ refuse it, which is worse: a refusal is visible, silent loss is not. Hence the
     built, and what to expect of PDF. **Read this one first.**
 12. `docs/12-requirements-and-bom.md` for the plain-language requirements list and
     full bill of materials to hand to a security or infrastructure review.
+13. `docs/14-word-like-shell.md` for what "make it look like Word" breaks down
+    into, what of that was already built before anyone asked, and the plan for
+    the one large piece left: a genuine tabbed ribbon.
 
 ## What to do next
 
-`docs/07-roadmap.md` has the detail. In short, ranked by value against effort:
+Ignore `docs/07-roadmap.md`'s ranked list: every item on it except named styles
+and numbering is now built (see `docs/11-status.md`). What is actually left,
+in order of value against effort:
 
-1. **Real-time co-editing.** The one headline feature designed but not built.
-   The model and storage were chosen so a CRDT layer drops in. Two to three
-   weeks.
+1. **The editor's own look.** Word-like functionality (comments, track
+   changes, co-editing, admin approval) is done; the shell around it is not.
+   There is no tabbed ribbon (Home/Insert/Layout/Review/View), no title bar in
+   Word's sense, and until 2026-09-22 no navigation pane, which
+   `docs/10-product-requirements.md` calls for and the UI did not have. A
+   Navigation pane (jump to a heading) and a zoom control were added that day;
+   a real tabbed ribbon was deliberately not attempted in the same pass,
+   because `Toolbar.tsx`'s 438 lines of tests exercise every control in one
+   render without switching tabs, so a genuine show/hide ribbon needs those
+   tests reworked alongside it, not as an afterthought.
 2. **Named styles and numbering definitions.** The largest remaining fidelity
    gap: a document's own styles are flattened into direct formatting.
-3. **Print and PDF export.** The print stylesheet exists; pagination does not.
-4. **Find and replace**, which every word processor has and this does not.
-5. **Footnotes, comments and tracked changes**, in that order.
+3. Two things nobody has asked for yet, noted in `docs/11-status.md`: editing
+   the text inside a text box, and controls for margins, columns and section
+   breaks.
 
 Do not start any of them by widening the model without reading
 `CLAUDE.md`'s invariants. Each one needs the editor, the reader, the writer and
@@ -124,11 +145,16 @@ nothing else.
 
 ## What is deliberately not here
 
-- No real-time collaboration yet, only single-writer editing with optimistic
-  concurrency and version history.
-- No pagination: the editor shows one continuous page.
-- Named styles, numbering definitions, fields, footnotes, comments, tracked
-  changes, text boxes, shapes, charts and sections after the first are dropped
-  on import. `docs/06-fidelity.md` says so plainly and measures the rest.
+- No pagination: the editor shows one continuous page. Print and PDF export
+  paginate; the screen does not.
+- Named styles and numbering definitions are flattened into direct formatting
+  on import, along with text boxes, shapes, charts, SmartArt, embedded objects
+  and equations, which arrive, display and leave untouched but are not
+  editable here. `docs/11-status.md` lists exactly what is kept but not
+  editable, and `docs/06-fidelity.md` measures it.
 - No email. Password reset is an administrator action, by design: an air-gapped
   server has nowhere to send mail.
+- No AI features, OCR of scanned PDFs, macros, mail merge or single sign-on:
+  out of scope by decision, not by omission.
+- Real-time co-editing, comments and tracked changes **are** here (see
+  `docs/11-status.md`); this file said otherwise until 2026-09-22.

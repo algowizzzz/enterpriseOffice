@@ -136,6 +136,15 @@ export function DocumentEditor({
   const flush = useRef<(() => void) | null>(null);
   const [stats, setStats] = useState<DocumentStats>({ words: 0, characters: 0 });
   const [finding, setFinding] = useState(false);
+  // Word keeps zoom per person, not per document, because it is about the
+  // screen somebody is reading on, not about what the file contains.
+  const [zoom, setZoom] = useState(() => {
+    const kept = Number(window.localStorage.getItem('docforge-zoom'));
+    return Number.isFinite(kept) && kept >= 50 && kept <= 200 ? kept : 100;
+  });
+  useEffect(() => {
+    window.localStorage.setItem('docforge-zoom', String(zoom));
+  }, [zoom]);
   const [spelling, setSpelling] = useState<SpellLanguage | null>(() => {
     const kept = window.localStorage.getItem('docforge-spelling');
     return kept === 'en-GB' || kept === 'en-US' ? kept : null;
@@ -362,7 +371,7 @@ export function DocumentEditor({
         </div>
       ) : null}
       {finding ? <FindBar editor={editor} readOnly={readOnly} onClose={() => setFinding(false)} /> : null}
-      <div className="page-surface">
+      <div className="page-surface" style={{ zoom: zoom / 100 }}>
         <div className="page-frame">
           {header ? (
             <div className="page-running page-running-header" aria-label="Page header">
@@ -404,6 +413,39 @@ export function DocumentEditor({
         <span>{stats.words === 1 ? '1 word' : `${stats.words} words`}</span>
         <span>{stats.characters === 1 ? '1 character' : `${stats.characters} characters`}</span>
         {readOnly ? <span className="badge">Read only</span> : null}
+        <label className="zoom-control">
+          <span className="visually-hidden">Zoom</span>
+          <button
+            type="button"
+            className="link"
+            title="Zoom out"
+            disabled={zoom <= 50}
+            onClick={() => setZoom((current) => Math.max(50, current - 10))}
+          >
+            −
+          </button>
+          <select value={zoom} onChange={(event) => setZoom(Number(event.target.value))} title="Zoom">
+            {/* Stepping by 10 from a preset can land between two of them,
+                same as Word's own zoom control: the value typed or stepped to
+                is offered even when it is not one of the round numbers. */}
+            {Array.from(new Set([50, 75, 90, 100, 125, 150, 175, 200, zoom]))
+              .sort((a, b) => a - b)
+              .map((value) => (
+                <option key={value} value={value}>
+                  {value}%
+                </option>
+              ))}
+          </select>
+          <button
+            type="button"
+            className="link"
+            title="Zoom in"
+            disabled={zoom >= 200}
+            onClick={() => setZoom((current) => Math.min(200, current + 10))}
+          >
+            +
+          </button>
+        </label>
       </div>
     </div>
   );

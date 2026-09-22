@@ -15,6 +15,7 @@ import type { Editor } from '@tiptap/react';
 import { DocumentEditor, type SaveState } from '../components/DocumentEditor';
 import { CommentsPanel } from '../components/CommentsPanel';
 import { ReviewPanel } from '../components/ReviewPanel';
+import { NavigationPane } from '../components/NavigationPane';
 import { AccessRequests } from '../components/AccessRequests';
 import { setTracking } from '../components/trackChanges';
 import { joinShared, othersPresent, type Presence, type SharedSession } from '../lib/collab';
@@ -45,6 +46,7 @@ export function EditorPage({ documentId, onBack }: EditorPageProps): JSX.Element
   const [versions, setVersions] = useState<VersionSummary[] | null>(null);
   const [shares, setShares] = useState<ShareEntry[] | null>(null);
   const [setupOpen, setSetupOpen] = useState(false);
+  const [navOpen, setNavOpen] = useState(false);
   const [side, setSide] = useState<'comments' | 'review' | null>(null);
   const commentsOpen = side === 'comments';
   const setCommentsOpen = (next: boolean | ((open: boolean) => boolean)): void =>
@@ -432,6 +434,14 @@ export function EditorPage({ documentId, onBack }: EditorPageProps): JSX.Element
           </button>
         ) : null}
         <div className="actions">
+          <button
+            type="button"
+            title="Find a section by its heading, the way Word's Navigation pane does"
+            aria-pressed={navOpen}
+            onClick={() => setNavOpen((open) => !open)}
+          >
+            Navigation
+          </button>
           <button type="button" onClick={() => { void download('docx'); }}>
             Export .docx
           </button>
@@ -721,104 +731,109 @@ export function EditorPage({ documentId, onBack }: EditorPageProps): JSX.Element
         </aside>
       ) : null}
 
-      <nav className="view-tabs" aria-label="What is shown">
-        {(
-          [
-            ['document', 'Document', 'The document as it stands, for editing'],
-            ['original', 'Original', 'The document as it was first created or uploaded'],
-            ['redline', 'Redline', 'Everything that has changed since the original: removed text struck out, new text underlined'],
-          ] as const
-        ).map(([name, label, hint]) => (
-          <button
-            key={name}
-            type="button"
-            title={hint}
-            className={`view-tab${view === name ? ' is-active' : ''}`}
-            aria-pressed={view === name}
-            onClick={() => void show(name)}
-          >
-            {label}
-          </button>
-        ))}
-        {view === 'redline' ? (
-          <button
-            type="button"
-            className="link"
-            title="Download this comparison as a Word file with revision marks that can be accepted or rejected in Word"
-            onClick={() => void download('docx', { compare: '1' })}
-          >
-            Export redline to Word
-          </button>
-        ) : null}
-        {view === 'document' ? (
-          <button
-            type="button"
-            className="link"
-            title="Download the document with every tracked change accepted"
-            onClick={() => void download('docx', { changes: 'accepted' })}
-          >
-            Export with changes accepted
-          </button>
-        ) : null}
-      </nav>
-      <div className={`editor-with-side${side ? ' has-side' : ''} view-${view}`}>
-      {epoch !== undefined && !sharedFailed && !live && view === 'document' ? (
-        <p className="muted page-wrap">Joining the document…</p>
-      ) : (
-      <DocumentEditor
-        key={`${surface}-${live && view === 'document' ? 'shared' : 'own'}`}
-        shared={live && view === 'document' && session ? session : undefined}
-        onReady={setEditor}
-        initialContent={view === 'document' || !shown ? document.content : shown}
-        header={document.pageSetup?.header ?? ''}
-        footer={document.pageSetup?.footer ?? ''}
-        styles={document.styles ?? null}
-        readOnly={(readOnly ?? false) || view !== 'document'}
-        onDirty={() => {
-          if (live) {
-            // Sent as it is typed and stored by the server. There is no reply
-            // to wait for, so "saved" is shown once the line has gone quiet.
-            setSaveState((current) => (current === 'offline' ? current : 'saving'));
-            if (settle.current) clearTimeout(settle.current);
-            settle.current = setTimeout(
-              () => setSaveState((current) => (current === 'saving' ? 'saved' : current)),
-              1200,
-            );
-            return;
-          }
-          typedSinceQueued.current = true;
-          setSaveState((current) => (current === 'conflict' ? current : 'dirty'));
-        }}
-        onChange={(content) => void persist({ content })}
-        onRepair={(when) => {
-          // Set, not appended: the same repair happens on every save, and
-          // saying it again after every keystroke made a permanent banner
-          // pointing at nothing anybody could act on.
-          const message =
-            when === 'open'
-              ? 'Part of this document could not be opened and has been left out. Everything else is here, and saving stores what you can see.'
-              : 'Part of what you pasted could not be stored and has been left out.';
-          setNotice((current) => (current === message ? current : message));
-        }}
-      />
-      )}
-      {side === 'review' ? (
-        <ReviewPanel
-          editor={editor}
-          readOnly={(readOnly ?? false) || view !== 'document'}
-          tracking={tracking}
-          onTracking={changeTracking}
-          onClose={() => setSide(null)}
-        />
-      ) : null}
-      {commentsOpen ? (
-        <CommentsPanel
-          documentId={documentId}
-          editor={editor}
-          onClose={() => setCommentsOpen(false)}
-          onCount={setOpenComments}
-        />
-      ) : null}
+      <div className={`editor-body${navOpen ? ' has-nav' : ''}`}>
+        {navOpen ? <NavigationPane editor={view === 'document' ? editor : null} onClose={() => setNavOpen(false)} /> : null}
+        <div className="editor-main">
+          <nav className="view-tabs" aria-label="What is shown">
+            {(
+              [
+                ['document', 'Document', 'The document as it stands, for editing'],
+                ['original', 'Original', 'The document as it was first created or uploaded'],
+                ['redline', 'Redline', 'Everything that has changed since the original: removed text struck out, new text underlined'],
+              ] as const
+            ).map(([name, label, hint]) => (
+              <button
+                key={name}
+                type="button"
+                title={hint}
+                className={`view-tab${view === name ? ' is-active' : ''}`}
+                aria-pressed={view === name}
+                onClick={() => void show(name)}
+              >
+                {label}
+              </button>
+            ))}
+            {view === 'redline' ? (
+              <button
+                type="button"
+                className="link"
+                title="Download this comparison as a Word file with revision marks that can be accepted or rejected in Word"
+                onClick={() => void download('docx', { compare: '1' })}
+              >
+                Export redline to Word
+              </button>
+            ) : null}
+            {view === 'document' ? (
+              <button
+                type="button"
+                className="link"
+                title="Download the document with every tracked change accepted"
+                onClick={() => void download('docx', { changes: 'accepted' })}
+              >
+                Export with changes accepted
+              </button>
+            ) : null}
+          </nav>
+          <div className={`editor-with-side${side ? ' has-side' : ''} view-${view}`}>
+          {epoch !== undefined && !sharedFailed && !live && view === 'document' ? (
+            <p className="muted page-wrap">Joining the document…</p>
+          ) : (
+          <DocumentEditor
+            key={`${surface}-${live && view === 'document' ? 'shared' : 'own'}`}
+            shared={live && view === 'document' && session ? session : undefined}
+            onReady={setEditor}
+            initialContent={view === 'document' || !shown ? document.content : shown}
+            header={document.pageSetup?.header ?? ''}
+            footer={document.pageSetup?.footer ?? ''}
+            styles={document.styles ?? null}
+            readOnly={(readOnly ?? false) || view !== 'document'}
+            onDirty={() => {
+              if (live) {
+                // Sent as it is typed and stored by the server. There is no reply
+                // to wait for, so "saved" is shown once the line has gone quiet.
+                setSaveState((current) => (current === 'offline' ? current : 'saving'));
+                if (settle.current) clearTimeout(settle.current);
+                settle.current = setTimeout(
+                  () => setSaveState((current) => (current === 'saving' ? 'saved' : current)),
+                  1200,
+                );
+                return;
+              }
+              typedSinceQueued.current = true;
+              setSaveState((current) => (current === 'conflict' ? current : 'dirty'));
+            }}
+            onChange={(content) => void persist({ content })}
+            onRepair={(when) => {
+              // Set, not appended: the same repair happens on every save, and
+              // saying it again after every keystroke made a permanent banner
+              // pointing at nothing anybody could act on.
+              const message =
+                when === 'open'
+                  ? 'Part of this document could not be opened and has been left out. Everything else is here, and saving stores what you can see.'
+                  : 'Part of what you pasted could not be stored and has been left out.';
+              setNotice((current) => (current === message ? current : message));
+            }}
+          />
+          )}
+          {side === 'review' ? (
+            <ReviewPanel
+              editor={editor}
+              readOnly={(readOnly ?? false) || view !== 'document'}
+              tracking={tracking}
+              onTracking={changeTracking}
+              onClose={() => setSide(null)}
+            />
+          ) : null}
+          {commentsOpen ? (
+            <CommentsPanel
+              documentId={documentId}
+              editor={editor}
+              onClose={() => setCommentsOpen(false)}
+              onCount={setOpenComments}
+            />
+          ) : null}
+          </div>
+        </div>
       </div>
     </div>
   );

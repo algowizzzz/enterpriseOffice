@@ -568,12 +568,23 @@ main {
 .status-bar {
   display: flex;
   flex-shrink: 0;
+  align-items: center;
   gap: 16px;
   padding: 6px 16px;
   background: var(--surface);
   border-top: 1px solid var(--border);
   font-size: 12px;
   color: var(--muted);
+}
+.zoom-control {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+}
+.zoom-control select {
+  font-size: 12px;
+  padding: 1px 2px;
 }
 
 .editor-loading {
@@ -764,6 +775,74 @@ main {
 .ProseMirror-selectednode.word-inline,
 .ProseMirror-selectednode.word-block {
   outline: 2px solid #2e75b6;
+}
+
+/* The page, the view tabs and whichever side panel is open, side by side. */
+.editor-body {
+  display: flex;
+  align-items: stretch;
+  min-height: 0;
+  flex: 1;
+}
+.editor-main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+}
+
+/* Navigation: the document's own headings, as a jump list on the left. */
+.nav-pane {
+  width: 240px;
+  flex: none;
+  align-self: stretch;
+  overflow-y: auto;
+  max-height: calc(100vh - 110px);
+  position: sticky;
+  top: 0;
+  border-right: 1px solid #d9dee5;
+  background: #fafbfc;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.nav-pane-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+.nav-pane-head h2 {
+  margin: 0;
+  font-size: 1rem;
+}
+.nav-pane-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.nav-pane-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: none;
+  background: none;
+  padding: 6px 8px;
+  border-radius: 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.nav-pane-item:hover {
+  background: rgba(45, 91, 215, 0.1);
+}
+@media print {
+  .nav-pane {
+    display: none;
+  }
 }
 
 /* Comments: a column beside the page, and highlights on the words. */
