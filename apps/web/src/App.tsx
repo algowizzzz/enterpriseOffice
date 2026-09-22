@@ -5,7 +5,7 @@ import { DocumentsPage } from './pages/DocumentsPage';
 import { EditorPage } from './pages/EditorPage';
 import { AdminPage } from './pages/AdminPage';
 import { getTheme, getUiScale, setTheme, setUiScale, type Theme } from './lib/preferences';
-import { ALargeSmall, Moon, Sun } from 'lucide-react';
+import { ALargeSmall, FileEdit, Moon, Sun } from 'lucide-react';
 
 const TEXT_SIZES = [90, 100, 110, 125, 140] as const;
 
@@ -122,6 +122,9 @@ function Shell(): JSX.Element {
     <div className="app">
       <nav className="app-nav">
         <button type="button" className="brand" onClick={() => navigate({ name: 'documents' })}>
+          <span className="brand-mark" aria-hidden="true">
+            <FileEdit size={15} />
+          </span>
           DocForge
         </button>
         <div className="nav-links">

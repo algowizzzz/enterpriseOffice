@@ -250,21 +250,54 @@ main {
   flex-direction: column;
 }
 
+/* The one place colour is chrome rather than a token that follows the
+   theme: a solid brand-coloured bar, the way most enterprise products keep
+   their top-level navigation a fixed colour whether the content beneath it
+   is light or dark. Defined once, in :root only -- deliberately not
+   redefined under :root[data-theme="dark"], so the bar never changes. The
+   value is the same blue as --accent's light-mode value, not a different
+   hue: one brand colour, used here at full strength instead of only on
+   links and buttons. */
+:root {
+  --chrome-bg: #2d5bd7;
+  --chrome-text: #ffffff;
+  --chrome-text-muted: rgba(255, 255, 255, 0.75);
+  --chrome-active-bg: rgba(255, 255, 255, 0.18);
+  --chrome-control-bg: rgba(255, 255, 255, 0.12);
+  --chrome-control-border: rgba(255, 255, 255, 0.32);
+}
+
 .app-nav {
   display: flex;
   align-items: center;
   gap: 16px;
   padding: 8px 16px;
-  background: var(--surface);
-  border-bottom: 1px solid var(--border);
+  background: var(--chrome-bg);
+  color: var(--chrome-text);
   flex-shrink: 0;
 }
 
 .brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
   font-weight: 700;
   border: none;
   background: none;
   font-size: 16px;
+  color: var(--chrome-text);
+}
+
+/* A small filled tile behind the wordmark's icon, the way most SaaS logos
+   pair a mark with a name rather than using the name alone. */
+.brand-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.18);
 }
 
 .nav-links {
@@ -273,15 +306,38 @@ main {
   flex: 1;
 }
 
+.nav-links button {
+  color: var(--chrome-text-muted);
+  background: none;
+  border: 1px solid transparent;
+}
+
+.nav-links button:hover:not(:disabled) {
+  border-color: var(--chrome-control-border);
+  color: var(--chrome-text);
+}
+
 .nav-links button.active {
-  border-color: var(--accent);
-  color: var(--accent);
+  background: var(--chrome-active-bg);
+  border-color: transparent;
+  color: var(--chrome-text);
+  font-weight: 600;
 }
 
 .nav-user {
   display: flex;
   align-items: center;
   gap: 12px;
+  color: var(--chrome-text);
+}
+
+.nav-user button {
+  background: var(--chrome-control-bg);
+  border-color: var(--chrome-control-border);
+  color: var(--chrome-text);
+}
+.nav-user button:hover:not(:disabled) {
+  border-color: var(--chrome-text);
 }
 
 /* Text size, everywhere but the document itself: see DisplayPreferences in
@@ -291,11 +347,14 @@ main {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  color: var(--muted);
+  color: var(--chrome-text-muted);
 }
 .text-size-control select {
   font-size: 13px;
   padding: 2px 4px;
+  background: var(--chrome-control-bg);
+  border-color: var(--chrome-control-border);
+  color: var(--chrome-text);
 }
 
 .page-wrap {
@@ -329,6 +388,61 @@ main {
   background: var(--surface);
   border: 1px dashed var(--border);
   border-radius: var(--radius);
+}
+
+/* A slice of the list by access, and a search by title, above the table. */
+.list-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+.filter-tabs {
+  display: flex;
+  gap: 4px;
+}
+.filter-tab {
+  border: 1px solid transparent;
+  background: none;
+  padding: 6px 12px;
+  border-radius: var(--radius);
+  color: var(--muted);
+}
+.filter-tab.is-active {
+  background: var(--accent-subtle);
+  color: var(--accent);
+  font-weight: 600;
+}
+.search-field {
+  display: inline-flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--muted);
+  min-width: 220px;
+  font-weight: 400;
+}
+.search-field input {
+  border: none;
+  background: none;
+  padding: 6px 0;
+  flex: 1;
+  color: var(--text);
+  min-width: 0;
+}
+.search-field input:focus {
+  outline: none;
+}
+/* A native search input draws its own decoration (a clear "×" in Chrome)
+   that fights this control's own border and icon otherwise. */
+.search-field input[type='search'] {
+  appearance: none;
 }
 
 /* Tables */

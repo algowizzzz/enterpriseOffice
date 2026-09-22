@@ -510,6 +510,63 @@ describe('documents page', () => {
     expect(await screen.findByText('Document analysis')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Run analysis' })).toBeDisabled();
   });
+
+  it('opens a chat preview from the list, the same as the editor offers', async () => {
+    mocked['listDocuments'].mockResolvedValue({ documents: [summary()] });
+    const user = userEvent.setup();
+    await renderSignedIn(<DocumentsPage onOpen={() => {}} />);
+
+    await openRowMenu(user, 'Quarterly Report');
+    await user.click(await screen.findByRole('menuitem', { name: 'Chat' }));
+    expect(await screen.findByText('Welcome. Ask a question about this document.')).toBeInTheDocument();
+  });
+
+  it('searches the list by title', async () => {
+    mocked['listDocuments'].mockResolvedValue({
+      documents: [summary(), summary({ id: 'doc-2', title: 'Vendor Contract' })],
+    });
+    const user = userEvent.setup();
+    await renderSignedIn(<DocumentsPage onOpen={() => {}} />);
+    await screen.findByText('Vendor Contract');
+
+    await user.type(screen.getByLabelText('Search documents'), 'quarter');
+    expect(screen.getByText('Quarterly Report')).toBeInTheDocument();
+    expect(screen.queryByText('Vendor Contract')).not.toBeInTheDocument();
+  });
+
+  it('says so, and offers to clear it, when a search matches nothing', async () => {
+    mocked['listDocuments'].mockResolvedValue({ documents: [summary()] });
+    const user = userEvent.setup();
+    await renderSignedIn(<DocumentsPage onOpen={() => {}} />);
+    await screen.findByText('Quarterly Report');
+
+    await user.type(screen.getByLabelText('Search documents'), 'nothing matches this');
+    expect(await screen.findByText('No documents match that search.')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Clear the search' }));
+    expect(await screen.findByText('Quarterly Report')).toBeInTheDocument();
+  });
+
+  it('filters the list by access from the tabs', async () => {
+    mocked['listDocuments'].mockResolvedValue({
+      documents: [summary(), summary({ id: 'doc-2', title: 'Shared With Me', access: 'view' })],
+    });
+    const user = userEvent.setup();
+    await renderSignedIn(<DocumentsPage onOpen={() => {}} />);
+    await screen.findByText('Shared With Me');
+
+    await user.click(screen.getByRole('button', { name: 'Owned by me' }));
+    expect(screen.getByText('Quarterly Report')).toBeInTheDocument();
+    expect(screen.queryByText('Shared With Me')).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Can view' }));
+    expect(await screen.findByText('Shared With Me')).toBeInTheDocument();
+    expect(screen.queryByText('Quarterly Report')).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'All' }));
+    expect(await screen.findByText('Quarterly Report')).toBeInTheDocument();
+    expect(screen.getByText('Shared With Me')).toBeInTheDocument();
+  });
 });
 
 describe('administration page', () => {

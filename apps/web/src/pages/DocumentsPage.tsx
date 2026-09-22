@@ -4,6 +4,7 @@ import {
   ApiError,
   downloadExport,
   DOCUMENT_TYPES,
+  type Access,
   type DocumentSummary,
   type DocumentType,
   type ExportFormat,
@@ -14,12 +15,15 @@ import { useSession } from '../lib/session';
 import { textField } from '../lib/forms';
 import { RowMenu, type RowMenuItem } from '../components/RowMenu';
 import { AnalysisPanel } from '../components/AnalysisPanel';
+import { ChatPanel } from '../components/ChatPanel';
 import { IconLabel } from '../components/IconLabel';
 import {
   ExternalLink,
   FileDown,
   FileText,
   FileType,
+  MessageCircle,
+  Search,
   Share2,
   Sparkles,
   Trash2,
@@ -38,6 +42,17 @@ function formatWhen(iso: string): string {
 export function DocumentsPage({ onOpen }: DocumentsPageProps): JSX.Element {
   const { user } = useSession();
   const [documents, setDocuments] = useState<DocumentSummary[]>([]);
+  // A slice of the list by who can do what with it, and a search by title,
+  // both client-side: the whole list is already fetched at once, and a
+  // second round trip to narrow what is already in hand would be slower,
+  // not simpler.
+  const [accessFilter, setAccessFilter] = useState<'all' | Access>('all');
+  const [search, setSearch] = useState('');
+  const filtered = documents.filter((document) => {
+    if (accessFilter !== 'all' && document.access !== accessFilter) return false;
+    const query = search.trim().toLowerCase();
+    return query === '' || document.title.toLowerCase().includes(query);
+  });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -120,7 +135,7 @@ export function DocumentsPage({ onOpen }: DocumentsPageProps): JSX.Element {
   // than making somebody open a document just to see or change who has it.
   // One row expanded at a time: opening a second one closes whichever was
   // open, the same as the editor's own side panels.
-  type ExpandedKind = 'access' | 'transfer' | 'analysis';
+  type ExpandedKind = 'access' | 'transfer' | 'analysis' | 'chat';
   const [expanded, setExpanded] = useState<{ id: string; kind: ExpandedKind } | null>(null);
   const [shares, setShares] = useState<ShareEntry[] | null>(null);
   const [directory, setDirectory] = useState<User[]>([]);
@@ -164,6 +179,12 @@ export function DocumentsPage({ onOpen }: DocumentsPageProps): JSX.Element {
   const openAnalysis = (document: DocumentSummary): void => {
     setExpanded((current) =>
       current?.id === document.id && current.kind === 'analysis' ? null : { id: document.id, kind: 'analysis' },
+    );
+  };
+
+  const openChat = (document: DocumentSummary): void => {
+    setExpanded((current) =>
+      current?.id === document.id && current.kind === 'chat' ? null : { id: document.id, kind: 'chat' },
     );
   };
 
@@ -242,12 +263,20 @@ export function DocumentsPage({ onOpen }: DocumentsPageProps): JSX.Element {
         },
       );
     }
-    items.push({
-      key: 'analysis',
-      label: <IconLabel icon={Sparkles}>Run analysis</IconLabel>,
-      title: 'A preview; not connected to a model in this build',
-      onSelect: () => openAnalysis(document),
-    });
+    items.push(
+      {
+        key: 'chat',
+        label: <IconLabel icon={MessageCircle}>Chat</IconLabel>,
+        title: 'A preview; not connected to a model in this build',
+        onSelect: () => openChat(document),
+      },
+      {
+        key: 'analysis',
+        label: <IconLabel icon={Sparkles}>Run analysis</IconLabel>,
+        title: 'A preview; not connected to a model in this build',
+        onSelect: () => openAnalysis(document),
+      },
+    );
     if (document.access === 'owner') {
       items.push({
         key: 'delete',
@@ -369,6 +398,55 @@ export function DocumentsPage({ onOpen }: DocumentsPageProps): JSX.Element {
           <p className="muted">Start a blank one, or upload a Word file or a PDF.</p>
         </div>
       ) : (
+        <>
+          <div className="list-toolbar">
+            <nav className="filter-tabs" aria-label="Filter by access">
+              {(
+                [
+                  ['all', 'All'],
+                  ['owner', 'Owned by me'],
+                  ['edit', 'Can edit'],
+                  ['view', 'Can view'],
+                ] as const
+              ).map(([value, label]) => (
+                <button
+                  key={value}
+                  type="button"
+                  className={`filter-tab${accessFilter === value ? ' is-active' : ''}`}
+                  aria-pressed={accessFilter === value}
+                  onClick={() => setAccessFilter(value)}
+                >
+                  {label}
+                </button>
+              ))}
+            </nav>
+            <label className="search-field">
+              <Search size={15} aria-hidden="true" />
+              <span className="visually-hidden">Search documents</span>
+              <input
+                type="search"
+                placeholder="Search documents…"
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+              />
+            </label>
+          </div>
+          {filtered.length === 0 ? (
+            <div className="empty">
+              <p>No documents match {search.trim() ? 'that search' : 'this filter'}.</p>
+              <p className="muted">
+                {search.trim() ? (
+                  <button type="button" className="link" onClick={() => setSearch('')}>
+                    Clear the search
+                  </button>
+                ) : (
+                  <button type="button" className="link" onClick={() => setAccessFilter('all')}>
+                    Show all documents
+                  </button>
+                )}
+              </p>
+            </div>
+          ) : (
         <table className="grid">
           <thead>
             <tr>
@@ -383,7 +461,7 @@ export function DocumentsPage({ onOpen }: DocumentsPageProps): JSX.Element {
             </tr>
           </thead>
           <tbody>
-            {documents.map((document) => (
+            {filtered.map((document) => (
               <Fragment key={document.id}>
                 <tr>
                   <td>
@@ -526,10 +604,21 @@ export function DocumentsPage({ onOpen }: DocumentsPageProps): JSX.Element {
                     </td>
                   </tr>
                 ) : null}
+                {expanded?.id === document.id && expanded.kind === 'chat' ? (
+                  <tr>
+                    <td colSpan={6}>
+                      <div className="panel-embed">
+                        <ChatPanel onClose={() => setExpanded(null)} />
+                      </div>
+                    </td>
+                  </tr>
+                ) : null}
               </Fragment>
             ))}
           </tbody>
         </table>
+          )}
+        </>
       )}
     </div>
   );
