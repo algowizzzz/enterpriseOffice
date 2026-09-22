@@ -545,13 +545,10 @@ export function EditorPage({ documentId, onBack }: EditorPageProps): JSX.Element
           </button>
           <button
             type="button"
-            title="A paginated PDF with the header, the footer and page numbers"
-            onClick={() => { void download('pdf'); }}
+            title="The organisation's house style: fixed header, footer and heading fonts, set in Administration"
+            onClick={() => { void download('standard'); }}
           >
-            <IconLabel icon={FileDown}>Export .pdf</IconLabel>
-          </button>
-          <button type="button" onClick={() => { void download('txt'); }}>
-            <IconLabel icon={FileText}>Export .txt</IconLabel>
+            <IconLabel icon={FileDown}>Export standardized</IconLabel>
           </button>
           {document.origin === 'import' ? (
             <button

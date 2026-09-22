@@ -373,12 +373,8 @@ describe('documents page', () => {
     const user = userEvent.setup();
     await renderSignedIn(<DocumentsPage onOpen={() => {}} />);
     await openRowMenu(user, 'Quarterly Report');
-    await user.click(await screen.findByRole('menuitem', { name: 'Export .pdf' }));
-    expect(downloadExport).toHaveBeenCalledWith('doc-1', 'pdf');
-
-    await openRowMenu(user, 'Quarterly Report');
-    await user.click(await screen.findByRole('menuitem', { name: 'Export .txt' }));
-    expect(downloadExport).toHaveBeenCalledWith('doc-1', 'txt');
+    await user.click(await screen.findByRole('menuitem', { name: 'Export standardized' }));
+    expect(downloadExport).toHaveBeenCalledWith('doc-1', 'standard');
 
     await openRowMenu(user, 'Quarterly Report');
     await user.click(await screen.findByRole('menuitem', { name: 'Original' }));
@@ -1382,8 +1378,8 @@ describe('editor page', () => {
     await renderSignedIn(<EditorPage documentId="doc-1" onBack={() => {}} />);
     await user.click(await screen.findByRole('button', { name: 'Export .docx' }));
     expect(downloadExport).toHaveBeenCalledWith('doc-1', 'docx');
-    await user.click(screen.getByRole('button', { name: 'Export .txt' }));
-    expect(downloadExport).toHaveBeenCalledWith('doc-1', 'txt');
+    await user.click(screen.getByRole('button', { name: 'Export standardized' }));
+    expect(downloadExport).toHaveBeenCalledWith('doc-1', 'standard');
   });
 
   it('opens and closes the version history', async () => {

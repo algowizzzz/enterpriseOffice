@@ -531,7 +531,9 @@ export interface UploadOptions {
   stripRunning?: boolean;
 }
 
-export type ExportFormat = 'docx' | 'pdf' | 'txt' | 'original';
+// 'pdf' and 'txt' are no longer offered in the editor's export menu
+// (docs/17-standardized-export.md §2) but the API still accepts them.
+export type ExportFormat = 'docx' | 'standard' | 'pdf' | 'txt' | 'original';
 
 export interface ExportOptions {
   /** Tracked changes as they stand, all accepted, or all rejected. */

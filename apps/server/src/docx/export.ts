@@ -29,6 +29,8 @@ import {
 } from '@docforge/model';
 import { measureImage } from './imageSize.js';
 import { writeDocx, type ExportedThread } from './ooxml/write.js';
+import { buildStandardTemplatePackage } from './standardTemplate.js';
+import type { ExportTemplate } from '../services/exportTemplate.js';
 
 const HEADING_BY_LEVEL: Record<number, (typeof HeadingLevel)[keyof typeof HeadingLevel]> = {
   1: HeadingLevel.HEADING_1,
@@ -328,6 +330,13 @@ export interface ExportOptions {
   originalSetup?: PageSetup | undefined;
   /** Review comments, written into Word's own comments part. */
   comments?: ExportedThread[] | undefined;
+  /**
+   * Present only for "Standardized" export (docs/17-standardized-export.md):
+   * the admin's house style, applied instead of the document's own
+   * formatting, regardless of whether it has an uploaded source. This is
+   * the one deliberate exception to "preserve by default" in this file.
+   */
+  standardTemplate?: { template: ExportTemplate; documentType: string | null } | undefined;
 }
 
 /**
@@ -336,10 +345,27 @@ export interface ExportOptions {
  * The file it was uploaded as is patched, so everything the model does not
  * hold leaves as it arrived. A document that was never a Word file starts from
  * a template built by the `docx` library and takes the same path: see
- * `ooxml/write.ts` for why there is one writer and what it does.
+ * `ooxml/write.ts` for why there is one writer and what it does. Standardized
+ * export takes the same path a third way, seeded from the admin's own
+ * template instead, regardless of whether the document has a source: that is
+ * the point of it, not an oversight.
  */
 export async function exportDocx(doc: PMNode, options: ExportOptions): Promise<Buffer> {
   const pageSetup = options.pageSetup ?? defaultPageSetup();
+  if (options.standardTemplate) {
+    const base = await buildStandardTemplatePackage(
+      options.standardTemplate.template,
+      { documentTitle: options.title, documentType: options.standardTemplate.documentType },
+      pageSetup,
+    );
+    return writeDocx(doc, {
+      base,
+      fragments: options.fragments ?? {},
+      pageSetup: defaultPageSetup(),
+      originalSetup: defaultPageSetup(),
+      comments: options.comments,
+    });
+  }
   if (options.source) {
     return writeDocx(doc, {
       base: options.source,

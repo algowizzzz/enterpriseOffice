@@ -14,6 +14,7 @@ import { importDocx, titleFromFileName } from '../docx/import.js';
 import { recordAudit } from '../services/audit.js';
 import { addComment, listThreads } from '../services/comments.js';
 import { collabEpoch } from '../collab/rooms.js';
+import { getExportTemplate } from '../services/exportTemplate.js';
 import { putPicturesBack, readPicture, savePictures, takePicturesOut } from '../services/media.js';
 import {
   createDocument,
@@ -297,7 +298,7 @@ export async function registerDocumentRoutes(app: FastifyInstance): Promise<void
       const { id } = idParam.parse(request.params);
       const { format, changes, compare } = z
         .object({
-          format: z.enum(['docx', 'pdf', 'txt', 'original']).default('docx'),
+          format: z.enum(['docx', 'standard', 'pdf', 'txt', 'original']).default('docx'),
           // Tracked changes as they stand, or the document with all of them
           // accepted (the "final") or all of them rejected.
           changes: z.enum(['markup', 'accepted', 'rejected']).default('markup'),
@@ -363,6 +364,19 @@ export async function registerDocumentRoutes(app: FastifyInstance): Promise<void
           .send(pdf);
       }
 
+      const comments = listThreads(app.db, user, id).map((thread) => ({
+        author: thread.authorName,
+        date: thread.createdAt,
+        body: thread.body,
+        anchor: thread.anchor,
+        resolved: thread.resolvedAt !== null,
+        replies: thread.replies.map((reply) => ({
+          author: reply.authorName,
+          date: reply.createdAt,
+          body: reply.body,
+        })),
+      }));
+
       const buffer = await exportDocx(document.content, {
         title: document.title,
         author: user.name,
@@ -372,18 +386,14 @@ export async function registerDocumentRoutes(app: FastifyInstance): Promise<void
         source: source?.mediaType === DOCX_MIME ? source.package : undefined,
         fragments: source?.fragments,
         originalSetup: source?.mediaType === DOCX_MIME ? source.pageSetup : undefined,
-        comments: listThreads(app.db, user, id).map((thread) => ({
-          author: thread.authorName,
-          date: thread.createdAt,
-          body: thread.body,
-          anchor: thread.anchor,
-          resolved: thread.resolvedAt !== null,
-          replies: thread.replies.map((reply) => ({
-            author: reply.authorName,
-            date: reply.createdAt,
-            body: reply.body,
-          })),
-        })),
+        comments,
+        // Standardized export (docs/17-standardized-export.md): the admin's
+        // house style, applied instead of the document's own formatting --
+        // regardless of whether it has an uploaded source, which is the
+        // point of this format, not an oversight.
+        ...(format === 'standard'
+          ? { standardTemplate: { template: getExportTemplate(app.db), documentType: document.docType } }
+          : {}),
       });
       const fileName = safeFileName(document.title, 'docx');
       return reply

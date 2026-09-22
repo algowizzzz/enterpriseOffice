@@ -231,14 +231,10 @@ export function DocumentsPage({ onOpen }: DocumentsPageProps): JSX.Element {
         onSelect: () => void download(document.id, 'docx'),
       },
       {
-        key: 'pdf',
-        label: <IconLabel icon={FileDown}>Export .pdf</IconLabel>,
-        onSelect: () => void download(document.id, 'pdf'),
-      },
-      {
-        key: 'txt',
-        label: <IconLabel icon={FileText}>Export .txt</IconLabel>,
-        onSelect: () => void download(document.id, 'txt'),
+        key: 'standard',
+        label: <IconLabel icon={FileDown}>Export standardized</IconLabel>,
+        title: "The organisation's house style: fixed header, footer and heading fonts, set in Administration",
+        onSelect: () => void download(document.id, 'standard'),
       },
     ];
     if (document.origin === 'import') {

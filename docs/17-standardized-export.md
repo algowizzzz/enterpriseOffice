@@ -323,3 +323,44 @@ regardless of what went in.
   auto-insert one when headings exist but no TOC block does?
 - **§4.7**: one global template for the first version (recommended), or is
   more than one needed from day one?
+
+## 10. Built, 2026-09-22: phases 1 and 2
+
+Phase 1 (the template's schema and admin UI) and phase 2 (wiring it into a
+real export) are both done, on the recommended answer to every question in
+§9 except where noted below.
+
+The new `standard` format shares the same writer as everything else
+(`ooxml/write.ts`): `apps/server/src/docx/standardTemplate.ts` builds a
+seed package whose `styles.xml` defines real `Heading1`-`Heading6` and
+document-default (`Normal`) styles from the admin's template, and whose
+header/footer parts carry its content; `export.ts`'s `exportDocx` takes
+this as `base` in place of the source-patch-or-blank-template branch
+whenever `standardTemplate` is given, regardless of whether the document
+has an uploaded source, per §3. `{{page}}` and `{{pageCount}}` become real
+Word `PAGE`/`NUMPAGES` fields (`docx` library's `PageNumber.CURRENT`/
+`TOTAL_PAGES`), recalculated by Word itself once the document is
+paginated, not resolved here. `{{document.title}}`, `{{document.type}}`
+and `{{date}}` are resolved to plain text at export time.
+
+`pdf` and `txt` are removed from the editor's export menu and
+`DocumentsPage`'s row menu, replaced by "Export standardized"; per §2's
+open question, this document took the narrower reading and the routes,
+renderer and their tests are untouched -- `format=pdf`/`format=txt` still
+work if called directly.
+
+Answered along the way, where §9 left more than one option open:
+- **§4.1, centre slot**: not built. Left and right only, matching what was
+  specified; add a centre slot later if wanted.
+- **§4.5, §4.6 (table and TOC styling)**: not yet built -- phase 2 covered
+  header/footer/headings/body only, matching §8's phase 2 scope exactly.
+  Table default styling and `TOC1`-`TOC3` styling remain phases 3-4 work.
+- **§4.2 (logo)**: not yet built, unchanged from §9 -- still needs your
+  answer on raster-only vs. SVG before it starts.
+
+Covered by `apps/server/test/standard-export.test.ts` (the generated
+`styles.xml` and header/footer XML directly) and a route-level test in
+`documents-advanced.test.ts`; checked live in a browser (signed in,
+created a document, clicked "Export standardized", confirmed a genuine
+`.docx` came back with the admin's own font baked into `styles.xml`).
+`npm run verify` passes end to end: 621 server tests, 283 client tests.

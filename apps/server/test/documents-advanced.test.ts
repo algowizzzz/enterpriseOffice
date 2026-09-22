@@ -506,6 +506,22 @@ describe('documents, further behaviour', () => {
     expect(exported?.detail).toMatchObject({ format: 'txt' });
   });
 
+  it('exports in the Standardized format as a real Word file, using the admin’s house style', async () => {
+    const created = await newDoc(app, owner);
+    const response = await app.inject({
+      method: 'GET',
+      url: `/api/documents/${created.id}/export?format=standard`,
+      headers: authHeader(owner),
+    });
+    expect(response.statusCode).toBe(200);
+    expect(response.headers['content-type']).toContain('wordprocessingml.document');
+    const { strFromU8, unzipSync } = await import('fflate');
+    const styles = strFromU8(unzipSync(response.rawPayload)['word/styles.xml']!);
+    // Carlito is the default template's font, confirming this went through
+    // the admin template rather than the plain docx path.
+    expect(styles).toContain('Carlito');
+  });
+
   it('pages through the audit trail', async () => {
     const firstPage = await app.inject({
       method: 'GET',
