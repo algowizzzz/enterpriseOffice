@@ -1,22 +1,66 @@
 /*
  * All styling is local. No web fonts are fetched, so the font stack names the
  * families bundled with the application and falls back to the system UI font.
+ *
+ * Colour is tokens, not values, everywhere in this file except one place on
+ * purpose: `.page` and everything inside it, which is the document itself.
+ * A document stays paper-coloured in light mode and in dark, because that is
+ * what it will be when it is printed or exported, and a screen that stopped
+ * matching what Word opens would defeat the reason this project exists.
+ * Everything else -- the navigation bar, every panel, every table, every
+ * menu -- is interface, and re-themes with these tokens.
  */
 
 :root {
   --bg: #f4f5f7;
   --surface: #ffffff;
-  --border: #d6d9de;
+  --surface-subtle: #fafbfc;    /* a side panel's own background: one step off the page */
+  --surface-raised: #ffffff;    /* a menu or a popover, lifted above the surface below it */
+  --border: #d9dee5;
+  --border-subtle: #eef0f3;     /* a divider or a table header that should recede */
   --text: #1c1f23;
   --muted: #6a7078;
   --accent: #2d5bd7;
   --accent-text: #ffffff;
-  --danger: #b4232c;
+  --accent-subtle: rgba(45, 91, 215, 0.1);
+  --danger: #b3261e;
+  --danger-subtle: #fdecec;
   --ok: #1f7a41;
+  --ok-subtle: #e8f5ed;
+  --warning: #8a5a00;
+  --warning-subtle: #fdf3e2;
   --shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+  --shadow-raised: 0 4px 16px rgba(0, 0, 0, 0.12);
   --radius: 6px;
   --font-ui: system-ui, "Segoe UI", "Liberation Sans", Arial, sans-serif;
   --font-doc: "Liberation Serif", "Times New Roman", Georgia, serif;
+  /* A person's own text-size preference, scaling everything but the document
+     itself (the editor has its own zoom for that). Set from App.tsx. */
+  --ui-scale: 1;
+}
+
+/* A generic, professional "enterprise blue": the register of colour common
+   to enterprise software in this sector, not any one company's brand. */
+:root[data-theme="dark"] {
+  --bg: #0f1720;
+  --surface: #17212e;
+  --surface-subtle: #1b2733;
+  --surface-raised: #22303f;
+  --border: #2c3a4a;
+  --border-subtle: #24313f;
+  --text: #e6e9ee;
+  --muted: #93a1b0;
+  --accent: #5b8dfa;
+  --accent-text: #0f1720;
+  --accent-subtle: rgba(91, 141, 250, 0.16);
+  --danger: #e5766d;
+  --danger-subtle: rgba(229, 118, 109, 0.16);
+  --ok: #5cc98d;
+  --ok-subtle: rgba(92, 201, 141, 0.16);
+  --warning: #e0a94c;
+  --warning-subtle: rgba(224, 169, 76, 0.16);
+  --shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+  --shadow-raised: 0 4px 16px rgba(0, 0, 0, 0.5);
 }
 
 * {
@@ -34,7 +78,7 @@ body {
   background: var(--bg);
   color: var(--text);
   font-family: var(--font-ui);
-  font-size: 14px;
+  font-size: calc(14px * var(--ui-scale));
   line-height: 1.5;
 }
 
@@ -125,25 +169,25 @@ h2 {
 
 .error {
   color: var(--danger);
-  background: #fdecec;
-  border: 1px solid #f3c2c2;
+  background: var(--danger-subtle);
+  border: 1px solid var(--danger);
   border-radius: var(--radius);
   padding: 8px 12px;
 }
 
 .notice {
   color: var(--ok);
-  background: #e8f5ed;
-  border: 1px solid #b9dfc8;
+  background: var(--ok-subtle);
+  border: 1px solid var(--ok);
   border-radius: var(--radius);
   padding: 8px 12px;
 }
 
 /* Something was removed from the document: not an error, but not good news. */
 .notice-warning {
-  color: #8a5a00;
-  background: #fdf3e2;
-  border-color: #efd7a6;
+  color: var(--warning);
+  background: var(--warning-subtle);
+  border-color: var(--warning);
   display: flex;
   gap: 12px;
   align-items: baseline;
@@ -240,6 +284,20 @@ main {
   gap: 12px;
 }
 
+/* Text size, everywhere but the document itself: see DisplayPreferences in
+   App.tsx. Same shape as .zoom-control, which is the editor's own version
+   of the same idea, scoped to the page. */
+.text-size-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--muted);
+}
+.text-size-control select {
+  font-size: 13px;
+  padding: 2px 4px;
+}
+
 .page-wrap {
   flex: 1;
   min-height: 0;
@@ -293,7 +351,7 @@ main {
 }
 
 .grid th {
-  background: #eef0f3;
+  background: var(--border-subtle);
   font-size: 12px;
   text-transform: uppercase;
   letter-spacing: 0.04em;
@@ -324,10 +382,10 @@ main {
   top: calc(100% + 4px);
   right: 0;
   min-width: 190px;
-  background: var(--surface);
+  background: var(--surface-raised);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+  box-shadow: var(--shadow-raised);
   padding: 4px;
   display: flex;
   flex-direction: column;
@@ -370,7 +428,7 @@ main {
   padding: 1px 6px;
   font-size: 11px;
   border-radius: 10px;
-  background: #eef0f3;
+  background: var(--border-subtle);
   color: var(--muted);
 }
 
@@ -586,14 +644,25 @@ main {
   align-items: flex-start;
 }
 
-/* A4 width at 96 dpi with Word's default one-inch margins. */
+/* A4 width at 96 dpi with Word's default one-inch margins.
+ *
+ * Everything from here to the end of this rule's block, and everything
+ * describing what is drawn inside `.page` further down this file (headings,
+ * tables, tracked changes, comment highlights, footnotes, kept objects,
+ * spelling), uses fixed colours on purpose, not tokens: the document is
+ * paper, the same paper whichever theme is switched on around it, because
+ * that is what it is when it is printed or exported.
+ */
 .page {
   width: 794px;
   max-width: 100%;
   min-height: 1123px;
   padding: 96px;
-  background: var(--surface);
-  border: 1px solid var(--border);
+  /* Fixed, not tokened: paper is white in both themes. The shadow that
+     grounds it against whatever is behind it is allowed to follow the
+     theme, since that background is the interface, not the document. */
+  background: #ffffff;
+  border: 1px solid #d9dee5;
   box-shadow: var(--shadow);
   font-family: var(--font-doc);
   font-size: 12pt;
@@ -629,7 +698,7 @@ main {
 .page blockquote {
   margin: 0 0 10pt 24pt;
   padding-left: 12px;
-  border-left: 3px solid var(--border);
+  border-left: 3px solid #d9dee5;
   color: #333;
 }
 
@@ -665,7 +734,7 @@ main {
 
 .page hr {
   border: none;
-  border-top: 1px solid var(--border);
+  border-top: 1px solid #d9dee5;
   margin: 12pt 0;
 }
 
@@ -753,10 +822,11 @@ main {
 }
 
 /* A page break: the exporter turns this into a real break in the Word file. */
+/* Fixed, like `.page`: a marker drawn on paper that stays white either way. */
 .page-break {
   position: relative;
   margin: 24px 0;
-  border-top: 2px dashed var(--border);
+  border-top: 2px dashed #d9dee5;
   text-align: center;
 }
 
@@ -765,7 +835,7 @@ main {
   top: -10px;
   background: #fff;
   padding: 0 8px;
-  color: var(--muted);
+  color: #6a7078;
   font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 0.08em;
@@ -805,10 +875,12 @@ main {
   width: 100%;
   box-sizing: border-box;
   padding: 8px 96px;
-  color: var(--muted);
+  /* Fixed, like `.page` itself: this band is the document's own header or
+     footer text, drawn on paper that stays white in both themes. */
+  color: #6a7078;
   font-size: 13px;
   background: #fff;
-  border: 1px solid var(--border);
+  border: 1px solid #d9dee5;
   white-space: pre-wrap;
   word-break: break-word;
 }
@@ -916,8 +988,8 @@ main {
   max-height: calc(100vh - 110px);
   position: sticky;
   top: 0;
-  border-right: 1px solid #d9dee5;
-  background: #fafbfc;
+  border-right: 1px solid var(--border);
+  background: var(--surface-subtle);
   padding: 12px;
   display: flex;
   flex-direction: column;
@@ -953,7 +1025,7 @@ main {
   white-space: nowrap;
 }
 .nav-pane-item:hover {
-  background: rgba(45, 91, 215, 0.1);
+  background: var(--accent-subtle);
 }
 @media print {
   .nav-pane {
@@ -980,8 +1052,8 @@ main {
   max-height: calc(100vh - 110px);
   position: sticky;
   top: 0;
-  border-left: 1px solid #d9dee5;
-  background: #fafbfc;
+  border-left: 1px solid var(--border);
+  background: var(--surface-subtle);
   padding: 12px;
   display: flex;
   flex-direction: column;
@@ -997,9 +1069,9 @@ main {
   font-size: 1rem;
 }
 .comment-thread {
-  border: 1px solid #d9dee5;
+  border: 1px solid var(--border);
   border-radius: 6px;
-  background: #fff;
+  background: var(--surface);
   padding: 10px;
   display: flex;
   flex-direction: column;
@@ -1031,7 +1103,7 @@ main {
   overflow-wrap: anywhere;
 }
 .comment-reply {
-  border-top: 1px solid #eef0f3;
+  border-top: 1px solid var(--border-subtle);
   padding-top: 6px;
   margin-left: 10px;
 }
@@ -1049,7 +1121,7 @@ main {
   box-sizing: border-box;
 }
 .danger-link {
-  color: #b3261e;
+  color: var(--danger);
 }
 .comment-mark {
   background: rgba(242, 201, 76, 0.45);
@@ -1099,17 +1171,17 @@ main {
 }
 .chat-message-assistant {
   align-self: flex-start;
-  background: #eef0f3;
+  background: var(--border-subtle);
 }
 .chat-message-me {
   align-self: flex-end;
-  background: rgba(45, 91, 215, 0.12);
+  background: var(--accent-subtle);
 }
 .chat-form {
   display: flex;
   gap: 8px;
   padding: 10px 12px;
-  border-top: 1px solid #d9dee5;
+  border-top: 1px solid var(--border);
 }
 .chat-form input {
   flex: 1;
@@ -1179,7 +1251,7 @@ main {
   gap: 4px;
   align-items: center;
   padding: 6px 16px 0;
-  border-bottom: 1px solid #d9dee5;
+  border-bottom: 1px solid var(--border);
 }
 .view-tab {
   border: 1px solid transparent;
@@ -1190,8 +1262,8 @@ main {
   margin-bottom: -1px;
 }
 .view-tab.is-active {
-  border-color: #d9dee5;
-  background: #fff;
+  border-color: var(--border);
+  background: var(--surface);
   font-weight: 600;
 }
 .view-tabs .link {
@@ -1211,12 +1283,12 @@ main {
   border-radius: 3px;
 }
 .change-kind-insertion {
-  background: #e6f4ea;
-  color: #1e6b34;
+  background: var(--ok-subtle);
+  color: var(--ok);
 }
 .change-kind-deletion {
-  background: #fce8e6;
-  color: #b3261e;
+  background: var(--danger-subtle);
+  color: var(--danger);
 }
 
 /* Who else has the document open, and their cursors in the text. */
@@ -1237,7 +1309,7 @@ main {
   font-weight: 700;
 }
 .save-offline {
-  color: #b3261e;
+  color: var(--danger);
 }
 .collaboration-carets__caret,
 .collaboration-cursor__caret {
@@ -1271,8 +1343,8 @@ main {
   gap: 8px;
   align-items: center;
   padding: 6px 12px;
-  border-bottom: 1px solid #d9dee5;
-  background: #f6f8fb;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-subtle);
 }
 .find-bar input[type='text'],
 .find-bar input:not([type]) {
@@ -1310,8 +1382,8 @@ main {
   margin-left: 8px;
 }
 .badge-type {
-  background: #e7eef8;
-  color: #1f4e79;
+  background: var(--accent-subtle);
+  color: var(--accent);
   margin-left: 8px;
 }
 .guide ol {
@@ -1356,10 +1428,10 @@ main {
   flex-direction: column;
   min-width: 200px;
   padding: 4px;
-  background: #fff;
-  border: 1px solid #c5ccd6;
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
   border-radius: 6px;
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.15);
+  box-shadow: var(--shadow-raised);
 }
 .spell-menu button {
   border: none;
@@ -1369,11 +1441,11 @@ main {
   border-radius: 4px;
 }
 .spell-menu button:hover {
-  background: #eef2f7;
+  background: var(--border-subtle);
 }
 .spell-menu-add {
-  border-top: 1px solid #e3e7ec !important;
-  color: #3b4757;
+  border-top: 1px solid var(--border) !important;
+  color: var(--muted);
 }
 @media print {
   .spell-error {

@@ -231,6 +231,26 @@ describe('application shell', () => {
     expect(screen.getByText('Eddie Editor')).toBeInTheDocument();
   });
 
+  it('offers dark mode and a text size on every page, not only the editor', async () => {
+    window.localStorage.removeItem('docforge-theme');
+    mocked['me'].mockResolvedValue({ user: EDITOR });
+    const user = userEvent.setup();
+    render(<App />);
+    await screen.findByRole('heading', { name: 'Documents' });
+
+    expect(document.documentElement.dataset.theme).toBe('light');
+    const themeToggle = screen.getByRole('button', { name: 'Dark mode' });
+    expect(themeToggle).toHaveAttribute('aria-pressed', 'false');
+    await user.click(themeToggle);
+    expect(document.documentElement.dataset.theme).toBe('dark');
+    expect(window.localStorage.getItem('docforge-theme')).toBe('dark');
+    expect(themeToggle).toHaveAttribute('aria-pressed', 'true');
+
+    await user.selectOptions(screen.getByLabelText('Text size'), '125');
+    expect(document.documentElement.style.getPropertyValue('--ui-scale')).toBe('1.25');
+    expect(window.localStorage.getItem('docforge-ui-scale')).toBe('125');
+  });
+
   it('offers administration only to an administrator', async () => {
     mocked['me'].mockResolvedValue({ user: EDITOR });
     const { unmount } = render(<App />);
