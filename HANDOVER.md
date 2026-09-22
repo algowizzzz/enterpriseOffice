@@ -102,6 +102,11 @@ refuse it, which is worse: a refusal is visible, silent loss is not. Hence the
 13. `docs/14-word-like-shell.md` for what "make it look like Word" breaks down
     into, what of that was already built before anyone asked, and the plan for
     the one large piece left: a genuine tabbed ribbon.
+14. `docs/15-enterprise-redesign.md` for the plan to take the interface from
+    "functional" to enterprise-grade: a design-token system, the documents
+    home and administration console reconsidered, the rename to DocAI, and
+    the house-style/branding system, planned in technical detail but not yet
+    built. Read this before doing any further UI work: it sets the order.
 
 ## What to do next
 
