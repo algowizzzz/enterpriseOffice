@@ -1090,6 +1090,14 @@ main {
   display: flex;
   flex-direction: column;
   min-width: 0;
+  /* Without this, a flex item's default min-height is auto, meaning it will
+     not shrink below its own content's natural size. For an ordinary
+     document that is invisible; for a long one (a table of hundreds of
+     rows) it silently breaks the whole chain of "flex: 1; min-height: 0"
+     this file otherwise uses throughout, from .app down to .page-surface,
+     to make one inner region scroll instead of the whole window growing to
+     the document's full height. */
+  min-height: 0;
   flex: 1;
 }
 
@@ -1150,7 +1158,18 @@ main {
 /* Comments: a column beside the page, and highlights on the words. */
 .editor-with-side {
   display: flex;
-  align-items: flex-start;
+  /* Stretch, not flex-start: the side panels already set their own
+     align-self: stretch, so this only ever changed .editor. flex-start told
+     the flex algorithm not to size .editor to the row's height at all, so it
+     sized to its own content instead and grew to match it -- 48,000px for a
+     document with a 600-row table -- which is what "min-height: 0" further
+     down this file exists to prevent, and could not, because align-items
+     decided .editor's size before min-height was ever consulted. That
+     silently broke the one thing every flex: 1; min-height: 0; in this file
+     is for: an inner region scrolling instead of the window growing to the
+     whole document's height, which only became visible on a document long
+     enough to notice: the toolbar and ribbon scrolled away with it. */
+  align-items: stretch;
   min-height: 0;
   flex: 1;
 }
