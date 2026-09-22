@@ -351,3 +351,37 @@ your decision specifically (§12: public-endpoint validation, sensitive-
 document opt-out), and one integration point plus two additions raised by
 the codebase as it stands today (§13, §14). Recommend resolving §12 before
 phase 1's schema is written, since both affect table shape.
+
+## 15. All five phases built, 2026-09-22
+
+§10's phasing is complete. Phase 2 (`workflow_group_prompts`, replacing the
+flat `prompts`/`output_summary` columns, with add/edit/delete/reorder
+endpoints, a 10-prompt cap and a data-carrying migration) and phases 3-4
+(Chat and AI Analysis wired to `services/llmEndpoints.ts`'s
+`runCompletion`, with the disclaimer and rate limiting from §14 built
+alongside them, not after) are `apps/server/src/services/{chat,analysis,
+chatSettings}.ts` and `routes/ai.routes.ts`. §3's per-group-vs-shared-
+endpoint question was resolved per its own recommendation: `llm_endpoints`
+gained `isDefault`, `workflow_groups` gained a nullable `endpointId`, and a
+one-row `chat_settings` table holds Chat's own choice, each falling back to
+the installation default when unset. §6's context-window follow-up was
+resolved as an honest first cap: 24,000 characters
+(`chat.ts`'s `CHAT_CONTEXT_CHAR_LIMIT`), truncated and said so in the UI,
+not chunked or retrieved.
+
+Phase 5 (§2) is built as: `ribbonTab: 'home' | 'ai'`, Home carrying what
+used to be a separate File tab as a section shown together with it rather
+than behind a further click; a new `AiPanel.tsx` holding Chat and Analysis
+as `role="tablist"` sub-tabs of one panel (`ChatPanel`/`AnalysisPanel`
+gained an `embedded` prop so they render without their own outer panel and
+Close button when hosted this way); and `.ai-launcher`, a docked
+floating-button entry point independent of which ribbon tab is active, so
+the panel is reachable without switching to AI first. §13's DocumentsPage
+row-menu Chat/Run analysis entries were revisited as recommended: phases
+3-4 are stable, so they now open the same real `ChatPanel`/`AnalysisPanel`
+components (standalone, not embedded) rather than staying inert previews.
+
+Covered by `apps/server/test/{workflow-groups,ai-chat,ai-analysis,
+db}.test.ts` and `apps/web/test/pages.test.tsx`; `npm run verify` passes
+end to end, 606 server tests and 280 client tests, checked in a real
+browser (sign in, open a document, both AI sub-tabs, the docked launcher).

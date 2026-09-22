@@ -1,9 +1,11 @@
-import { useEffect, useState, type JSX } from 'react';
+import { Fragment, useEffect, useState, type JSX } from 'react';
 import { api, ApiError, type AnalysisRunResult, type WorkflowGroupOption } from '../lib/api';
 
 interface AnalysisPanelProps {
   documentId: string;
   onClose: () => void;
+  /** True inside AiPanel's own Chat/Analysis tabs, which supply the outer panel and its Close button. */
+  embedded?: boolean;
 }
 
 /**
@@ -15,7 +17,7 @@ interface AnalysisPanelProps {
  * fails: this codebase does not hide what happened to a person's content,
  * and that applies to a model's intermediate output too.
  */
-export function AnalysisPanel({ documentId, onClose }: AnalysisPanelProps): JSX.Element {
+export function AnalysisPanel({ documentId, onClose, embedded = false }: AnalysisPanelProps): JSX.Element {
   const [groups, setGroups] = useState<WorkflowGroupOption[]>([]);
   const [groupId, setGroupId] = useState('');
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -56,14 +58,8 @@ export function AnalysisPanel({ documentId, onClose }: AnalysisPanelProps): JSX.
     }
   };
 
-  return (
-    <aside className="comments-panel" aria-label="Document analysis">
-      <div className="comments-head">
-        <h2>Document analysis</h2>
-        <button type="button" className="link" onClick={onClose}>
-          Close
-        </button>
-      </div>
+  const content = (
+    <>
       <p className="ai-disclaimer" role="note">
         AI-generated: check anything important before relying on it. You remain responsible for this
         document.
@@ -126,6 +122,20 @@ export function AnalysisPanel({ documentId, onClose }: AnalysisPanelProps): JSX.
           ) : null}
         </div>
       ) : null}
+    </>
+  );
+
+  if (embedded) return <Fragment>{content}</Fragment>;
+
+  return (
+    <aside className="comments-panel" aria-label="Document analysis">
+      <div className="comments-head">
+        <h2>Document analysis</h2>
+        <button type="button" className="link" onClick={onClose}>
+          Close
+        </button>
+      </div>
+      {content}
     </aside>
   );
 }

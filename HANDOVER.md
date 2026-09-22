@@ -115,8 +115,9 @@ refuse it, which is worse: a refusal is visible, silent loss is not. Hence the
     an outbound network call by design — read its §7 before touching
     anything that calls out to a model. §12's two open questions are
     answered (private-address-only endpoints, no per-document opt-out) and
-    Phase 1 is built: `llm_endpoints`, encrypted at rest, admin-only,
-    audited, with a "Test connection" action. §10 has what phase is next.
+    all five phases are built (§15): registered endpoints, workflow-group
+    prompts with their own CRUD, Chat and AI Analysis wired to a real
+    endpoint, and the Home/AI ribbon restructuring.
 
 ## What to do next
 

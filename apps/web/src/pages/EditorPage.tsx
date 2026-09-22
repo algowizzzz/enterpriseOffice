@@ -16,8 +16,7 @@ import { DocumentEditor, type SaveState } from '../components/DocumentEditor';
 import { CommentsPanel } from '../components/CommentsPanel';
 import { ReviewPanel } from '../components/ReviewPanel';
 import { NavigationPane } from '../components/NavigationPane';
-import { ChatPanel } from '../components/ChatPanel';
-import { AnalysisPanel } from '../components/AnalysisPanel';
+import { AiPanel } from '../components/AiPanel';
 import { AccessRequests } from '../components/AccessRequests';
 import { IconLabel } from '../components/IconLabel';
 import {
@@ -29,7 +28,6 @@ import {
   GitCompareArrows,
   History as HistoryIcon,
   Lock as LockIcon,
-  MessageCircle,
   MessageSquare,
   PencilLine,
   Settings2,
@@ -67,10 +65,13 @@ export function EditorPage({ documentId, onBack }: EditorPageProps): JSX.Element
   const [shares, setShares] = useState<ShareEntry[] | null>(null);
   const [setupOpen, setSetupOpen] = useState(false);
   const [navOpen, setNavOpen] = useState(false);
-  // Export, history, sharing and locking live behind their own tab, the way
-  // Word's own File tab does, rather than lined up next to the title.
-  const [ribbonTab, setRibbonTab] = useState<'home' | 'file'>('home');
-  const [side, setSide] = useState<'comments' | 'review' | 'chat' | 'analysis' | null>(null);
+  // Two top-level tabs (docs/16-ai-integration.md §2): Home, which carries
+  // everything that used to live behind a separate File tab as a section of
+  // its own rather than a further click away, and AI. Comments and Review
+  // are unaffected: they keep their own toggles regardless of which of
+  // these two is active (§11).
+  const [ribbonTab, setRibbonTab] = useState<'home' | 'ai'>('home');
+  const [side, setSide] = useState<'comments' | 'review' | 'ai' | null>(null);
   const commentsOpen = side === 'comments';
   const setCommentsOpen = (next: boolean | ((open: boolean) => boolean)): void =>
     setSide((current) => {
@@ -78,7 +79,7 @@ export function EditorPage({ documentId, onBack }: EditorPageProps): JSX.Element
       return open ? 'comments' : current === 'comments' ? null : current;
     });
   /** One slot on the right; opening one of these closes whichever else was open. */
-  const toggleSide = (name: 'review' | 'chat' | 'analysis'): void =>
+  const toggleSide = (name: 'review' | 'ai'): void =>
     setSide((current) => (current === name ? null : name));
   // Which text is on the page: the document, the file as it was first
   // uploaded, or what has changed between the two.
@@ -490,12 +491,13 @@ export function EditorPage({ documentId, onBack }: EditorPageProps): JSX.Element
       </header>
 
       {/*
-       * File-level actions (export, history, sharing, locking) behind their
-       * own tab, the way Word's own File tab holds Save As, Info and Share
-       * rather than lining them up next to the formatting controls. Home is
-       * the default and shows nothing here: the formatting ribbon a person
-       * reaches for while typing is Toolbar.tsx, inside DocumentEditor below,
-       * and is not gated by this tab at all.
+       * Two top-level tabs (docs/16-ai-integration.md §2). Home carries what
+       * used to live behind a separate File tab as a section of its own,
+       * shown together with Home rather than a further click away; the
+       * formatting ribbon a person reaches for while typing is Toolbar.tsx,
+       * inside DocumentEditor below, and is not gated by either tab. AI opens
+       * the Chat/Analysis panel, which also has its own docked entry point
+       * below so it is reachable without first switching tabs.
        */}
       <nav className="ribbon-tabs" aria-label="Ribbon">
         <button
@@ -508,14 +510,35 @@ export function EditorPage({ documentId, onBack }: EditorPageProps): JSX.Element
         </button>
         <button
           type="button"
-          className={`ribbon-tab${ribbonTab === 'file' ? ' is-active' : ''}`}
-          aria-pressed={ribbonTab === 'file'}
-          onClick={() => setRibbonTab('file')}
+          className={`ribbon-tab${ribbonTab === 'ai' ? ' is-active' : ''}`}
+          aria-pressed={ribbonTab === 'ai'}
+          onClick={() => {
+            setRibbonTab('ai');
+            setSide('ai');
+          }}
         >
-          File
+          <IconLabel icon={Sparkles} size={14}>
+            AI
+          </IconLabel>
         </button>
       </nav>
-      {ribbonTab === 'file' ? (
+      {/*
+       * A second, docked way into the same panel (docs/16 §2: "not only
+       * reachable by first switching to the AI ribbon tab"), the
+       * floating-launcher pattern most chat products use. Independent of
+       * `ribbonTab`, so it works from Home too.
+       */}
+      <button
+        type="button"
+        className="ai-launcher"
+        aria-pressed={side === 'ai'}
+        title="Chat or run analysis on this document"
+        onClick={() => toggleSide('ai')}
+      >
+        <Sparkles size={18} aria-hidden="true" />
+        <span className="visually-hidden">Open AI panel</span>
+      </button>
+      {ribbonTab === 'home' ? (
         <div className="actions ribbon-file">
           <button type="button" onClick={() => { void download('docx'); }}>
             <IconLabel icon={FileType}>Export .docx</IconLabel>
@@ -558,22 +581,6 @@ export function EditorPage({ documentId, onBack }: EditorPageProps): JSX.Element
             <IconLabel icon={MessageSquare}>
               Comments{openComments ? ` (${openComments})` : ''}
             </IconLabel>
-          </button>
-          <button
-            type="button"
-            title="Ask questions about this document. AI-generated: check anything important"
-            aria-pressed={side === 'chat'}
-            onClick={() => toggleSide('chat')}
-          >
-            <IconLabel icon={MessageCircle}>Chat</IconLabel>
-          </button>
-          <button
-            type="button"
-            title="Run a workflow group's prompts against this document. AI-generated: check anything important"
-            aria-pressed={side === 'analysis'}
-            onClick={() => toggleSide('analysis')}
-          >
-            <IconLabel icon={Sparkles}>Analysis</IconLabel>
           </button>
           <button type="button" onClick={() => setSetupOpen((open) => !open)}>
             <IconLabel icon={Settings2}>Page setup</IconLabel>
@@ -922,10 +929,7 @@ export function EditorPage({ documentId, onBack }: EditorPageProps): JSX.Element
               onCount={setOpenComments}
             />
           ) : null}
-          {side === 'chat' ? <ChatPanel documentId={documentId} onClose={() => setSide(null)} /> : null}
-          {side === 'analysis' ? (
-            <AnalysisPanel documentId={documentId} onClose={() => setSide(null)} />
-          ) : null}
+          {side === 'ai' ? <AiPanel documentId={documentId} onClose={() => setSide(null)} /> : null}
           </div>
         </div>
       </div>

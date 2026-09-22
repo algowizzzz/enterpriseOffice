@@ -1492,6 +1492,68 @@ main {
 .view-tabs .link {
   margin-left: 12px;
 }
+
+/* The AI panel's own docked entry point (docs/16-ai-integration.md §2): a
+   floating launcher, independent of which ribbon tab is active. */
+.ai-launcher {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  z-index: 15;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  box-shadow: var(--shadow-raised);
+}
+.ai-launcher[aria-pressed='true'] {
+  background: var(--chrome-bg, var(--accent));
+}
+
+/* Chat and Analysis as sub-tabs of one panel, the same shape `.view-tabs`
+   already uses for Document/Original/Redline. */
+.ai-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--border);
+}
+.ai-tab {
+  border: 1px solid transparent;
+  border-bottom: none;
+  border-radius: 6px 6px 0 0;
+  background: none;
+  padding: 6px 10px;
+  margin-bottom: -1px;
+}
+.ai-tab.is-active {
+  border-color: var(--border);
+  background: var(--surface);
+  font-weight: 600;
+}
+.ai-tabpanel {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.ai-panel .ai-disclaimer,
+.ai-panel .hint,
+.ai-panel .error,
+.ai-panel .analysis-empty,
+.ai-panel .analysis-controls,
+.ai-panel .analysis-results {
+  margin-left: 12px;
+  margin-right: 12px;
+}
+.ai-panel .ai-disclaimer {
+  margin-top: 8px;
+}
 .track-toggle {
   display: flex;
   gap: 8px;

@@ -1,4 +1,4 @@
-import { useState, type FormEvent, type JSX } from 'react';
+import { Fragment, useState, type FormEvent, type JSX } from 'react';
 import { Send } from 'lucide-react';
 import { api, ApiError, type ChatTurn } from '../lib/api';
 
@@ -11,6 +11,8 @@ interface ChatMessage {
 interface ChatPanelProps {
   documentId: string;
   onClose: () => void;
+  /** True inside AiPanel's own Chat/Analysis tabs, which supply the outer panel and its Close button. */
+  embedded?: boolean;
 }
 
 const OPENING: ChatMessage = {
@@ -27,7 +29,7 @@ const OPENING: ChatMessage = {
  * once an administrator has registered an endpoint (Administration > LLM
  * endpoints), and even then only within that endpoint's own network.
  */
-export function ChatPanel({ documentId, onClose }: ChatPanelProps): JSX.Element {
+export function ChatPanel({ documentId, onClose, embedded = false }: ChatPanelProps): JSX.Element {
   const [messages, setMessages] = useState<ChatMessage[]>([OPENING]);
   const [draft, setDraft] = useState('');
   const [sending, setSending] = useState(false);
@@ -66,14 +68,8 @@ export function ChatPanel({ documentId, onClose }: ChatPanelProps): JSX.Element 
     }
   };
 
-  return (
-    <aside className="comments-panel chat-panel" aria-label="Chat">
-      <div className="comments-head">
-        <h2>Chat</h2>
-        <button type="button" className="link" onClick={onClose}>
-          Close
-        </button>
-      </div>
+  const content = (
+    <>
       <p className="ai-disclaimer" role="note">
         AI-generated: check anything important before relying on it. You remain responsible for this
         document.
@@ -111,6 +107,20 @@ export function ChatPanel({ documentId, onClose }: ChatPanelProps): JSX.Element 
           <span className="visually-hidden">Send</span>
         </button>
       </form>
+    </>
+  );
+
+  if (embedded) return <Fragment>{content}</Fragment>;
+
+  return (
+    <aside className="comments-panel chat-panel" aria-label="Chat">
+      <div className="comments-head">
+        <h2>Chat</h2>
+        <button type="button" className="link" onClick={onClose}>
+          Close
+        </button>
+      </div>
+      {content}
     </aside>
   );
 }
