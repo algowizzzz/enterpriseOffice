@@ -310,6 +310,60 @@ main {
   justify-content: flex-end;
 }
 
+/* The overflow "⋯" menu behind a row: see RowMenu.tsx. */
+.row-menu {
+  position: relative;
+  display: inline-block;
+}
+.row-menu-trigger {
+  padding: 4px 8px;
+}
+.row-menu-list {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 4px);
+  right: 0;
+  min-width: 190px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.row-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 10px;
+  border: none;
+  background: none;
+  border-radius: 4px;
+  justify-content: flex-start;
+  font-size: 13px;
+  text-align: left;
+}
+.row-menu-item:hover:not(:disabled) {
+  background: var(--bg);
+}
+.row-menu-item.danger {
+  color: var(--danger);
+}
+
+/* AnalysisPanel is written for the editor's side rail (fixed width, sticky,
+   a border on one side only). Reused inline, in a table row, it should just
+   fill the row instead. */
+.panel-embed .comments-panel {
+  width: auto;
+  position: static;
+  max-height: none;
+  border-left: none;
+  align-self: stretch;
+}
+
 .badge {
   display: inline-block;
   margin-left: 8px;

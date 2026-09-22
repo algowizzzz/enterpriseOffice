@@ -6,11 +6,25 @@ import {
   DOCUMENT_TYPES,
   type DocumentSummary,
   type DocumentType,
+  type ExportFormat,
   type ShareEntry,
   type User,
 } from '../lib/api';
 import { useSession } from '../lib/session';
 import { textField } from '../lib/forms';
+import { RowMenu, type RowMenuItem } from '../components/RowMenu';
+import { AnalysisPanel } from '../components/AnalysisPanel';
+import { IconLabel } from '../components/IconLabel';
+import {
+  ExternalLink,
+  FileDown,
+  FileText,
+  FileType,
+  Share2,
+  Sparkles,
+  Trash2,
+  UserCog,
+} from 'lucide-react';
 
 interface DocumentsPageProps {
   onOpen: (id: string) => void;
@@ -83,7 +97,7 @@ export function DocumentsPage({ onOpen }: DocumentsPageProps): JSX.Element {
   };
 
   /** A failed download used to be an unhandled rejection with nothing on screen. */
-  const download = async (id: string, format: 'docx' | 'txt'): Promise<void> => {
+  const download = async (id: string, format: ExportFormat): Promise<void> => {
     setError(null);
     try {
       await downloadExport(id, format);
@@ -102,18 +116,25 @@ export function DocumentsPage({ onOpen }: DocumentsPageProps): JSX.Element {
     }
   };
 
-  // Sharing and ownership from the list, rather than making somebody open a
-  // document just to see or change who has it. One at a time: opening a
-  // second one closes whichever was open, the same as the editor's panels.
-  const [managing, setManaging] = useState<DocumentSummary | null>(null);
+  // Sharing, ownership and a preview of analysis, all from the list, rather
+  // than making somebody open a document just to see or change who has it.
+  // One row expanded at a time: opening a second one closes whichever was
+  // open, the same as the editor's own side panels.
+  type ExpandedKind = 'access' | 'transfer' | 'analysis';
+  const [expanded, setExpanded] = useState<{ id: string; kind: ExpandedKind } | null>(null);
   const [shares, setShares] = useState<ShareEntry[] | null>(null);
   const [directory, setDirectory] = useState<User[]>([]);
 
-  const manageAccess = async (document: DocumentSummary): Promise<void> => {
-    if (managing?.id === document.id) {
-      setManaging(null);
-      return;
+  const toggle = (document: DocumentSummary, kind: ExpandedKind): boolean => {
+    if (expanded?.id === document.id && expanded.kind === kind) {
+      setExpanded(null);
+      return false;
     }
+    return true;
+  };
+
+  const manageAccess = async (document: DocumentSummary): Promise<void> => {
+    if (!toggle(document, 'access')) return;
     setError(null);
     try {
       const [{ shares: list }, { users }] = await Promise.all([
@@ -122,42 +143,120 @@ export function DocumentsPage({ onOpen }: DocumentsPageProps): JSX.Element {
       ]);
       setShares(list);
       setDirectory(users.filter((candidate) => candidate.id !== user?.id));
-      setManaging(document);
+      setExpanded({ id: document.id, kind: 'access' });
     } catch (caught) {
       setError(caught instanceof ApiError ? caught.message : 'Could not load the sharing list.');
     }
   };
 
-  const shareWith = async (userId: string, permission: 'view' | 'edit'): Promise<void> => {
-    if (!managing) return;
+  const openTransfer = async (document: DocumentSummary): Promise<void> => {
+    if (!toggle(document, 'transfer')) return;
+    setError(null);
     try {
-      const { shares: updated } = await api.share(managing.id, userId, permission);
+      const { users } = await api.listUsers();
+      setDirectory(users.filter((candidate) => candidate.id !== user?.id));
+      setExpanded({ id: document.id, kind: 'transfer' });
+    } catch (caught) {
+      setError(caught instanceof ApiError ? caught.message : 'Could not load the list of people.');
+    }
+  };
+
+  const openAnalysis = (document: DocumentSummary): void => {
+    setExpanded((current) =>
+      current?.id === document.id && current.kind === 'analysis' ? null : { id: document.id, kind: 'analysis' },
+    );
+  };
+
+  const shareWith = async (documentId: string, userId: string, permission: 'view' | 'edit'): Promise<void> => {
+    try {
+      const { shares: updated } = await api.share(documentId, userId, permission);
       setShares(updated);
     } catch (caught) {
       setError(caught instanceof ApiError ? caught.message : 'Could not share that document.');
     }
   };
 
-  const removeShare = async (userId: string): Promise<void> => {
-    if (!managing) return;
+  const removeShare = async (documentId: string, userId: string): Promise<void> => {
     try {
-      const { shares: updated } = await api.unshare(managing.id, userId);
+      const { shares: updated } = await api.unshare(documentId, userId);
       setShares(updated);
     } catch (caught) {
       setError(caught instanceof ApiError ? caught.message : 'Could not remove that share.');
     }
   };
 
-  const transferTo = async (userId: string, name: string): Promise<void> => {
-    if (!managing) return;
-    if (!window.confirm(`Make ${name} the owner of "${managing.title}"? You will keep edit access.`)) return;
+  const transferTo = async (
+    documentId: string,
+    documentTitle: string,
+    userId: string,
+    name: string,
+  ): Promise<void> => {
+    if (!window.confirm(`Make ${name} the owner of "${documentTitle}"? You will keep edit access.`)) return;
     try {
-      await api.transferOwnership(managing.id, userId);
-      setManaging(null);
+      await api.transferOwnership(documentId, userId);
+      setExpanded(null);
       await load();
     } catch (caught) {
       setError(caught instanceof ApiError ? caught.message : 'Could not hand the document over.');
     }
+  };
+
+  const menuFor = (document: DocumentSummary): RowMenuItem[] => {
+    const items: RowMenuItem[] = [
+      { key: 'open', label: <IconLabel icon={ExternalLink}>Open</IconLabel>, onSelect: () => onOpen(document.id) },
+      {
+        key: 'docx',
+        label: <IconLabel icon={FileType}>Export .docx</IconLabel>,
+        onSelect: () => void download(document.id, 'docx'),
+      },
+      {
+        key: 'pdf',
+        label: <IconLabel icon={FileDown}>Export .pdf</IconLabel>,
+        onSelect: () => void download(document.id, 'pdf'),
+      },
+      {
+        key: 'txt',
+        label: <IconLabel icon={FileText}>Export .txt</IconLabel>,
+        onSelect: () => void download(document.id, 'txt'),
+      },
+    ];
+    if (document.origin === 'import') {
+      items.push({
+        key: 'original',
+        label: <IconLabel icon={FileText}>Original</IconLabel>,
+        title: 'Download the file exactly as it was uploaded',
+        onSelect: () => void download(document.id, 'original'),
+      });
+    }
+    if (document.access === 'owner') {
+      items.push(
+        {
+          key: 'access',
+          label: <IconLabel icon={Share2}>Manage access</IconLabel>,
+          onSelect: () => void manageAccess(document),
+        },
+        {
+          key: 'transfer',
+          label: <IconLabel icon={UserCog}>Transfer ownership</IconLabel>,
+          onSelect: () => void openTransfer(document),
+        },
+      );
+    }
+    items.push({
+      key: 'analysis',
+      label: <IconLabel icon={Sparkles}>Run analysis</IconLabel>,
+      title: 'A preview; not connected to a model in this build',
+      onSelect: () => openAnalysis(document),
+    });
+    if (document.access === 'owner') {
+      items.push({
+        key: 'delete',
+        label: <IconLabel icon={Trash2}>Delete</IconLabel>,
+        danger: true,
+        onSelect: () => void remove(document),
+      });
+    }
+    return items;
   };
 
   const canCreate = user?.role !== 'viewer';
@@ -303,26 +402,10 @@ export function DocumentsPage({ onOpen }: DocumentsPageProps): JSX.Element {
                   <td>{formatWhen(document.updatedAt)}</td>
                   <td>{document.access}</td>
                   <td className="row-actions">
-                    <button type="button" onClick={() => { void download(document.id, 'docx'); }}>
-                      Download
-                    </button>
-                    {document.access === 'owner' ? (
-                      <button
-                        type="button"
-                        aria-pressed={managing?.id === document.id}
-                        onClick={() => void manageAccess(document)}
-                      >
-                        Manage access
-                      </button>
-                    ) : null}
-                    {document.access === 'owner' ? (
-                      <button type="button" className="danger" onClick={() => void remove(document)}>
-                        Delete
-                      </button>
-                    ) : null}
+                    <RowMenu label={`Actions for ${document.title}`} items={menuFor(document)} />
                   </td>
                 </tr>
-                {managing?.id === document.id && shares ? (
+                {expanded?.id === document.id && expanded.kind === 'access' && shares ? (
                   <tr>
                     <td colSpan={6}>
                       <div className="panel" role="region" aria-label={`Manage access for ${document.title}`}>
@@ -339,14 +422,14 @@ export function DocumentsPage({ onOpen }: DocumentsPageProps): JSX.Element {
                                 <button
                                   type="button"
                                   title="Hand this document over. You keep edit access"
-                                  onClick={() => void transferTo(share.userId, share.name)}
+                                  onClick={() => void transferTo(document.id, document.title, share.userId, share.name)}
                                 >
                                   Make owner
                                 </button>
                                 <button
                                   type="button"
                                   className="danger"
-                                  onClick={() => void removeShare(share.userId)}
+                                  onClick={() => void removeShare(document.id, share.userId)}
                                 >
                                   Remove
                                 </button>
@@ -363,7 +446,7 @@ export function DocumentsPage({ onOpen }: DocumentsPageProps): JSX.Element {
                             const permission = textField(form, 'permission', 'view') as 'view' | 'edit';
                             if (!userId) return;
                             event.currentTarget.reset();
-                            void shareWith(userId, permission);
+                            void shareWith(document.id, userId, permission);
                           }}
                         >
                           <label>
@@ -387,10 +470,58 @@ export function DocumentsPage({ onOpen }: DocumentsPageProps): JSX.Element {
                           <button type="submit" className="primary">
                             Share
                           </button>
-                          <button type="button" className="link" onClick={() => setManaging(null)}>
+                          <button type="button" className="link" onClick={() => setExpanded(null)}>
                             Close
                           </button>
                         </form>
+                      </div>
+                    </td>
+                  </tr>
+                ) : null}
+                {expanded?.id === document.id && expanded.kind === 'transfer' ? (
+                  <tr>
+                    <td colSpan={6}>
+                      <div className="panel" role="region" aria-label={`Transfer ownership of ${document.title}`}>
+                        <h2>Transfer ownership: {document.title}</h2>
+                        <p className="hint">You keep edit access once somebody else owns it.</p>
+                        <form
+                          className="share-form"
+                          onSubmit={(event) => {
+                            event.preventDefault();
+                            const form = new FormData(event.currentTarget);
+                            const userId = textField(form, 'userId');
+                            if (!userId) return;
+                            const person = directory.find((candidate) => candidate.id === userId);
+                            void transferTo(document.id, document.title, userId, person?.name ?? 'this person');
+                          }}
+                        >
+                          <label>
+                            New owner
+                            <select name="userId" required defaultValue="">
+                              <option value="">Choose a person</option>
+                              {directory.map((candidate) => (
+                                <option key={candidate.id} value={candidate.id}>
+                                  {candidate.name} ({candidate.email})
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                          <button type="submit" className="primary">
+                            Make owner
+                          </button>
+                          <button type="button" className="link" onClick={() => setExpanded(null)}>
+                            Close
+                          </button>
+                        </form>
+                      </div>
+                    </td>
+                  </tr>
+                ) : null}
+                {expanded?.id === document.id && expanded.kind === 'analysis' ? (
+                  <tr>
+                    <td colSpan={6}>
+                      <div className="panel-embed">
+                        <AnalysisPanel onClose={() => setExpanded(null)} />
                       </div>
                     </td>
                   </tr>

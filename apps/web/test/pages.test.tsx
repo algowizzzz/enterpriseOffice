@@ -87,6 +87,11 @@ async function openFileTab(user: ReturnType<typeof userEvent.setup>): Promise<vo
   await user.click(await screen.findByRole('button', { name: 'File' }));
 }
 
+/** Every per-document action on the list lives behind its own "⋯" menu. */
+async function openRowMenu(user: ReturnType<typeof userEvent.setup>, title: string): Promise<void> {
+  await user.click(await screen.findByRole('button', { name: `Actions for ${title}` }));
+}
+
 /** The restore control belonging to one revision in the history list. */
 async function restoreButtonFor(revision: number): Promise<HTMLElement> {
   const label = await screen.findByText(new RegExp(`Revision ${revision} by`, 'u'));
@@ -322,8 +327,36 @@ describe('documents page', () => {
     mocked['listDocuments'].mockResolvedValue({ documents: [summary()] });
     const user = userEvent.setup();
     await renderSignedIn(<DocumentsPage onOpen={() => {}} />);
-    await user.click(await screen.findByRole('button', { name: 'Download' }));
+    await openRowMenu(user, 'Quarterly Report');
+    await user.click(await screen.findByRole('menuitem', { name: 'Export .docx' }));
     expect(downloadExport).toHaveBeenCalledWith('doc-1', 'docx');
+  });
+
+  it('offers every export format, and the original when the document was imported', async () => {
+    mocked['listDocuments'].mockResolvedValue({ documents: [summary({ origin: 'import', sourceName: 'Report.docx' })] });
+    const user = userEvent.setup();
+    await renderSignedIn(<DocumentsPage onOpen={() => {}} />);
+    await openRowMenu(user, 'Quarterly Report');
+    await user.click(await screen.findByRole('menuitem', { name: 'Export .pdf' }));
+    expect(downloadExport).toHaveBeenCalledWith('doc-1', 'pdf');
+
+    await openRowMenu(user, 'Quarterly Report');
+    await user.click(await screen.findByRole('menuitem', { name: 'Export .txt' }));
+    expect(downloadExport).toHaveBeenCalledWith('doc-1', 'txt');
+
+    await openRowMenu(user, 'Quarterly Report');
+    await user.click(await screen.findByRole('menuitem', { name: 'Original' }));
+    expect(downloadExport).toHaveBeenCalledWith('doc-1', 'original');
+  });
+
+  it('opens a document from its menu, the same as clicking the title', async () => {
+    mocked['listDocuments'].mockResolvedValue({ documents: [summary()] });
+    const onOpen = vi.fn();
+    const user = userEvent.setup();
+    await renderSignedIn(<DocumentsPage onOpen={onOpen} />);
+    await openRowMenu(user, 'Quarterly Report');
+    await user.click(await screen.findByRole('menuitem', { name: 'Open' }));
+    expect(onOpen).toHaveBeenCalledWith('doc-1');
   });
 
   it('asks before deleting, and reloads afterwards', async () => {
@@ -333,7 +366,8 @@ describe('documents page', () => {
     const user = userEvent.setup();
 
     await renderSignedIn(<DocumentsPage onOpen={() => {}} />);
-    await user.click(await screen.findByRole('button', { name: 'Delete' }));
+    await openRowMenu(user, 'Quarterly Report');
+    await user.click(await screen.findByRole('menuitem', { name: 'Delete' }));
 
     expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining('Quarterly Report'));
     await waitFor(() => expect(mocked['deleteDocument']).toHaveBeenCalledWith('doc-1'));
@@ -345,15 +379,19 @@ describe('documents page', () => {
     vi.spyOn(window, 'confirm').mockReturnValue(false);
     const user = userEvent.setup();
     await renderSignedIn(<DocumentsPage onOpen={() => {}} />);
-    await user.click(await screen.findByRole('button', { name: 'Delete' }));
+    await openRowMenu(user, 'Quarterly Report');
+    await user.click(await screen.findByRole('menuitem', { name: 'Delete' }));
     expect(mocked['deleteDocument']).not.toHaveBeenCalled();
   });
 
-  it('offers no delete for a document somebody else owns', async () => {
+  it('offers no delete, manage access or transfer for a document somebody else owns', async () => {
     mocked['listDocuments'].mockResolvedValue({ documents: [summary({ access: 'edit' })] });
+    const user = userEvent.setup();
     await renderSignedIn(<DocumentsPage onOpen={() => {}} />);
-    await screen.findByRole('button', { name: 'Download' });
-    expect(screen.queryByRole('button', { name: 'Delete' })).not.toBeInTheDocument();
+    await openRowMenu(user, 'Quarterly Report');
+    expect(screen.queryByRole('menuitem', { name: 'Delete' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('menuitem', { name: 'Manage access' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('menuitem', { name: 'Transfer ownership' })).not.toBeInTheDocument();
   });
 
   it('tells a viewer that they cannot create documents, and disables the buttons', async () => {
@@ -369,13 +407,6 @@ describe('documents page', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('Something went wrong.');
   });
 
-  it('offers no "Manage access" for a document somebody else owns', async () => {
-    mocked['listDocuments'].mockResolvedValue({ documents: [summary({ access: 'edit' })] });
-    await renderSignedIn(<DocumentsPage onOpen={() => {}} />);
-    await screen.findByRole('button', { name: 'Download' });
-    expect(screen.queryByRole('button', { name: 'Manage access' })).not.toBeInTheDocument();
-  });
-
   it('manages access from the list, without opening the document', async () => {
     mocked['listDocuments'].mockResolvedValue({ documents: [summary()] });
     mocked['listShares'].mockResolvedValue({
@@ -385,12 +416,12 @@ describe('documents page', () => {
     const user = userEvent.setup();
     await renderSignedIn(<DocumentsPage onOpen={() => {}} />);
 
-    await user.click(await screen.findByRole('button', { name: 'Manage access' }));
+    await openRowMenu(user, 'Quarterly Report');
+    await user.click(await screen.findByRole('menuitem', { name: 'Manage access' }));
     expect(await screen.findByText('Sharing: Quarterly Report')).toBeInTheDocument();
     expect(screen.getByText(/Otto Other can view/u)).toBeInTheDocument();
 
-    // Closes the same way it opened: the toggle button itself.
-    await user.click(screen.getByRole('button', { name: 'Manage access' }));
+    await user.click(screen.getByRole('button', { name: 'Close' }));
     await waitFor(() => expect(screen.queryByText('Sharing: Quarterly Report')).not.toBeInTheDocument());
   });
 
@@ -404,7 +435,8 @@ describe('documents page', () => {
     const user = userEvent.setup();
     await renderSignedIn(<DocumentsPage onOpen={() => {}} />);
 
-    await user.click(await screen.findByRole('button', { name: 'Manage access' }));
+    await openRowMenu(user, 'Quarterly Report');
+    await user.click(await screen.findByRole('menuitem', { name: 'Manage access' }));
     await user.selectOptions(await screen.findByLabelText('Person'), 'u-admin');
     await user.selectOptions(screen.getByLabelText('Permission'), 'edit');
     await user.click(screen.getByRole('button', { name: 'Share' }));
@@ -422,12 +454,13 @@ describe('documents page', () => {
     const user = userEvent.setup();
     await renderSignedIn(<DocumentsPage onOpen={() => {}} />);
 
-    await user.click(await screen.findByRole('button', { name: 'Manage access' }));
+    await openRowMenu(user, 'Quarterly Report');
+    await user.click(await screen.findByRole('menuitem', { name: 'Manage access' }));
     await user.click(await screen.findByRole('button', { name: 'Remove' }));
     await waitFor(() => expect(mocked['unshare']).toHaveBeenCalledWith('doc-1', 'u-other'));
   });
 
-  it('hands a document over from the list, once the question is confirmed', async () => {
+  it('hands a document over from the sharing panel, once the question is confirmed', async () => {
     mocked['listDocuments'].mockResolvedValue({ documents: [summary()] });
     mocked['listShares'].mockResolvedValue({
       shares: [{ userId: 'u-other', email: 'other@localhost', name: 'Otto Other', permission: 'edit' }],
@@ -438,13 +471,44 @@ describe('documents page', () => {
     const user = userEvent.setup();
     await renderSignedIn(<DocumentsPage onOpen={() => {}} />);
 
-    await user.click(await screen.findByRole('button', { name: 'Manage access' }));
+    await openRowMenu(user, 'Quarterly Report');
+    await user.click(await screen.findByRole('menuitem', { name: 'Manage access' }));
     await user.click(await screen.findByRole('button', { name: 'Make owner' }));
 
     expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining('Otto Other'));
     await waitFor(() => expect(mocked['transferOwnership']).toHaveBeenCalledWith('doc-1', 'u-other'));
     // Handing it over closes the panel and refreshes the list, the owner column included.
     await waitFor(() => expect(screen.queryByText('Sharing: Quarterly Report')).not.toBeInTheDocument());
+  });
+
+  it('transfers ownership directly, without opening the sharing panel', async () => {
+    mocked['listDocuments'].mockResolvedValue({ documents: [summary()] });
+    mocked['listUsers'].mockResolvedValue({ users: [ADMIN] });
+    mocked['transferOwnership'].mockResolvedValue({ document: detail({ ownerId: 'u-admin' }) });
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    const user = userEvent.setup();
+    await renderSignedIn(<DocumentsPage onOpen={() => {}} />);
+
+    await openRowMenu(user, 'Quarterly Report');
+    await user.click(await screen.findByRole('menuitem', { name: 'Transfer ownership' }));
+    expect(await screen.findByText('Transfer ownership: Quarterly Report')).toBeInTheDocument();
+
+    await user.selectOptions(screen.getByLabelText('New owner'), 'u-admin');
+    await user.click(screen.getByRole('button', { name: 'Make owner' }));
+
+    expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining('Ada Admin'));
+    await waitFor(() => expect(mocked['transferOwnership']).toHaveBeenCalledWith('doc-1', 'u-admin'));
+  });
+
+  it('opens a preview of analysis from the list, without a model behind it', async () => {
+    mocked['listDocuments'].mockResolvedValue({ documents: [summary()] });
+    const user = userEvent.setup();
+    await renderSignedIn(<DocumentsPage onOpen={() => {}} />);
+
+    await openRowMenu(user, 'Quarterly Report');
+    await user.click(await screen.findByRole('menuitem', { name: 'Run analysis' }));
+    expect(await screen.findByText('Document analysis')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Run analysis' })).toBeDisabled();
   });
 });
 
