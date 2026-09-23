@@ -3,6 +3,12 @@
 Everything a new session needs to pick this up. Written for an agent working on
 a Mac with Claude Code, and for the person reading over its shoulder.
 
+**Taking this over as an enterprise team deploying it, rather than continuing
+development with an AI agent? Read [`TEAM-HANDOFF.md`](TEAM-HANDOFF.md)
+first** — it covers air-gapped Windows and Linux deployment with no Docker,
+the full documentation index, and a cleanup checklist. This file remains the
+right one for a development agent picking the code back up.
+
 ## What this is
 
 DocForge is a browser-based word processor for air-gapped deployment: a Linux
@@ -41,18 +47,21 @@ everything below assumes it passes.
 
 | | |
 |---|---|
-| Commits | 57 on `main`, more since on `enterprise-deploy-kit` |
-| Server tests | 581 |
-| Client tests | 275 |
+| Commits | 38 on `main`, 46 more on `enterprise-deploy-kit` |
+| Server tests | 643 |
+| Client tests | 293 |
 | End-to-end checks | 35 |
-| Word round-trip fidelity | 1260 of 1260 measured items, across 50 documents, plus 35 from a wide corpus of three other producers |
-| Verify runs clean | Repeatedly, most recently 2026-09-22, after Phase 1 of `docs/16-ai-integration.md` |
+| Word round-trip fidelity | Measured against a 40-document corpus checked into `data/` (`data/test-docs/`, `data/wide-corpus/`) |
+| Verify runs clean | Repeatedly, most recently 2026-09-22, after Standardized export (all four phases), the ribbon and Administration reorganisation, and audit-trail readability work |
 
 This section used to say 38 commits and describe comments, track changes and
 real-time co-editing as not built. Nineteen commits did exactly that in
 between, and this file was not updated to match: **`docs/11-status.md` is the
 current source of truth for what exists**, not this section or
-`docs/07-roadmap.md`'s "what to do next". Read it first.
+`docs/07-roadmap.md`'s "what to do next". Read it first. (That correction is
+itself now historical -- treat every number in this section as of the date at
+its end, not as permanently current, and re-verify with `npm run verify`
+and `npm test`'s own summary line before trusting any of it further.)
 
 Six adversarial review rounds have been run against the code, each one reading
 the previous round's fix. The defect table in `docs/05-testing.md` lists what
@@ -118,26 +127,25 @@ refuse it, which is worse: a refusal is visible, silent loss is not. Hence the
     all five phases are built (§15): registered endpoints, workflow-group
     prompts with their own CRUD, Chat and AI Analysis wired to a real
     endpoint, and the Home/AI ribbon restructuring.
+16. `docs/17-standardized-export.md` for the administrator-configurable house
+    style: an export that overrides a document's own header, footer, heading
+    and body formatting, plus a logo, table borders and shading, and
+    table-of-contents styling. All four phases are built.
 
 ## What to do next
 
 Ignore `docs/07-roadmap.md`'s ranked list: every item on it except named styles
-and numbering is now built (see `docs/11-status.md`). What is actually left,
-in order of value against effort:
+and numbering is now built (see `docs/11-status.md`). The editor's own look
+(item 1 in this section as of earlier versions of this file) is also done as
+of 2026-09-22: a five-tab ribbon (Review/Access/Export/AI/History) with the
+Document/Original/Redline view switcher in the same single row, a Navigation
+pane and a zoom control, and Administration split into a tabbed console
+(Users/AI/Export/Audit) rather than one long page. What is actually left, in
+order of value against effort:
 
-1. **The editor's own look.** Word-like functionality (comments, track
-   changes, co-editing, admin approval) is done; the shell around it is not.
-   There is no tabbed ribbon (Home/Insert/Layout/Review/View), no title bar in
-   Word's sense, and until 2026-09-22 no navigation pane, which
-   `docs/10-product-requirements.md` calls for and the UI did not have. A
-   Navigation pane (jump to a heading) and a zoom control were added that day;
-   a real tabbed ribbon was deliberately not attempted in the same pass,
-   because `Toolbar.tsx`'s 438 lines of tests exercise every control in one
-   render without switching tabs, so a genuine show/hide ribbon needs those
-   tests reworked alongside it, not as an afterthought.
-2. **Named styles and numbering definitions.** The largest remaining fidelity
+1. **Named styles and numbering definitions.** The largest remaining fidelity
    gap: a document's own styles are flattened into direct formatting.
-3. Two things nobody has asked for yet, noted in `docs/11-status.md`: editing
+2. Two things nobody has asked for yet, noted in `docs/11-status.md`: editing
    the text inside a text box, and controls for margins, columns and section
    breaks.
 
@@ -149,15 +157,16 @@ the validator moved together.
 
 Start Claude Code in the clone and give it something like this:
 
-> Read `HANDOVER.md` and `CLAUDE.md`, then `docs/07-roadmap.md`. Run
+> Read `HANDOVER.md` and `CLAUDE.md`, then `docs/11-status.md`. Run
 > `npm run verify` to confirm the tree is green before you change anything.
-> Then take on the first roadmap item. Keep `npm run verify` passing, add a
-> regression test with every fix, and run the fidelity harness before and after
-> anything that touches the Word reader or writer.
+> Then take on the first item in this file's "What to do next" section. Keep
+> `npm run verify` passing, add a regression test with every fix, and run the
+> fidelity harness before and after anything that touches the Word reader or
+> writer.
 
-Point it at one roadmap item at a time. The work that went badly in this
-project's history was always the work that changed a rule in one place and
-nothing else.
+Point it at one item at a time. The work that went badly in this project's
+history was always the work that changed a rule in one place and nothing
+else.
 
 ## What is deliberately not here
 
@@ -170,7 +179,11 @@ nothing else.
   editable, and `docs/06-fidelity.md` measures it.
 - No email. Password reset is an administrator action, by design: an air-gapped
   server has nowhere to send mail.
-- No AI features, OCR of scanned PDFs, macros, mail merge or single sign-on:
-  out of scope by decision, not by omission.
+- OCR of scanned PDFs, macros, mail merge and single sign-on: out of scope by
+  decision, not by omission.
 - Real-time co-editing, comments and tracked changes **are** here (see
   `docs/11-status.md`); this file said otherwise until 2026-09-22.
+- AI (Chat and a configurable Analysis workflow) **is** here too, decided and
+  built 2026-09-22 (`docs/16-ai-integration.md`), opt-in per installation and
+  restricted to private-network endpoints only. This file's "No AI features"
+  line was accurate when first written and is not any more.
