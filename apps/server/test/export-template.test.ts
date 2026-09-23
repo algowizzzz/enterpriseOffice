@@ -66,6 +66,26 @@ describe('export template defaults and parsing', () => {
     expect(unknownTokensIn('{{document.title}} — {{page}} of {{pageCount}}')).toEqual([]);
     expect(unknownTokensIn('{{document.owner}}')).toEqual(['document.owner']);
   });
+
+  it('gives the table and table-of-contents a considered default', () => {
+    const template = defaultExportTemplate();
+    expect(template.table).toMatchObject({ bandedRows: true });
+    expect(template.toc).toHaveLength(3);
+    // Each level indents further than the one before it.
+    expect(template.toc[1]!.indentPt).toBeGreaterThan(template.toc[0]!.indentPt);
+    expect(template.toc[2]!.indentPt).toBeGreaterThan(template.toc[1]!.indentPt);
+  });
+
+  it('repairs a malformed table or TOC value field by field', () => {
+    const template = exportTemplateFrom(
+      { table: { borderColor: 'not a colour', bandedRows: 'yes' }, toc: 'not an array' },
+      '2026-01-01T00:00:00.000Z',
+      null,
+    );
+    expect(template.table.borderColor).toBe(defaultExportTemplate().table.borderColor);
+    expect(template.table.bandedRows).toBe(defaultExportTemplate().table.bandedRows);
+    expect(template.toc).toEqual(defaultExportTemplate().toc);
+  });
 });
 
 describe('export template routes', () => {
@@ -164,6 +184,55 @@ describe('export template routes', () => {
       },
     });
     expect(response.statusCode).toBe(200);
+  });
+
+  it('updates the table style, keeping everything else', async () => {
+    const before = (await call(admin, 'GET', '/api/export-template')).json().template;
+    const response = await call(admin, 'PATCH', '/api/export-template', {
+      table: {
+        borderColor: '#336699',
+        borderWidthPt: 1,
+        headerRowBackground: '#AABBCC',
+        bandedRows: false,
+        bandedRowBackground: '#EEEEEE',
+      },
+    });
+    expect(response.statusCode).toBe(200);
+    const { template } = response.json();
+    expect(template.table).toEqual({
+      borderColor: '#336699',
+      borderWidthPt: 1,
+      headerRowBackground: '#AABBCC',
+      bandedRows: false,
+      bandedRowBackground: '#EEEEEE',
+    });
+    expect(template.body).toEqual(before.body);
+  });
+
+  it('updates the table of contents style for all three levels', async () => {
+    const before = (await call(admin, 'GET', '/api/export-template')).json().template;
+    const toc = before.toc.map((level: object, i: number) => (i === 0 ? { ...level, fontFamily: 'Georgia' } : level));
+    const response = await call(admin, 'PATCH', '/api/export-template', { toc });
+    expect(response.statusCode).toBe(200);
+    expect(response.json().template.toc[0]).toMatchObject({ fontFamily: 'Georgia' });
+  });
+
+  it('refuses a table update with an invalid colour or an out-of-range border width', async () => {
+    const before = (await call(admin, 'GET', '/api/export-template')).json().template;
+    expect(
+      (await call(admin, 'PATCH', '/api/export-template', { table: { ...before.table, borderColor: 'blue' } }))
+        .statusCode,
+    ).toBe(400);
+    expect(
+      (await call(admin, 'PATCH', '/api/export-template', { table: { ...before.table, borderWidthPt: 10 } }))
+        .statusCode,
+    ).toBe(400);
+  });
+
+  it('refuses a TOC update that does not name exactly three levels', async () => {
+    const before = (await call(admin, 'GET', '/api/export-template')).json().template;
+    const response = await call(admin, 'PATCH', '/api/export-template', { toc: before.toc.slice(0, 2) });
+    expect(response.statusCode).toBe(400);
   });
 });
 

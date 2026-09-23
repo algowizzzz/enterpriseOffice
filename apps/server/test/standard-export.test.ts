@@ -112,4 +112,102 @@ describe('Standardized export', () => {
     const parts = unzipSync(new Uint8Array(buffer));
     expect(Object.keys(parts).some((name) => /^word\/media\//u.test(name))).toBe(false);
   });
+
+  const docWithTable: PMNode = {
+    type: 'doc',
+    content: [
+      {
+        type: 'table',
+        content: [
+          {
+            type: 'tableRow',
+            content: [
+              { type: 'tableHeader', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Name' }] }] },
+              { type: 'tableHeader', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Value' }] }] },
+            ],
+          },
+          {
+            type: 'tableRow',
+            content: [
+              { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'A' }] }] },
+              { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text: '1' }] }] },
+            ],
+          },
+          {
+            type: 'tableRow',
+            content: [
+              { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'B' }] }] },
+              { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text: '2' }] }] },
+            ],
+          },
+        ],
+      },
+    ],
+  };
+
+  it('applies the admin’s table style, overriding a table’s own formatting', async () => {
+    const template = defaultExportTemplate();
+    template.table = {
+      borderColor: '#336699',
+      borderWidthPt: 1,
+      headerRowBackground: '#AABBCC',
+      bandedRows: true,
+      bandedRowBackground: '#EEEEEE',
+    };
+    const buffer = await exportDocx(docWithTable, {
+      title: 'Quarterly report',
+      standardTemplate: { template, documentType: null },
+    });
+    const parts = unzipSync(new Uint8Array(buffer));
+    const document = strFromU8(parts['word/document.xml']!);
+
+    // Border colour and width (eighths of a point: 1pt -> 8).
+    expect(document).toContain('w:color="336699"');
+    expect(document).toMatch(/<w:top w:val="single" w:sz="8"/u);
+    // Header row shading, and the second data row (the first band) shaded too.
+    expect(document).toContain('w:fill="AABBCC"');
+    expect(document).toContain('w:fill="EEEEEE"');
+    // The header cell's text uses the TableHeader style rather than direct bold formatting.
+    expect(document).toMatch(/<w:pStyle w:val="TableHeader"\/>/u);
+
+    const styles = strFromU8(parts['word/styles.xml']!);
+    expect(styles).toMatch(/w:styleId="TableHeader"/u);
+  });
+
+  const docWithHeadingsAndToc: PMNode = {
+    type: 'doc',
+    content: [
+      { type: 'wordBlock', attrs: { kind: 'toc' } },
+      { type: 'heading', attrs: { level: 1 }, content: [{ type: 'text', text: 'Introduction' }] },
+      { type: 'paragraph', content: [{ type: 'text', text: 'Body.' }] },
+      { type: 'heading', attrs: { level: 2 }, content: [{ type: 'text', text: 'Background' }] },
+    ],
+  };
+
+  it('defines TOC1..3 styles from the admin template and references them from the contents field', async () => {
+    const template = defaultExportTemplate();
+    template.toc = [
+      { fontFamily: 'Georgia', fontSize: 14, color: '#111111', indentPt: 0 },
+      { fontFamily: 'Georgia', fontSize: 12, color: '#222222', indentPt: 12 },
+      { fontFamily: 'Georgia', fontSize: 11, color: '#333333', indentPt: 24 },
+    ];
+    const buffer = await exportDocx(docWithHeadingsAndToc, {
+      title: 'Quarterly report',
+      standardTemplate: { template, documentType: null },
+    });
+    const parts = unzipSync(new Uint8Array(buffer));
+    const styles = strFromU8(parts['word/styles.xml']!);
+    const document = strFromU8(parts['word/document.xml']!);
+
+    const toc1 = /<w:style[^>]*w:styleId="TOC1"[^>]*>.*?<\/w:style>/su.exec(styles)?.[0] ?? '';
+    expect(toc1).toContain('Georgia');
+    expect(toc1).toContain('111111');
+    expect(toc1).toContain(`w:val="${Math.round(14 * 2)}"`);
+
+    const toc2 = /<w:style[^>]*w:styleId="TOC2"[^>]*>.*?<\/w:style>/su.exec(styles)?.[0] ?? '';
+    expect(toc2).toContain(`w:left="${12 * 20}"`);
+
+    expect(document).toMatch(/<w:pStyle w:val="TOC1"\/>/u);
+    expect(document).toMatch(/<w:pStyle w:val="TOC2"\/>/u);
+  });
 });

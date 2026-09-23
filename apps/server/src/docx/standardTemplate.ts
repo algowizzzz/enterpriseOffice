@@ -133,6 +133,56 @@ function headingDefault(style: ExportTemplate['headings'][number] | undefined) {
   };
 }
 
+/**
+ * `TableHeader` and `TOC1`-`TOC3`: named paragraph styles the writer refers
+ * to by id (`write.ts`'s `TABLE_HEADER_STYLE_ID` and its `TOC${level}`
+ * lookups) rather than emitting formatting inline, the same mechanism an
+ * uploaded document's own `Heading1`-`6` styles already use. Defining them
+ * here is the only step needed for that existing mechanism to pick them up.
+ */
+function adminParagraphStyles(template: ExportTemplate): NonNullable<
+  ConstructorParameters<typeof Document>[0]['styles']
+>['paragraphStyles'] {
+  const tocLevels = [0, 1, 2] as const;
+  return [
+    {
+      // Bold only: the header row's background fill is cell-level shading
+      // applied directly by `writeTable()` in `ooxml/write.ts`, not
+      // something a paragraph style can express.
+      id: 'TableHeader',
+      name: 'Table Header',
+      basedOn: 'Normal',
+      next: 'Normal',
+      quickFormat: true,
+      run: {
+        font: template.body.fontFamily,
+        size: Math.round(template.body.fontSize * 2),
+        color: template.body.color.replace('#', ''),
+        bold: true,
+      },
+    },
+    ...tocLevels.map((index) => {
+      const level = template.toc[index];
+      const levelNumber = index + 1;
+      return {
+        id: `TOC${levelNumber}`,
+        name: `TOC ${levelNumber}`,
+        basedOn: 'Normal',
+        next: 'Normal',
+        quickFormat: true,
+        run: level
+          ? {
+              font: level.fontFamily,
+              size: Math.round(level.fontSize * 2),
+              color: level.color.replace('#', ''),
+            }
+          : undefined,
+        paragraph: level ? { indent: { left: Math.round(level.indentPt * PT_TO_TWIPS) } } : undefined,
+      };
+    }),
+  ];
+}
+
 export async function buildStandardTemplatePackage(
   template: ExportTemplate,
   ctx: StandardTemplateContext,
@@ -159,6 +209,7 @@ export async function buildStandardTemplatePackage(
         heading5: headingDefault(template.headings[4]),
         heading6: headingDefault(template.headings[5]),
       },
+      paragraphStyles: adminParagraphStyles(template),
     },
     sections: [
       {

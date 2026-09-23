@@ -438,6 +438,17 @@ const MIGRATIONS: { id: string; sql?: string; run?: (db: Database) => void }[] =
       ALTER TABLE export_template ADD COLUMN logo_bytes BLOB;
     `,
   },
+  {
+    // Table appearance and table-of-contents styling (docs/17 §4.5, §4.6),
+    // the last two pieces of the template. Defaults so an existing row (one
+    // saved before this migration, with neither section) reads back as a
+    // complete template rather than a partial one.
+    id: '0020_export_template_table_and_toc',
+    sql: `
+      ALTER TABLE export_template ADD COLUMN table_style TEXT NOT NULL DEFAULT '{}';
+      ALTER TABLE export_template ADD COLUMN toc TEXT NOT NULL DEFAULT '[]';
+    `,
+  },
 ];
 
 export function openDatabase(file: string): Database {

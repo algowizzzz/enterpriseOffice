@@ -89,12 +89,21 @@ const exportTemplateFixture = () => {
     spacingBeforePt: 12,
     spacingAfterPt: 6,
   });
+  const tocLevel = (indentPt: number) => ({ fontFamily: 'Carlito', fontSize: 11, color: '#000000', indentPt });
   return {
     header: { left: side(), right: side() },
     footer: { left: side(), right: side('{{page}} of {{pageCount}}') },
     headings: [heading(20), heading(16), heading(14), heading(12), heading(11), heading(11)],
     body: { fontFamily: 'Carlito', fontSize: 11, color: '#000000' },
     logo: null,
+    table: {
+      borderColor: '#BFBFBF',
+      borderWidthPt: 0.5,
+      headerRowBackground: '#D9E2F3',
+      bandedRows: true,
+      bandedRowBackground: '#F2F2F2',
+    },
+    toc: [tocLevel(0), tocLevel(12), tocLevel(24)],
     updatedAt: '2026-01-01T00:00:00.000Z',
     updatedBy: null,
   };
@@ -1058,6 +1067,41 @@ describe('administration page', () => {
     expect(call.headings[0].fontSize).toBe(22);
     // Untouched fields travel unchanged, since the save writes every section at once.
     expect(call.footer.right.content).toBe('{{page}} of {{pageCount}}');
+  });
+
+  it('loads the table and table-of-contents styling with their default values', async () => {
+    await renderSignedIn(<AdminPage />, ADMIN);
+    expect(await screen.findByRole('heading', { name: 'Tables' })).toBeInTheDocument();
+    expect(screen.getByLabelText('Table border colour')).toHaveValue('#bfbfbf');
+    expect(screen.getByLabelText('Table banded rows')).toBeChecked();
+    expect(screen.getByLabelText('TOC 1 font')).toHaveValue('Carlito');
+    expect(screen.getByLabelText('TOC 2 indent')).toHaveValue(12);
+  });
+
+  it('edits the table style and a TOC level, then saves them with the rest of the template', async () => {
+    const saved = exportTemplateFixture();
+    mocked['updateExportTemplate'].mockResolvedValue({ template: saved });
+    const user = userEvent.setup();
+    await renderSignedIn(<AdminPage />, ADMIN);
+    await screen.findByRole('heading', { name: 'Tables' });
+
+    const borderWidth = screen.getByLabelText('Table border width');
+    await user.clear(borderWidth);
+    await user.type(borderWidth, '1.5');
+    await user.click(screen.getByLabelText('Table banded rows'));
+    const tocFont = screen.getByLabelText('TOC 1 font');
+    await user.clear(tocFont);
+    await user.type(tocFont, 'Georgia');
+
+    await user.click(screen.getByRole('button', { name: 'Save export template' }));
+
+    await waitFor(() => expect(mocked['updateExportTemplate']).toHaveBeenCalled());
+    const call = mocked['updateExportTemplate'].mock.calls[0]![0];
+    expect(call.table.borderWidthPt).toBe(1.5);
+    expect(call.table.bandedRows).toBe(false);
+    expect(call.toc[0].fontFamily).toBe('Georgia');
+    // The other TOC levels travel unchanged.
+    expect(call.toc[1].indentPt).toBe(12);
   });
 
   it('refuses an unknown token, surfacing the server’s message', async () => {

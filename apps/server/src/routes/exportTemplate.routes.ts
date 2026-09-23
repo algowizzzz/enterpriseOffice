@@ -40,12 +40,27 @@ const bodySchema = z.object({
   fontSize: z.number().min(6).max(96),
   color: hexColor,
 });
+const tableSchema = z.object({
+  borderColor: hexColor,
+  borderWidthPt: z.number().min(0.25).max(6),
+  headerRowBackground: hexColor,
+  bandedRows: z.boolean(),
+  bandedRowBackground: hexColor,
+});
+const tocLevelSchema = z.object({
+  fontFamily: z.string().trim().min(1).max(100),
+  fontSize: z.number().min(6).max(96),
+  color: hexColor,
+  indentPt: z.number().min(0).max(144),
+});
 
 const patchSchema = z.object({
   header: headerFooterSchema.optional(),
   footer: headerFooterSchema.optional(),
   headings: z.array(headingSchema).length(6).optional(),
   body: bodySchema.optional(),
+  table: tableSchema.optional(),
+  toc: z.array(tocLevelSchema).length(3).optional(),
 });
 
 function checkTokens(...contents: (string | undefined)[]): void {
@@ -65,8 +80,9 @@ function checkTokens(...contents: (string | undefined)[]): void {
 /**
  * The house style for "Standardized" export (docs/17-standardized-export.md).
  * Admin-only to read and write, the same as `llm_endpoints` and
- * `workflow_groups`: this is configuration, not a document, and nothing
- * here calls the export writer yet -- that is a later phase.
+ * `workflow_groups`: this is configuration, read at export time by
+ * `docx/standardTemplate.ts` and `ooxml/write.ts`, not something exported
+ * from here.
  */
 export async function registerExportTemplateRoutes(app: FastifyInstance): Promise<void> {
   app.get('/export-template', async (request) => {

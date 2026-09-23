@@ -14,6 +14,8 @@ import {
   type LlmAuthScheme,
   type LlmEndpoint,
   type Role,
+  type TableStyle,
+  type TocLevelStyle,
   type User,
   type WorkflowGroup,
   type WorkflowGroupPrompt,
@@ -351,6 +353,16 @@ export function AdminPage(): JSX.Element {
     setTemplateDraft((current) => (current ? { ...current, body: { ...current.body, ...patch } } : current));
   };
 
+  const updateTable = (patch: Partial<TableStyle>): void => {
+    setTemplateDraft((current) => (current ? { ...current, table: { ...current.table, ...patch } } : current));
+  };
+
+  const updateTocLevel = (index: number, patch: Partial<TocLevelStyle>): void => {
+    setTemplateDraft((current) =>
+      current ? { ...current, toc: current.toc.map((level, i) => (i === index ? { ...level, ...patch } : level)) } : current,
+    );
+  };
+
   const saveExportTemplate = async (): Promise<void> => {
     if (!templateDraft) return;
     setBusy(true);
@@ -362,6 +374,8 @@ export function AdminPage(): JSX.Element {
         footer: templateDraft.footer,
         headings: templateDraft.headings,
         body: templateDraft.body,
+        table: templateDraft.table,
+        toc: templateDraft.toc,
       });
       setTemplateDraft(template);
       setNotice('Export template saved.');
@@ -1182,6 +1196,121 @@ export function AdminPage(): JSX.Element {
                     />
                   </td>
                 </tr>
+              </tbody>
+            </table>
+
+            <h3>Tables</h3>
+            <table className="grid">
+              <thead>
+                <tr>
+                  <th scope="col">Border colour</th>
+                  <th scope="col">Border width (pt)</th>
+                  <th scope="col">Header row background</th>
+                  <th scope="col">Banded rows</th>
+                  <th scope="col">Band background</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>
+                    <input
+                      aria-label="Table border colour"
+                      type="color"
+                      value={templateDraft.table.borderColor}
+                      onChange={(event) => updateTable({ borderColor: event.target.value })}
+                    />
+                  </td>
+                  <td>
+                    <input
+                      aria-label="Table border width"
+                      type="number"
+                      min={0.25}
+                      max={6}
+                      step={0.25}
+                      value={templateDraft.table.borderWidthPt}
+                      onChange={(event) => updateTable({ borderWidthPt: Number(event.target.value) })}
+                    />
+                  </td>
+                  <td>
+                    <input
+                      aria-label="Table header row background"
+                      type="color"
+                      value={templateDraft.table.headerRowBackground}
+                      onChange={(event) => updateTable({ headerRowBackground: event.target.value })}
+                    />
+                  </td>
+                  <td>
+                    <input
+                      aria-label="Table banded rows"
+                      type="checkbox"
+                      checked={templateDraft.table.bandedRows}
+                      onChange={(event) => updateTable({ bandedRows: event.target.checked })}
+                    />
+                  </td>
+                  <td>
+                    <input
+                      aria-label="Table band background"
+                      type="color"
+                      value={templateDraft.table.bandedRowBackground}
+                      onChange={(event) => updateTable({ bandedRowBackground: event.target.value })}
+                    />
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+
+            <h3>Table of contents</h3>
+            <table className="grid">
+              <thead>
+                <tr>
+                  <th scope="col">Level</th>
+                  <th scope="col">Font</th>
+                  <th scope="col">Size</th>
+                  <th scope="col">Colour</th>
+                  <th scope="col">Indent (pt)</th>
+                </tr>
+              </thead>
+              <tbody>
+                {templateDraft.toc.map((level, index) => (
+                  <tr key={index}>
+                    <td>TOC {index + 1}</td>
+                    <td>
+                      <input
+                        aria-label={`TOC ${index + 1} font`}
+                        value={level.fontFamily}
+                        onChange={(event) => updateTocLevel(index, { fontFamily: event.target.value })}
+                      />
+                    </td>
+                    <td>
+                      <input
+                        aria-label={`TOC ${index + 1} size`}
+                        type="number"
+                        min={6}
+                        max={96}
+                        value={level.fontSize}
+                        onChange={(event) => updateTocLevel(index, { fontSize: Number(event.target.value) })}
+                      />
+                    </td>
+                    <td>
+                      <input
+                        aria-label={`TOC ${index + 1} colour`}
+                        type="color"
+                        value={level.color}
+                        onChange={(event) => updateTocLevel(index, { color: event.target.value })}
+                      />
+                    </td>
+                    <td>
+                      <input
+                        aria-label={`TOC ${index + 1} indent`}
+                        type="number"
+                        min={0}
+                        max={144}
+                        value={level.indentPt}
+                        onChange={(event) => updateTocLevel(index, { indentPt: Number(event.target.value) })}
+                      />
+                    </td>
+                  </tr>
+                ))}
               </tbody>
             </table>
 

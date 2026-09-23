@@ -110,6 +110,26 @@ export interface WriteOptions {
   originalSetup?: PageSetup | undefined;
   /** Review comments, which are written into Word's own comments part. */
   comments?: ExportedThread[] | undefined;
+  /**
+   * Standardized export only (docs/17-standardized-export.md §4.5): applies
+   * one table appearance to every table in the document, overriding
+   * whatever the table's own kept properties or per-cell shading said --
+   * the same "override, do not preserve" rule the admin's heading and body
+   * styles already follow for this export mode. `undefined` for every other
+   * export, where a table's own formatting is left exactly as it arrived.
+   */
+  tableStyle?: WriteTableStyle | undefined;
+}
+
+export interface WriteTableStyle {
+  /** `#rrggbb` or six hex digits with no `#`; either is stripped before use. */
+  borderColor: string;
+  borderWidthPt: number;
+  /** `#rrggbb` or six hex digits with no `#`; either is stripped before use. */
+  headerRowBackground: string;
+  bandedRows: boolean;
+  /** `#rrggbb` or six hex digits with no `#`. Only read when `bandedRows` is true. */
+  bandedRowBackground: string;
 }
 
 export interface ExportedComment {
@@ -152,7 +172,12 @@ interface Context {
   /** The headings of the document being written, for a contents table. */
   outline: { level: number; text: string }[];
   parsedFragments: Map<string, XmlElement[]>;
+  /** Standardized export only; see `WriteOptions.tableStyle`. */
+  tableStyle: WriteTableStyle | null;
 }
+
+/** The style id a header-row cell's paragraphs are forced onto for a Standardized export -- defined in `standardTemplate.ts`'s seed package alongside `Heading1`..`6`. */
+const TABLE_HEADER_STYLE_ID = 'TableHeader';
 
 const text = (parts: Record<string, Uint8Array>, name: string): string | undefined =>
   parts[name] ? strFromU8(parts[name]) : undefined;
@@ -218,6 +243,7 @@ export function writeDocx(doc: PMNode, options: WriteOptions): Buffer {
     changeId: 90000,
     outline: outline(doc),
     parsedFragments: new Map(),
+    tableStyle: options.tableStyle ?? null,
   };
   readStyles(ctx, styles);
   for (const [name, bytes] of Object.entries(parts)) {
@@ -514,6 +540,8 @@ interface BlockContext {
   numbered?: boolean;
   /** How many quotations deep this is, each one an indent. */
   quoted?: number;
+  /** Standardized export only: the style id a plain paragraph here falls onto, e.g. a table header cell's `TableHeader`. */
+  forcedParagraphStyleId?: string;
 }
 
 /** A run of sibling blocks. A page break belongs to whatever follows it. */
@@ -663,6 +691,7 @@ function writeParagraph(ctx: Context, node: PMNode, block: BlockContext, breakBe
   }
   if (!styleId && block.quoted) styleId = ctx.quoteStyle ?? 'Quote';
   if (!styleId && block.list && ctx.listStyle) styleId = ctx.listStyle;
+  if (!styleId && block.forcedParagraphStyleId) styleId = block.forcedParagraphStyleId;
   if (styleId && !ctx.styleIds.has(styleId)) {
     if (/^Heading[1-6]$/u.test(styleId) || styleId === 'Quote') ctx.needsStyles.add(styleId);
     else styleId = null;
@@ -1096,6 +1125,19 @@ const DEFAULT_BORDERS =
     .join('') +
   '</w:tblBorders>';
 
+/** The admin's border weight and colour (docs/17 §4.5), applied to every side and every inside line alike. `w:sz` for a table border is in eighths of a point, unlike a font's half points. */
+function adminBorders(style: WriteTableStyle): string {
+  const color = style.borderColor.replace('#', '').toUpperCase();
+  const size = Math.max(1, Math.round(style.borderWidthPt * 8));
+  return (
+    '<w:tblBorders>' +
+    ['top', 'left', 'bottom', 'right', 'insideH', 'insideV']
+      .map((side) => `<w:${side} w:val="single" w:sz="${size}" w:space="0" w:color="${color}"/>`)
+      .join('') +
+    '</w:tblBorders>'
+  );
+}
+
 function writeTable(ctx: Context, table: PMNode, block: BlockContext): string | null {
   const rows = (table.content ?? []).filter((row) => (row.content ?? []).length > 0);
   if (rows.length === 0) return null;
@@ -1163,15 +1205,20 @@ function writeTable(ctx: Context, table: PMNode, block: BlockContext): string | 
   const share = Math.max(200, Math.floor(TEXT_WIDTH_DXA / columns));
   const resolved = widths.map((width) => width ?? share);
 
-  const keptProperties = fragment(ctx, table.attrs?.['tblRef']);
+  // Standardized export overrides a table's own appearance the same way it
+  // overrides a document's own heading and body styles -- kept properties
+  // and per-cell shading are for every other export mode only.
+  const tableStyle = ctx.tableStyle;
+  const keptProperties = tableStyle ? null : fragment(ctx, table.attrs?.['tblRef']);
   const tblPr = keptProperties
     ? keptProperties.map(serializeXml).join('')
-    : `<w:tblW w:w="5000" w:type="pct"/>${DEFAULT_BORDERS}<w:tblLayout w:type="autofit"/>`;
+    : `<w:tblW w:w="5000" w:type="pct"/>${tableStyle ? adminBorders(tableStyle) : DEFAULT_BORDERS}<w:tblLayout w:type="autofit"/>`;
 
   let out = `<w:tbl><w:tblPr>${tblPr}</w:tblPr><w:tblGrid>${resolved
     .map((width) => `<w:gridCol w:w="${width}"/>`)
     .join('')}</w:tblGrid>`;
 
+  let dataRowIndex = 0;
   grid.forEach((placed, rowIndex) => {
     const row = rows[rowIndex] as PMNode;
     const rowProperties = (fragment(ctx, row.attrs?.['trRef']) ?? []).map((element) =>
@@ -1181,27 +1228,33 @@ function writeTable(ctx: Context, table: PMNode, block: BlockContext): string | 
     if (isHeaderRow && !rowProperties.some((element) => element.name === 'w:tblHeader')) {
       rowProperties.push(el('w:tblHeader'));
     }
+    // Banding counts data rows only: the header row is a fixed look of its
+    // own, not the first band.
+    const isBanded = !isHeaderRow && tableStyle?.bandedRows && dataRowIndex % 2 === 1;
+    if (!isHeaderRow) dataRowIndex += 1;
     out += `<w:tr>${rowProperties.length > 0 ? serializeXml(el('w:trPr', {}, rowProperties)) : ''}`;
 
     for (const entry of placed) {
       const source = entry.source;
-      const properties = (fragment(ctx, source?.attrs?.['tcRef']) ?? []).map((element) =>
-        parseXml(serializeXml(element)),
-      );
+      const properties = tableStyle
+        ? []
+        : (fragment(ctx, source?.attrs?.['tcRef']) ?? []).map((element) => parseXml(serializeXml(element)));
       const width = resolved.slice(entry.column, entry.column + entry.span).reduce((sum, w) => sum + w, 0);
       properties.push(el('w:tcW', { 'w:w': String(width), 'w:type': 'dxa' }));
       if (entry.span > 1) properties.push(el('w:gridSpan', { 'w:val': String(entry.span) }));
       if (entry.merge) properties.push(el('w:vMerge', entry.merge === 'restart' ? { 'w:val': 'restart' } : {}));
-      const fill =
-        typeof source?.attrs?.['background'] === 'string'
+      const fill = tableStyle
+        ? (isHeaderRow && tableStyle.headerRowBackground) || (isBanded && tableStyle.bandedRowBackground) || undefined
+        : typeof source?.attrs?.['background'] === 'string'
           ? /^#?([0-9a-f]{6})$/iu.exec(source.attrs['background'].trim())?.[1]
           : undefined;
-      if (fill) properties.push(el('w:shd', { 'w:val': 'clear', 'w:color': 'auto', 'w:fill': fill.toUpperCase() }));
+      if (fill) properties.push(el('w:shd', { 'w:val': 'clear', 'w:color': 'auto', 'w:fill': fill.replace('#', '').toUpperCase() }));
 
       const content = entry.cell
         ? writeBlocks(ctx, entry.cell.content ?? [], {
             depth: block.depth + 1,
             ...(block.quoted ? { quoted: block.quoted } : {}),
+            ...(tableStyle && isHeaderRow ? { forcedParagraphStyleId: TABLE_HEADER_STYLE_ID } : {}),
           })
         : [];
       // A cell must end in a paragraph, or Word calls the file corrupt.

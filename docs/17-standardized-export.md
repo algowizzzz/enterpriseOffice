@@ -403,3 +403,73 @@ then downloaded a real document's Standardized export and confirmed
 
 Not built, and not part of this phase: table default styling and
 `TOC1`-`TOC3` styling (§4.5, §4.6) remain open, per §9.
+
+## 12. Built, 2026-09-22, later the same day still: phase 4, table and TOC styling
+
+§4.5 and §4.6, the last two open items from §9. Both apply the same
+"override, do not preserve" rule the admin's heading and body styles
+already follow for this export mode: a table's own borders, shading and
+kept Word properties are ignored entirely when Standardized export is
+active, the same as an uploaded document's own heading formatting is.
+
+**Tables** (`services/exportTemplate.ts`'s `TableStyle`: border colour,
+border width in points, header-row background, whether rows band, and the
+band colour). `ooxml/write.ts`'s `writeTable()` -- the one shared table
+writer, used by every export mode -- takes an optional `tableStyle` on its
+`Context`. When set, it replaces `DEFAULT_BORDERS` and any kept
+`tblPr`/`tcPr` XML with borders built from the admin's own colour and
+width (`adminBorders()`; width is stored in points and written in eighths
+of a point, a different unit from font size's half-points, so the
+conversion has its own name rather than reusing `PT_TO_TWIPS`), tracks
+which data row is being written to band every other one (the header row
+is a fixed look of its own, not the first band), and shades header and
+banded cells directly rather than reading a cell's own `background`
+attribute. `tableStyle` is `null` for every other export mode, so a plain
+`.docx` export is untouched -- confirmed by running the full server suite
+before and after this change with zero regressions.
+
+The header row's bold weight is not run-level formatting threaded through
+`writeParagraph`/`writeRuns`: it is a real named paragraph style,
+`TableHeader`, referenced with `<w:pStyle>` the same way `Heading1`-`6`
+already are. This reused an existing mechanism rather than adding a new
+one -- `BlockContext` gained one field, `forcedParagraphStyleId`, and
+`writeParagraph()` gained one line checking it, and `standardTemplate.ts`
+defines the style itself alongside `Heading1`-`6`. The `docx` npm library
+has no way to author a custom Word "Table Style" with conditional
+formatting (no `tableStyles` export exists), which is why the shading is
+applied directly per cell instead.
+
+**Table of contents** (`services/exportTemplate.ts`'s `TocLevelStyle`:
+font, size, colour and left indent, one for each of `TOC1`-`TOC3`).
+`write.ts`'s `writeContents()` already checked `ctx.styleIds.has('TOC1')`
+and referenced it by `<w:pStyle>` when present -- that mechanism existed
+before this phase and needed no change at all. The only work was defining
+`TOC1`-`TOC3` as real paragraph styles in `standardTemplate.ts`'s seed
+package, the same `paragraphStyles` array `TableHeader` was added to, so
+the styles the writer was already capable of finding now actually exist.
+
+Both features are configured from the same admin PATCH route
+(`table`/`toc` fields, validated by `zod` schemas: a border width between
+0.25 and 6pt, three TOC levels exactly, no more, no fewer) and the same
+admin UI page, as two more tables alongside Header/Footer/Headings/Body.
+
+Covered by 4 new tests in `standard-export.test.ts` (the generated
+`document.xml` carries the admin's border colour/width and header/band
+shading, and references `TableHeader` and `TOC1`/`TOC2` by style; the
+generated `styles.xml` defines those styles with the admin's own font,
+size, colour and indent), 4 new service tests (defaults, and permissive
+repair of a malformed table or TOC value), 4 new route tests (PATCH
+updates each independently of the other sections; a bad border colour or
+width is refused; a TOC patch must name exactly three levels), and 2 new
+admin-UI tests (the sections render with their defaults; editing a table
+field and a TOC field saves both in the same PATCH as everything else).
+Checked live in a browser: opened the admin page, changed the table
+border colour and turned off banding, changed TOC1's font, saved, then
+exported a document containing both a table and a table of contents and
+confirmed the downloaded `.docx` opened correctly with the new border
+colour, the header row shaded and bold, banding absent as configured, and
+the TOC entries in the chosen font.
+`npm run verify` passes end to end: 642 server tests, 292 client tests.
+
+Every item opened in §4 and left open by §9 is now built. Standardized
+export (docs/17) is complete.

@@ -51,6 +51,23 @@ export interface BodyStyle {
   color: string;
 }
 
+/** Applied to every table in the document, overriding its own formatting (docs/17 §4.5) -- the same "override, do not preserve" rule the rest of this template follows. */
+export interface TableStyle {
+  borderColor: string;
+  borderWidthPt: number;
+  headerRowBackground: string;
+  bandedRows: boolean;
+  bandedRowBackground: string;
+}
+
+/** One heading level's own look within the table of contents (docs/17 §4.6). Index 0 is TOC1. */
+export interface TocLevelStyle {
+  fontFamily: string;
+  fontSize: number;
+  color: string;
+  indentPt: number;
+}
+
 /** Raster only (PNG/JPEG), never SVG -- see migration 0019's comment for why. */
 export interface ExportLogo {
   mediaType: 'image/png' | 'image/jpeg';
@@ -75,6 +92,9 @@ export interface ExportTemplate {
   body: BodyStyle;
   /** Footer, left side (docs/17 §4.2). Set and cleared through its own upload route, not the JSON patch. */
   logo: ExportLogo | null;
+  table: TableStyle;
+  /** Index 0 is TOC1, index 1 is TOC2, index 2 is TOC3. */
+  toc: TocLevelStyle[];
   updatedAt: string;
   updatedBy: string | null;
 }
@@ -99,6 +119,21 @@ const defaultHeading = (fontSize: number, extra: Partial<HeadingStyle> = {}): He
   ...extra,
 });
 
+const defaultTableStyle = (): TableStyle => ({
+  borderColor: '#BFBFBF',
+  borderWidthPt: 0.5,
+  headerRowBackground: '#D9E2F3',
+  bandedRows: true,
+  bandedRowBackground: '#F2F2F2',
+});
+
+const defaultTocLevel = (indentPt: number): TocLevelStyle => ({
+  fontFamily: 'Carlito',
+  fontSize: 11,
+  color: '#000000',
+  indentPt,
+});
+
 /**
  * A reasonable, considered starting point rather than placeholder values
  * nobody would choose: Carlito throughout (the metric-compatible, freely
@@ -119,6 +154,8 @@ export function defaultExportTemplate(): ExportTemplate {
     ],
     body: { fontFamily: 'Carlito', fontSize: 11, color: '#000000' },
     logo: null,
+    table: defaultTableStyle(),
+    toc: [defaultTocLevel(0), defaultTocLevel(12), defaultTocLevel(24)],
     updatedAt: now(),
     updatedBy: null,
   };
@@ -179,6 +216,27 @@ function bodyFrom(value: unknown, fallback: BodyStyle): BodyStyle {
   };
 }
 
+function tableStyleFrom(value: unknown, fallback: TableStyle): TableStyle {
+  const raw = (value ?? {}) as Record<string, unknown>;
+  return {
+    borderColor: asColor(raw['borderColor'], fallback.borderColor),
+    borderWidthPt: asNumber(raw['borderWidthPt'], fallback.borderWidthPt, 0.25, 6),
+    headerRowBackground: asColor(raw['headerRowBackground'], fallback.headerRowBackground),
+    bandedRows: asBool(raw['bandedRows'], fallback.bandedRows),
+    bandedRowBackground: asColor(raw['bandedRowBackground'], fallback.bandedRowBackground),
+  };
+}
+
+function tocLevelFrom(value: unknown, fallback: TocLevelStyle): TocLevelStyle {
+  const raw = (value ?? {}) as Record<string, unknown>;
+  return {
+    fontFamily: asString(raw['fontFamily'], fallback.fontFamily, MAX_FONT_NAME_LENGTH),
+    fontSize: asNumber(raw['fontSize'], fallback.fontSize, 6, 96),
+    color: asColor(raw['color'], fallback.color),
+    indentPt: asNumber(raw['indentPt'], fallback.indentPt, 0, 144),
+  };
+}
+
 /**
  * Never throws: an unreadable or missing field falls back to the default
  * rather than refusing the whole row. Parses the text fields only -- the
@@ -190,12 +248,15 @@ export function exportTemplateFrom(value: unknown, updatedAt: string, updatedBy:
   const raw = (value ?? {}) as Record<string, unknown>;
   const fallback = defaultExportTemplate();
   const headingsRaw = Array.isArray(raw['headings']) ? (raw['headings'] as unknown[]) : [];
+  const tocRaw = Array.isArray(raw['toc']) ? (raw['toc'] as unknown[]) : [];
   return {
     header: headerFooterFrom(raw['header'], fallback.header),
     footer: headerFooterFrom(raw['footer'], fallback.footer),
     headings: fallback.headings.map((defaultLevel, index) => headingFrom(headingsRaw[index], defaultLevel)),
     body: bodyFrom(raw['body'], fallback.body),
     logo: fallback.logo,
+    table: tableStyleFrom(raw['table'], fallback.table),
+    toc: fallback.toc.map((defaultLevel, index) => tocLevelFrom(tocRaw[index], defaultLevel)),
     updatedAt,
     updatedBy,
   };
@@ -218,6 +279,8 @@ interface ExportTemplateRow {
   body: string;
   logo_media_type: string | null;
   logo_bytes: Uint8Array | null;
+  table_style: string;
+  toc: string;
   updated_at: string;
   updated_by: string | null;
 }
@@ -245,6 +308,8 @@ export function getExportTemplate(db: Database): ExportTemplate {
         footer: JSON.parse(row.footer),
         headings: JSON.parse(row.headings),
         body: JSON.parse(row.body),
+        table: JSON.parse(row.table_style),
+        toc: JSON.parse(row.toc),
       },
       row.updated_at,
       row.updated_by,
@@ -253,23 +318,28 @@ export function getExportTemplate(db: Database): ExportTemplate {
   };
 }
 
-export type ExportTemplatePatch = Partial<Pick<ExportTemplate, 'header' | 'footer' | 'headings' | 'body'>>;
+export type ExportTemplatePatch = Partial<
+  Pick<ExportTemplate, 'header' | 'footer' | 'headings' | 'body' | 'table' | 'toc'>
+>;
 
 export function updateExportTemplate(db: Database, patch: ExportTemplatePatch, actorId: string): ExportTemplate {
   const current = getExportTemplate(db);
   const merged = exportTemplateFrom({ ...current, ...patch }, now(), actorId);
   db.prepare(
-    `INSERT INTO export_template (id, header, footer, headings, body, updated_at, updated_by)
-     VALUES (?, ?, ?, ?, ?, ?, ?)
+    `INSERT INTO export_template (id, header, footer, headings, body, table_style, toc, updated_at, updated_by)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT (id) DO UPDATE SET
        header = excluded.header, footer = excluded.footer, headings = excluded.headings,
-       body = excluded.body, updated_at = excluded.updated_at, updated_by = excluded.updated_by`,
+       body = excluded.body, table_style = excluded.table_style, toc = excluded.toc,
+       updated_at = excluded.updated_at, updated_by = excluded.updated_by`,
   ).run(
     SINGLETON_ID,
     JSON.stringify(merged.header),
     JSON.stringify(merged.footer),
     JSON.stringify(merged.headings),
     JSON.stringify(merged.body),
+    JSON.stringify(merged.table),
+    JSON.stringify(merged.toc),
     merged.updatedAt,
     merged.updatedBy,
   );

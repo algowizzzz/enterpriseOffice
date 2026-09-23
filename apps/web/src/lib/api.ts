@@ -180,6 +180,21 @@ export interface ExportLogo {
   dataUrl: string;
 }
 
+export interface TableStyle {
+  borderColor: string;
+  borderWidthPt: number;
+  headerRowBackground: string;
+  bandedRows: boolean;
+  bandedRowBackground: string;
+}
+
+export interface TocLevelStyle {
+  fontFamily: string;
+  fontSize: number;
+  color: string;
+  indentPt: number;
+}
+
 export interface ExportTemplate {
   header: HeaderFooterConfig;
   footer: HeaderFooterConfig;
@@ -188,6 +203,9 @@ export interface ExportTemplate {
   body: BodyStyle;
   /** Footer, left side. Set and cleared through their own upload route, not this object's PATCH. */
   logo: ExportLogo | null;
+  table: TableStyle;
+  /** Index 0 is TOC1 ... index 2 is TOC3. */
+  toc: TocLevelStyle[];
   updatedAt: string;
   updatedBy: string | null;
 }
@@ -524,6 +542,8 @@ export const api = {
       footer: HeaderFooterConfig;
       headings: HeadingStyle[];
       body: BodyStyle;
+      table: TableStyle;
+      toc: TocLevelStyle[];
     }>,
   ) => request<{ template: ExportTemplate }>('/export-template', { method: 'PATCH', ...json(patch) }),
 

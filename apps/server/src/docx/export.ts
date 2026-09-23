@@ -364,6 +364,11 @@ export async function exportDocx(doc: PMNode, options: ExportOptions): Promise<B
       pageSetup: defaultPageSetup(),
       originalSetup: defaultPageSetup(),
       comments: options.comments,
+      // `write.ts` strips a leading `#` itself (`adminBorders`, and the cell
+      // `fill` shading below it) the same defensive way it already handles
+      // an uploaded document's own `background` attribute, so the service's
+      // `#rrggbb` values pass straight through.
+      tableStyle: options.standardTemplate.template.table,
     });
   }
   if (options.source) {
