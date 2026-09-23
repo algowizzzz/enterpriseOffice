@@ -24,7 +24,21 @@ The artifacts are:
 
 ## Linux server, air gapped
 
-Copy a Node 22 runtime, `server.mjs` and `web/` onto the machine, then:
+The supported route is the release archive and its installer, which check the
+machine first, keep a copy of the database on upgrade and verify the result:
+
+```
+npm run release                      # on a connected machine
+sh preflight.sh                      # on the server, from the unpacked archive
+sudo sh install.sh --node-archive node-v22.x.y-linux-x64.tar.xz
+```
+
+`docs/08-enterprise-deployment.md` is the full guide: TLS, SELinux, accounts,
+backup, upgrade, troubleshooting and what a security review will ask. The
+archive carries a copy as `DEPLOY.md`.
+
+By hand, the same thing is: copy a Node 22 runtime, `server.mjs` and `web/` onto
+the machine, then:
 
 ```
 sudo useradd --system --create-home docforge

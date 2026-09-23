@@ -1,4 +1,4 @@
-import type { PageSetup, PMNode } from '@docforge/model';
+import type { CommentAnchor, PageSetup, PMNode, StyleTable } from '@docforge/model';
 
 export type Role = 'admin' | 'editor' | 'viewer';
 export type UserStatus = 'active' | 'disabled';
@@ -27,12 +27,49 @@ export interface DocumentSummary {
   createdAt: string;
   updatedAt: string;
   access: Access;
+  /** Framework, policy, standard, procedure: chosen at upload. */
+  docType?: DocumentType | null;
+  /** Held still for approval: open to comments, not to edits. */
+  locked?: boolean;
 }
 
 export interface DocumentDetail extends DocumentSummary {
   content: PMNode;
   /** The running header, the running footer and the orientation of the page. */
   pageSetup: PageSetup;
+  /** The document's own styles, when it was uploaded from Word. */
+  styles?: StyleTable | null;
+  /** Which shared document to join, when the server offers live co-editing. */
+  collab?: { epoch: number };
+}
+
+export interface DocumentComment {
+  id: string;
+  parentId: string | null;
+  authorId: string | null;
+  authorName: string;
+  body: string;
+  anchor: CommentAnchor | null;
+  createdAt: string;
+  updatedAt: string;
+  resolvedAt: string | null;
+  /** Whether the person signed in may change or remove it. */
+  mine: boolean;
+}
+
+export interface CommentThread extends DocumentComment {
+  replies: DocumentComment[];
+}
+
+export interface AccessRequestEntry {
+  id: string;
+  documentId: string | null;
+  documentTitle: string | null;
+  name: string;
+  email: string;
+  wanted: 'account' | 'view' | 'edit';
+  note: string;
+  createdAt: string;
 }
 
 export interface VersionSummary {
@@ -49,13 +86,170 @@ export interface ShareEntry {
   permission: Permission;
 }
 
+/**
+ * An administrator-defined set of prompts for one kind of document, and a
+ * summary of what running them together is meant to produce. Configuration
+ * only: nothing here calls a model yet.
+ */
+export type WorkflowPromptRole = 'analysis' | 'summary';
+
+export interface WorkflowGroupPrompt {
+  id: string;
+  role: WorkflowPromptRole;
+  position: number;
+  text: string;
+}
+
+export interface WorkflowGroup {
+  id: string;
+  name: string;
+  description: string;
+  docType: DocumentType | null;
+  isDefault: boolean;
+  /** Null falls back to the installation's default endpoint. */
+  endpointId: string | null;
+  /** The summary prompt first, then analysis prompts in execution order. */
+  prompts: WorkflowGroupPrompt[];
+  createdAt: string;
+  updatedAt: string;
+  createdBy: string;
+}
+
+/** What the AI Analysis dropdown shows: enough to pick a group, not to edit one. */
+export interface WorkflowGroupOption {
+  id: string;
+  name: string;
+  description: string;
+}
+
+export type LlmAuthScheme = 'none' | 'bearer' | 'header';
+export type LlmRequestFormat = 'openai-chat';
+
+export interface LlmEndpoint {
+  id: string;
+  name: string;
+  url: string;
+  authScheme: LlmAuthScheme;
+  authHeaderName: string | null;
+  /** Whether a secret is stored. The secret itself is never sent to the client. */
+  hasSecret: boolean;
+  requestFormat: LlmRequestFormat;
+  /** What Chat and an endpoint-less workflow group fall back to. At most one. */
+  isDefault: boolean;
+  createdAt: string;
+  updatedAt: string;
+  createdBy: string;
+}
+
+export interface ChatSettings {
+  endpointId: string | null;
+}
+
+export interface HeaderFooterSide {
+  content: string;
+  fontFamily: string;
+  fontSize: number;
+  color: string;
+  bold: boolean;
+  italic: boolean;
+}
+
+export interface HeaderFooterConfig {
+  left: HeaderFooterSide;
+  right: HeaderFooterSide;
+}
+
+export interface HeadingStyle {
+  fontFamily: string;
+  fontSize: number;
+  color: string;
+  bold: boolean;
+  italic: boolean;
+  spacingBeforePt: number;
+  spacingAfterPt: number;
+}
+
+export interface BodyStyle {
+  fontFamily: string;
+  fontSize: number;
+  color: string;
+}
+
+export interface ExportLogo {
+  mediaType: 'image/png' | 'image/jpeg';
+  dataUrl: string;
+}
+
+export interface TableStyle {
+  borderColor: string;
+  borderWidthPt: number;
+  headerRowBackground: string;
+  bandedRows: boolean;
+  bandedRowBackground: string;
+}
+
+export interface TocLevelStyle {
+  fontFamily: string;
+  fontSize: number;
+  color: string;
+  indentPt: number;
+}
+
+export interface ExportTemplate {
+  header: HeaderFooterConfig;
+  footer: HeaderFooterConfig;
+  /** Index 0 is Heading 1 ... index 5 is Heading 6. */
+  headings: HeadingStyle[];
+  body: BodyStyle;
+  /** Footer, left side. Set and cleared through their own upload route, not this object's PATCH. */
+  logo: ExportLogo | null;
+  table: TableStyle;
+  /** Index 0 is TOC1 ... index 2 is TOC3. */
+  toc: TocLevelStyle[];
+  updatedAt: string;
+  updatedBy: string | null;
+}
+
+export interface ChatTurn {
+  role: 'user' | 'assistant';
+  content: string;
+}
+
+export interface ChatReply {
+  ok: boolean;
+  reply?: string;
+  truncated?: boolean;
+  message: string;
+}
+
+export interface AnalysisPromptResult {
+  promptId: string;
+  text: string;
+  output: string;
+}
+
+export interface AnalysisRunResult {
+  ok: boolean;
+  message: string;
+  groupId: string;
+  groupName: string;
+  endpointId?: string;
+  analysis?: AnalysisPromptResult[];
+  summary?: string;
+}
+
 export interface AuditEntry {
   id: string;
   createdAt: string;
   actorEmail: string | null;
+  actorName: string | null;
   action: string;
   targetType: string | null;
   targetId: string | null;
+  /** The document's (or user's) current name, when the target is one of those -- null for a raw id with nothing to resolve. */
+  targetTitle: string | null;
+  /** The document named by `targetTitle` has since been deleted. */
+  targetDeleted: boolean;
   detail: unknown;
 }
 
@@ -162,8 +356,11 @@ export const api = {
   deleteDocument: (id: string) =>
     request<{ ok: boolean }>(`/documents/${id}`, { method: 'DELETE' }),
 
-  importDocx: (file: File) => {
+  importDocx: (file: File, options: UploadOptions = {}) => {
     const form = new FormData();
+    // Fields first: the server reads them as it reaches the file.
+    if (options.docType) form.append('docType', options.docType);
+    if (options.stripRunning) form.append('stripRunning', '1');
     form.append('file', file, file.name);
     return request<{ document: DocumentDetail; messages: string[] }>('/documents/import', {
       method: 'POST',
@@ -187,17 +384,211 @@ export const api = {
       ...json({ userId, permission }),
     }),
 
+  /** Hold the document still for approval, or release it. Its owner only. */
+  setLocked: (id: string, locked: boolean) =>
+    request<{ document: DocumentDetail }>(`/documents/${id}/lock`, { method: 'PUT', ...json({ locked }) }),
+
+  /** Hand the document to somebody else. */
+  transferOwnership: (id: string, userId: string) =>
+    request<{ document: DocumentDetail }>(`/documents/${id}/owner`, { method: 'PUT', ...json({ userId }) }),
+
   unshare: (id: string, userId: string) =>
     request<{ shares: ShareEntry[] }>(`/documents/${id}/shares/${userId}`, { method: 'DELETE' }),
 
+  /** What changed between two revisions, as a document with tracked changes. */
+  compare: (id: string, from: number, to?: number) =>
+    request<{ from: number; to: number; content: PMNode }>(
+      `/documents/${id}/compare?from=${from}${to === undefined ? '' : `&to=${to}`}`,
+    ),
+
+  getVersion: (id: string, revision: number) =>
+    request<{ content: PMNode }>(`/documents/${id}/versions/${revision}`),
+
+  /** The signed-in person's own additions to the spelling dictionary. */
+  listWords: () => request<{ words: string[] }>('/me/words'),
+  addWord: (word: string) => request<{ ok: true }>('/me/words', { method: 'POST', ...json({ word }) }),
+
+  requestAccount: (input: { name: string; email: string; note: string }) =>
+    request<{ ok: true }>('/access-requests/account', { method: 'POST', ...json(input) }),
+
+  requestEdit: (id: string, note: string) =>
+    request<{ ok: true }>(`/documents/${id}/access-requests`, { method: 'POST', ...json({ note }) }),
+
+  listAccessRequests: () => request<{ requests: AccessRequestEntry[] }>('/access-requests'),
+
+  decideAccessRequest: (requestId: string, approve: boolean) =>
+    request<{ ok: true }>(`/access-requests/${requestId}`, { method: 'POST', ...json({ approve }) }),
+
+  listComments: (id: string) => request<{ threads: CommentThread[] }>(`/documents/${id}/comments`),
+
+  addComment: (id: string, input: { body: string; parentId?: string; anchor?: CommentAnchor }) =>
+    request<{ comment: DocumentComment }>(`/documents/${id}/comments`, { method: 'POST', ...json(input) }),
+
+  updateComment: (id: string, commentId: string, patch: { body?: string; resolved?: boolean }) =>
+    request<{ comment: DocumentComment }>(`/documents/${id}/comments/${commentId}`, {
+      method: 'PATCH',
+      ...json(patch),
+    }),
+
+  removeComment: (id: string, commentId: string) =>
+    request<{ ok: true }>(`/documents/${id}/comments/${commentId}`, { method: 'DELETE' }),
+
   /** The export endpoint returns a file, so it is fetched directly rather than as JSON. */
-  exportUrl: (id: string, format: 'docx' | 'txt') =>
-    `/api/documents/${id}/export?format=${format}`,
+  exportUrl: (id: string, format: ExportFormat, options: ExportOptions = {}) =>
+    `/api/documents/${id}/export?format=${format}${options.changes ? `&changes=${options.changes}` : ''}${
+      options.compare ? `&compare=${options.compare}` : ''
+    }`,
+
+  listWorkflowGroups: () => request<{ groups: WorkflowGroup[] }>('/workflow-groups'),
+
+  createWorkflowGroup: (payload: {
+    name: string;
+    description?: string;
+    docType?: DocumentType | null;
+    isDefault?: boolean;
+    endpointId?: string | null;
+    analysisPrompts?: string[];
+    summaryPrompt: string;
+  }) => request<{ group: WorkflowGroup }>('/workflow-groups', { method: 'POST', ...json(payload) }),
+
+  updateWorkflowGroup: (
+    id: string,
+    payload: Partial<{
+      name: string;
+      description: string;
+      docType: DocumentType | null;
+      isDefault: boolean;
+      endpointId: string | null;
+    }>,
+  ) => request<{ group: WorkflowGroup }>(`/workflow-groups/${id}`, { method: 'PATCH', ...json(payload) }),
+
+  deleteWorkflowGroup: (id: string) =>
+    request<{ ok: boolean }>(`/workflow-groups/${id}`, { method: 'DELETE' }),
+
+  addWorkflowGroupPrompt: (groupId: string, payload: { role: WorkflowPromptRole; text: string }) =>
+    request<{ group: WorkflowGroup }>(`/workflow-groups/${groupId}/prompts`, {
+      method: 'POST',
+      ...json(payload),
+    }),
+
+  updateWorkflowGroupPrompt: (groupId: string, promptId: string, text: string) =>
+    request<{ group: WorkflowGroup }>(`/workflow-groups/${groupId}/prompts/${promptId}`, {
+      method: 'PATCH',
+      ...json({ text }),
+    }),
+
+  deleteWorkflowGroupPrompt: (groupId: string, promptId: string) =>
+    request<{ group: WorkflowGroup }>(`/workflow-groups/${groupId}/prompts/${promptId}`, {
+      method: 'DELETE',
+    }),
+
+  reorderWorkflowGroupPrompts: (groupId: string, promptIds: string[]) =>
+    request<{ group: WorkflowGroup }>(`/workflow-groups/${groupId}/prompts/reorder`, {
+      method: 'POST',
+      ...json({ promptIds }),
+    }),
+
+  /** The groups eligible for one document: its own type, plus every type-agnostic group. */
+  listWorkflowGroupsForDocument: (documentId: string) =>
+    request<{ groups: WorkflowGroupOption[] }>(`/documents/${documentId}/workflow-groups`),
+
+  listLlmEndpoints: () => request<{ endpoints: LlmEndpoint[] }>('/llm-endpoints'),
+
+  createLlmEndpoint: (payload: {
+    name: string;
+    url: string;
+    authScheme?: LlmAuthScheme;
+    authHeaderName?: string | null;
+    authSecret?: string | null;
+    requestFormat?: LlmRequestFormat;
+    isDefault?: boolean;
+  }) => request<{ endpoint: LlmEndpoint }>('/llm-endpoints', { method: 'POST', ...json(payload) }),
+
+  updateLlmEndpoint: (
+    id: string,
+    payload: Partial<{
+      name: string;
+      url: string;
+      authScheme: LlmAuthScheme;
+      authHeaderName: string | null;
+      authSecret: string | null;
+      requestFormat: LlmRequestFormat;
+      isDefault: boolean;
+    }>,
+  ) => request<{ endpoint: LlmEndpoint }>(`/llm-endpoints/${id}`, { method: 'PATCH', ...json(payload) }),
+
+  deleteLlmEndpoint: (id: string) =>
+    request<{ ok: boolean }>(`/llm-endpoints/${id}`, { method: 'DELETE' }),
+
+  testLlmEndpoint: (id: string) =>
+    request<{ ok: boolean; status?: number; message: string }>(`/llm-endpoints/${id}/test`, {
+      method: 'POST',
+    }),
+
+  getChatSettings: () => request<ChatSettings>('/chat-settings'),
+
+  setChatSettings: (endpointId: string | null) =>
+    request<ChatSettings>('/chat-settings', { method: 'PATCH', ...json({ endpointId }) }),
+
+  sendChatMessage: (documentId: string, message: string, history: ChatTurn[]) =>
+    request<ChatReply>(`/documents/${documentId}/chat`, { method: 'POST', ...json({ message, history }) }),
+
+  runAnalysis: (documentId: string, groupId: string) =>
+    request<AnalysisRunResult>(`/documents/${documentId}/analysis/run`, {
+      method: 'POST',
+      ...json({ groupId }),
+    }),
+
+  getExportTemplate: () => request<{ template: ExportTemplate }>('/export-template'),
+
+  updateExportTemplate: (
+    patch: Partial<{
+      header: HeaderFooterConfig;
+      footer: HeaderFooterConfig;
+      headings: HeadingStyle[];
+      body: BodyStyle;
+      table: TableStyle;
+      toc: TocLevelStyle[];
+    }>,
+  ) => request<{ template: ExportTemplate }>('/export-template', { method: 'PATCH', ...json(patch) }),
+
+  uploadExportLogo: (file: File) => {
+    const form = new FormData();
+    form.append('file', file, file.name);
+    return request<{ template: ExportTemplate }>('/export-template/logo', { method: 'POST', body: form });
+  },
+
+  removeExportLogo: () =>
+    request<{ template: ExportTemplate }>('/export-template/logo', { method: 'DELETE' }),
 };
 
 /** Trigger a browser download without leaving the page. */
-export async function downloadExport(id: string, format: 'docx' | 'txt'): Promise<void> {
-  const response = await fetch(api.exportUrl(id, format), { credentials: 'same-origin' });
+export const DOCUMENT_TYPES = ['Framework', 'Policy', 'Standard', 'Procedure', 'Guideline', 'Other'] as const;
+export type DocumentType = (typeof DOCUMENT_TYPES)[number];
+
+export interface UploadOptions {
+  docType?: DocumentType;
+  /** Leave the uploaded file's own header and footer out, so the approved ones can go in. */
+  stripRunning?: boolean;
+}
+
+// 'pdf' and 'txt' are no longer offered in the editor's export menu
+// (docs/17-standardized-export.md §2) but the API still accepts them.
+export type ExportFormat = 'docx' | 'standard' | 'pdf' | 'txt' | 'original';
+
+export interface ExportOptions {
+  /** Tracked changes as they stand, all accepted, or all rejected. */
+  changes?: 'accepted' | 'rejected';
+  /** A redline against an earlier revision: "1" or "1:7". */
+  compare?: string;
+}
+
+export async function downloadExport(
+  id: string,
+  format: ExportFormat,
+  options: ExportOptions = {},
+): Promise<void> {
+  const response = await fetch(api.exportUrl(id, format, options), { credentials: 'same-origin' });
   if (!response.ok) throw new ApiError(response.status, 'EXPORT_FAILED', 'The export failed.');
   const disposition = response.headers.get('content-disposition') ?? '';
   const blob = await response.blob();

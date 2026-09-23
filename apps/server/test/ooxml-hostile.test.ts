@@ -66,15 +66,19 @@ describe('pictures in an uploaded file', () => {
     expect(result.messages.join(' ')).toMatch(/outside the file/u);
   });
 
-  it('is removed when its format cannot be written back to Word', async () => {
+  it('is kept in the file, and said not to be drawn, when a browser cannot show its format', async () => {
+    // It used to be removed, because the writer built a new file and could not
+    // put an EMF into it. The writer now patches the uploaded file, so the
+    // picture stays where it was and only the editor goes without it.
     const result = await read(withImage({ 'image1.emf': PNG_BYTES }, 'media/image1.emf'));
-    expect(result.messages.join(' ')).toMatch(/cannot be saved back to Word/u);
+    expect(result.messages.join(' ')).toMatch(/kept in the file but not drawn/u);
+    expect(JSON.stringify(result.content)).toContain('"kind":"picture"');
   });
 
-  it('is removed when it is larger than the limit for one picture', async () => {
-    const large = new Uint8Array(3 * 1024 * 1024);
+  it('is not shown when it is larger than the limit for one picture, and the message says so', async () => {
+    const large = new Uint8Array(26 * 1024 * 1024);
     const result = await read(withImage({ 'image1.png': large }, 'media/image1.png'));
-    expect(result.messages.join(' ')).toMatch(/larger than 2 MB/u);
+    expect(result.messages.join(' ')).toMatch(/larger than 25 MB/u);
   });
 
   it('stops once the pictures together would be more than a document may hold', async () => {
@@ -82,14 +86,14 @@ describe('pictures in an uploaded file', () => {
     const media: Record<string, Uint8Array> = {};
     const relationships: Record<string, { target: string }> = {};
     let body = '';
-    for (let index = 1; index <= 12; index += 1) {
+    for (let index = 1; index <= 45; index += 1) {
       media[`image${index}.png`] = oneMegabyte;
       relationships[`rId${index}`] = { target: `media/image${index}.png` };
       body += drawing(`rId${index}`);
     }
     const result = await read({ body, relationships, media });
     const kept = JSON.stringify(result.content).split('"type":"image"').length - 1;
-    expect(kept).toBeLessThan(12);
+    expect(kept).toBeLessThan(45);
     expect(result.messages.join(' ')).toMatch(/too many/u);
   });
 

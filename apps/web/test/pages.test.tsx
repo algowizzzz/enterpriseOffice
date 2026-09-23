@@ -23,6 +23,28 @@ vi.mock('../src/lib/api', async () => {
       updateUser: vi.fn(),
       resetUserPassword: vi.fn(),
       listAudit: vi.fn(),
+      listWorkflowGroups: vi.fn(),
+      createWorkflowGroup: vi.fn(),
+      updateWorkflowGroup: vi.fn(),
+      deleteWorkflowGroup: vi.fn(),
+      addWorkflowGroupPrompt: vi.fn(),
+      updateWorkflowGroupPrompt: vi.fn(),
+      deleteWorkflowGroupPrompt: vi.fn(),
+      reorderWorkflowGroupPrompts: vi.fn(),
+      listWorkflowGroupsForDocument: vi.fn(),
+      listLlmEndpoints: vi.fn(),
+      createLlmEndpoint: vi.fn(),
+      updateLlmEndpoint: vi.fn(),
+      deleteLlmEndpoint: vi.fn(),
+      testLlmEndpoint: vi.fn(),
+      getChatSettings: vi.fn(),
+      setChatSettings: vi.fn(),
+      sendChatMessage: vi.fn(),
+      runAnalysis: vi.fn(),
+      getExportTemplate: vi.fn(),
+      updateExportTemplate: vi.fn(),
+      uploadExportLogo: vi.fn(),
+      removeExportLogo: vi.fn(),
       listDocuments: vi.fn(),
       createDocument: vi.fn(),
       getDocument: vi.fn(),
@@ -34,6 +56,7 @@ vi.mock('../src/lib/api', async () => {
       listShares: vi.fn(),
       share: vi.fn(),
       unshare: vi.fn(),
+      transferOwnership: vi.fn(),
       exportUrl: actual.api.exportUrl,
     },
     downloadExport: vi.fn(),
@@ -54,6 +77,43 @@ const mocked = api as unknown as MockedApi;
 const ADMIN: User = { id: 'u-admin', email: 'admin@localhost', name: 'Ada Admin', role: 'admin' };
 const EDITOR: User = { id: 'u-ed', email: 'ed@localhost', name: 'Eddie Editor', role: 'editor' };
 const VIEWER: User = { id: 'u-vw', email: 'vw@localhost', name: 'Vera Viewer', role: 'viewer' };
+
+const exportTemplateFixture = () => {
+  const side = (content = '') => ({ content, fontFamily: 'Carlito', fontSize: 10, color: '#000000', bold: false, italic: false });
+  const heading = (fontSize: number) => ({
+    fontFamily: 'Carlito',
+    fontSize,
+    color: '#4472C4',
+    bold: true,
+    italic: false,
+    spacingBeforePt: 12,
+    spacingAfterPt: 6,
+  });
+  const tocLevel = (indentPt: number) => ({ fontFamily: 'Carlito', fontSize: 11, color: '#000000', indentPt });
+  return {
+    header: { left: side(), right: side() },
+    footer: { left: side(), right: side('{{page}} of {{pageCount}}') },
+    headings: [heading(20), heading(16), heading(14), heading(12), heading(11), heading(11)],
+    body: { fontFamily: 'Carlito', fontSize: 11, color: '#000000' },
+    logo: null,
+    table: {
+      borderColor: '#BFBFBF',
+      borderWidthPt: 0.5,
+      headerRowBackground: '#D9E2F3',
+      bandedRows: true,
+      bandedRowBackground: '#F2F2F2',
+    },
+    toc: [tocLevel(0), tocLevel(12), tocLevel(24)],
+    updatedAt: '2026-01-01T00:00:00.000Z',
+    updatedBy: null,
+  };
+};
+
+/** AdminPage's sections are docked behind a vertical nav; a test for anything but Users switches to it first. */
+async function openAdminSection(name: 'Users' | 'AI' | 'Export' | 'Audit'): Promise<void> {
+  const user = userEvent.setup();
+  await user.click(await screen.findByRole('button', { name }));
+}
 
 const summary = (over: Partial<DocumentSummary> = {}): DocumentSummary => ({
   id: 'doc-1',
@@ -76,6 +136,19 @@ const detail = (over: Partial<DocumentDetail> = {}): DocumentDetail => ({
   pageSetup: { header: '', footer: '', orientation: 'portrait' },
   ...over,
 });
+
+/** Every per-document action on the list lives behind its own "⋯" menu. */
+async function openRowMenu(user: ReturnType<typeof userEvent.setup>, title: string): Promise<void> {
+  await user.click(await screen.findByRole('button', { name: `Actions for ${title}` }));
+}
+
+/** Export, history, sharing and locking each live behind their own ribbon tab now. */
+async function openRibbonTab(
+  user: ReturnType<typeof userEvent.setup>,
+  name: 'Review' | 'Access' | 'Export' | 'AI' | 'History',
+): Promise<void> {
+  await user.click(await screen.findByRole('button', { name }));
+}
 
 /** The restore control belonging to one revision in the history list. */
 async function restoreButtonFor(revision: number): Promise<HTMLElement> {
@@ -100,7 +173,12 @@ beforeEach(() => {
   (downloadExport as unknown as ReturnType<typeof vi.fn>).mockReset();
   mocked['listUsers'].mockResolvedValue({ users: [] });
   mocked['listAudit'].mockResolvedValue({ entries: [] });
+  mocked['listWorkflowGroups'].mockResolvedValue({ groups: [] });
+  mocked['listLlmEndpoints'].mockResolvedValue({ endpoints: [] });
+  mocked['getChatSettings'].mockResolvedValue({ endpointId: null });
+  mocked['listWorkflowGroupsForDocument'].mockResolvedValue({ groups: [] });
   mocked['listDocuments'].mockResolvedValue({ documents: [] });
+  mocked['getExportTemplate'].mockResolvedValue({ template: exportTemplateFixture() });
 });
 
 afterEach(() => {
@@ -265,13 +343,14 @@ describe('documents page', () => {
     const onOpen = vi.fn();
     const user = userEvent.setup();
     const { container } = await renderSignedIn(<DocumentsPage onOpen={onOpen} />);
-    await screen.findByRole('button', { name: 'Upload .docx' });
+    await user.click(await screen.findByRole('button', { name: 'Upload Word or PDF' }));
 
     const input = container.querySelector('input[type="file"]') as HTMLInputElement;
     const file = new File(['bytes'], 'Report.docx', {
       type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
     });
     await user.upload(input, file);
+    await user.click(screen.getByRole('button', { name: 'Upload' }));
 
     await waitFor(() => expect(mocked['importDocx']).toHaveBeenCalledWith(file));
     await waitFor(() => expect(onOpen).toHaveBeenCalledWith('doc-up'));
@@ -283,7 +362,7 @@ describe('documents page', () => {
     );
     const user = userEvent.setup();
     const { container } = await renderSignedIn(<DocumentsPage onOpen={() => {}} />);
-    await screen.findByRole('button', { name: 'Upload .docx' });
+    await user.click(await screen.findByRole('button', { name: 'Upload Word or PDF' }));
     const input = container.querySelector('input[type="file"]') as HTMLInputElement;
     await user.upload(
       input,
@@ -291,6 +370,7 @@ describe('documents page', () => {
         type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
       }),
     );
+    await user.click(screen.getByRole('button', { name: 'Upload' }));
     expect(await screen.findByRole('alert')).toHaveTextContent('Only .docx files can be uploaded.');
   });
 
@@ -301,9 +381,10 @@ describe('documents page', () => {
     });
     const user = userEvent.setup();
     const { container } = await renderSignedIn(<DocumentsPage onOpen={() => {}} />);
-    await screen.findByRole('button', { name: 'Upload .docx' });
+    await user.click(await screen.findByRole('button', { name: 'Upload Word or PDF' }));
     const input = container.querySelector('input[type="file"]') as HTMLInputElement;
     await user.upload(input, new File(['x'], 'r.docx'));
+    await user.click(screen.getByRole('button', { name: 'Upload' }));
     expect(await screen.findByText(/larger than 2 MB/u)).toBeInTheDocument();
   });
 
@@ -311,8 +392,32 @@ describe('documents page', () => {
     mocked['listDocuments'].mockResolvedValue({ documents: [summary()] });
     const user = userEvent.setup();
     await renderSignedIn(<DocumentsPage onOpen={() => {}} />);
-    await user.click(await screen.findByRole('button', { name: 'Download' }));
+    await openRowMenu(user, 'Quarterly Report');
+    await user.click(await screen.findByRole('menuitem', { name: 'Export .docx' }));
     expect(downloadExport).toHaveBeenCalledWith('doc-1', 'docx');
+  });
+
+  it('offers every export format, and the original when the document was imported', async () => {
+    mocked['listDocuments'].mockResolvedValue({ documents: [summary({ origin: 'import', sourceName: 'Report.docx' })] });
+    const user = userEvent.setup();
+    await renderSignedIn(<DocumentsPage onOpen={() => {}} />);
+    await openRowMenu(user, 'Quarterly Report');
+    await user.click(await screen.findByRole('menuitem', { name: 'Export standardized' }));
+    expect(downloadExport).toHaveBeenCalledWith('doc-1', 'standard');
+
+    await openRowMenu(user, 'Quarterly Report');
+    await user.click(await screen.findByRole('menuitem', { name: 'Original' }));
+    expect(downloadExport).toHaveBeenCalledWith('doc-1', 'original');
+  });
+
+  it('opens a document from its menu, the same as clicking the title', async () => {
+    mocked['listDocuments'].mockResolvedValue({ documents: [summary()] });
+    const onOpen = vi.fn();
+    const user = userEvent.setup();
+    await renderSignedIn(<DocumentsPage onOpen={onOpen} />);
+    await openRowMenu(user, 'Quarterly Report');
+    await user.click(await screen.findByRole('menuitem', { name: 'Open' }));
+    expect(onOpen).toHaveBeenCalledWith('doc-1');
   });
 
   it('asks before deleting, and reloads afterwards', async () => {
@@ -322,7 +427,8 @@ describe('documents page', () => {
     const user = userEvent.setup();
 
     await renderSignedIn(<DocumentsPage onOpen={() => {}} />);
-    await user.click(await screen.findByRole('button', { name: 'Delete' }));
+    await openRowMenu(user, 'Quarterly Report');
+    await user.click(await screen.findByRole('menuitem', { name: 'Delete' }));
 
     expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining('Quarterly Report'));
     await waitFor(() => expect(mocked['deleteDocument']).toHaveBeenCalledWith('doc-1'));
@@ -334,28 +440,208 @@ describe('documents page', () => {
     vi.spyOn(window, 'confirm').mockReturnValue(false);
     const user = userEvent.setup();
     await renderSignedIn(<DocumentsPage onOpen={() => {}} />);
-    await user.click(await screen.findByRole('button', { name: 'Delete' }));
+    await openRowMenu(user, 'Quarterly Report');
+    await user.click(await screen.findByRole('menuitem', { name: 'Delete' }));
     expect(mocked['deleteDocument']).not.toHaveBeenCalled();
   });
 
-  it('offers no delete for a document somebody else owns', async () => {
+  it('offers no delete, manage access or transfer for a document somebody else owns', async () => {
     mocked['listDocuments'].mockResolvedValue({ documents: [summary({ access: 'edit' })] });
+    const user = userEvent.setup();
     await renderSignedIn(<DocumentsPage onOpen={() => {}} />);
-    await screen.findByRole('button', { name: 'Download' });
-    expect(screen.queryByRole('button', { name: 'Delete' })).not.toBeInTheDocument();
+    await openRowMenu(user, 'Quarterly Report');
+    expect(screen.queryByRole('menuitem', { name: 'Delete' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('menuitem', { name: 'Manage access' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('menuitem', { name: 'Transfer ownership' })).not.toBeInTheDocument();
   });
 
   it('tells a viewer that they cannot create documents, and disables the buttons', async () => {
     await renderSignedIn(<DocumentsPage onOpen={() => {}} />, VIEWER);
     expect(await screen.findByText(/but not create them/u)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'New blank document' })).toBeDisabled();
-    expect(screen.getByRole('button', { name: 'Upload .docx' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Upload Word or PDF' })).toBeDisabled();
   });
 
   it('reports a failure to load the list', async () => {
     mocked['listDocuments'].mockRejectedValue(new ApiError(500, 'INTERNAL_ERROR', 'Something went wrong.'));
     await renderSignedIn(<DocumentsPage onOpen={() => {}} />);
     expect(await screen.findByRole('alert')).toHaveTextContent('Something went wrong.');
+  });
+
+  it('manages access from the list, without opening the document', async () => {
+    mocked['listDocuments'].mockResolvedValue({ documents: [summary()] });
+    mocked['listShares'].mockResolvedValue({
+      shares: [{ userId: 'u-other', email: 'other@localhost', name: 'Otto Other', permission: 'view' }],
+    });
+    mocked['listUsers'].mockResolvedValue({ users: [ADMIN] });
+    const user = userEvent.setup();
+    await renderSignedIn(<DocumentsPage onOpen={() => {}} />);
+
+    await openRowMenu(user, 'Quarterly Report');
+    await user.click(await screen.findByRole('menuitem', { name: 'Manage access' }));
+    expect(await screen.findByText('Sharing: Quarterly Report')).toBeInTheDocument();
+    expect(screen.getByText(/Otto Other can view/u)).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Close' }));
+    await waitFor(() => expect(screen.queryByText('Sharing: Quarterly Report')).not.toBeInTheDocument());
+  });
+
+  it('shares with the chosen person at the chosen permission, from the list', async () => {
+    mocked['listDocuments'].mockResolvedValue({ documents: [summary()] });
+    mocked['listShares'].mockResolvedValue({ shares: [] });
+    mocked['listUsers'].mockResolvedValue({ users: [ADMIN] });
+    mocked['share'].mockResolvedValue({
+      shares: [{ userId: 'u-admin', email: 'admin@localhost', name: 'Ada Admin', permission: 'edit' }],
+    });
+    const user = userEvent.setup();
+    await renderSignedIn(<DocumentsPage onOpen={() => {}} />);
+
+    await openRowMenu(user, 'Quarterly Report');
+    await user.click(await screen.findByRole('menuitem', { name: 'Manage access' }));
+    await user.selectOptions(await screen.findByLabelText('Person'), 'u-admin');
+    await user.selectOptions(screen.getByLabelText('Permission'), 'edit');
+    await user.click(screen.getByRole('button', { name: 'Share' }));
+
+    await waitFor(() => expect(mocked['share']).toHaveBeenCalledWith('doc-1', 'u-admin', 'edit'));
+  });
+
+  it('removes a share from the list', async () => {
+    mocked['listDocuments'].mockResolvedValue({ documents: [summary()] });
+    mocked['listShares'].mockResolvedValue({
+      shares: [{ userId: 'u-other', email: 'other@localhost', name: 'Otto Other', permission: 'view' }],
+    });
+    mocked['listUsers'].mockResolvedValue({ users: [] });
+    mocked['unshare'].mockResolvedValue({ shares: [] });
+    const user = userEvent.setup();
+    await renderSignedIn(<DocumentsPage onOpen={() => {}} />);
+
+    await openRowMenu(user, 'Quarterly Report');
+    await user.click(await screen.findByRole('menuitem', { name: 'Manage access' }));
+    await user.click(await screen.findByRole('button', { name: 'Remove' }));
+    await waitFor(() => expect(mocked['unshare']).toHaveBeenCalledWith('doc-1', 'u-other'));
+  });
+
+  it('hands a document over from the sharing panel, once the question is confirmed', async () => {
+    mocked['listDocuments'].mockResolvedValue({ documents: [summary()] });
+    mocked['listShares'].mockResolvedValue({
+      shares: [{ userId: 'u-other', email: 'other@localhost', name: 'Otto Other', permission: 'edit' }],
+    });
+    mocked['listUsers'].mockResolvedValue({ users: [] });
+    mocked['transferOwnership'].mockResolvedValue({ document: detail({ ownerId: 'u-other' }) });
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    const user = userEvent.setup();
+    await renderSignedIn(<DocumentsPage onOpen={() => {}} />);
+
+    await openRowMenu(user, 'Quarterly Report');
+    await user.click(await screen.findByRole('menuitem', { name: 'Manage access' }));
+    await user.click(await screen.findByRole('button', { name: 'Make owner' }));
+
+    expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining('Otto Other'));
+    await waitFor(() => expect(mocked['transferOwnership']).toHaveBeenCalledWith('doc-1', 'u-other'));
+    // Handing it over closes the panel and refreshes the list, the owner column included.
+    await waitFor(() => expect(screen.queryByText('Sharing: Quarterly Report')).not.toBeInTheDocument());
+  });
+
+  it('transfers ownership directly, without opening the sharing panel', async () => {
+    mocked['listDocuments'].mockResolvedValue({ documents: [summary()] });
+    mocked['listUsers'].mockResolvedValue({ users: [ADMIN] });
+    mocked['transferOwnership'].mockResolvedValue({ document: detail({ ownerId: 'u-admin' }) });
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    const user = userEvent.setup();
+    await renderSignedIn(<DocumentsPage onOpen={() => {}} />);
+
+    await openRowMenu(user, 'Quarterly Report');
+    await user.click(await screen.findByRole('menuitem', { name: 'Transfer ownership' }));
+    expect(await screen.findByText('Transfer ownership: Quarterly Report')).toBeInTheDocument();
+
+    await user.selectOptions(screen.getByLabelText('New owner'), 'u-admin');
+    await user.click(screen.getByRole('button', { name: 'Make owner' }));
+
+    expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining('Ada Admin'));
+    await waitFor(() => expect(mocked['transferOwnership']).toHaveBeenCalledWith('doc-1', 'u-admin'));
+  });
+
+  it('opens analysis from the list, offering the workflow groups set up for that document', async () => {
+    mocked['listDocuments'].mockResolvedValue({ documents: [summary()] });
+    mocked['listWorkflowGroupsForDocument'].mockResolvedValue({
+      groups: [{ id: 'g1', name: 'Policy prompts', description: '' }],
+    });
+    const user = userEvent.setup();
+    await renderSignedIn(<DocumentsPage onOpen={() => {}} />);
+
+    await openRowMenu(user, 'Quarterly Report');
+    await user.click(await screen.findByRole('menuitem', { name: 'Run analysis' }));
+    expect(await screen.findByText('Document analysis')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Run analysis' })).toBeEnabled();
+    expect(mocked['listWorkflowGroupsForDocument']).toHaveBeenCalledWith('doc-1');
+  });
+
+  it('says so when no workflow group applies to a document opened from the list', async () => {
+    mocked['listDocuments'].mockResolvedValue({ documents: [summary()] });
+    mocked['listWorkflowGroupsForDocument'].mockResolvedValue({ groups: [] });
+    const user = userEvent.setup();
+    await renderSignedIn(<DocumentsPage onOpen={() => {}} />);
+
+    await openRowMenu(user, 'Quarterly Report');
+    await user.click(await screen.findByRole('menuitem', { name: 'Run analysis' }));
+    expect(await screen.findByText(/no workflow group is set up/i)).toBeInTheDocument();
+  });
+
+  it('opens a chat preview from the list, the same as the editor offers', async () => {
+    mocked['listDocuments'].mockResolvedValue({ documents: [summary()] });
+    const user = userEvent.setup();
+    await renderSignedIn(<DocumentsPage onOpen={() => {}} />);
+
+    await openRowMenu(user, 'Quarterly Report');
+    await user.click(await screen.findByRole('menuitem', { name: 'Chat' }));
+    expect(await screen.findByText('Ask a question about this document.')).toBeInTheDocument();
+  });
+
+  it('searches the list by title', async () => {
+    mocked['listDocuments'].mockResolvedValue({
+      documents: [summary(), summary({ id: 'doc-2', title: 'Vendor Contract' })],
+    });
+    const user = userEvent.setup();
+    await renderSignedIn(<DocumentsPage onOpen={() => {}} />);
+    await screen.findByText('Vendor Contract');
+
+    await user.type(screen.getByLabelText('Search documents'), 'quarter');
+    expect(screen.getByText('Quarterly Report')).toBeInTheDocument();
+    expect(screen.queryByText('Vendor Contract')).not.toBeInTheDocument();
+  });
+
+  it('says so, and offers to clear it, when a search matches nothing', async () => {
+    mocked['listDocuments'].mockResolvedValue({ documents: [summary()] });
+    const user = userEvent.setup();
+    await renderSignedIn(<DocumentsPage onOpen={() => {}} />);
+    await screen.findByText('Quarterly Report');
+
+    await user.type(screen.getByLabelText('Search documents'), 'nothing matches this');
+    expect(await screen.findByText('No documents match that search.')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Clear the search' }));
+    expect(await screen.findByText('Quarterly Report')).toBeInTheDocument();
+  });
+
+  it('filters the list by access from the tabs', async () => {
+    mocked['listDocuments'].mockResolvedValue({
+      documents: [summary(), summary({ id: 'doc-2', title: 'Shared With Me', access: 'view' })],
+    });
+    const user = userEvent.setup();
+    await renderSignedIn(<DocumentsPage onOpen={() => {}} />);
+    await screen.findByText('Shared With Me');
+
+    await user.click(screen.getByRole('button', { name: 'Owned by me' }));
+    expect(screen.getByText('Quarterly Report')).toBeInTheDocument();
+    expect(screen.queryByText('Shared With Me')).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Can view' }));
+    expect(await screen.findByText('Shared With Me')).toBeInTheDocument();
+    expect(screen.queryByText('Quarterly Report')).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'All' }));
+    expect(await screen.findByText('Quarterly Report')).toBeInTheDocument();
+    expect(screen.getByText('Shared With Me')).toBeInTheDocument();
   });
 });
 
@@ -473,23 +759,68 @@ describe('administration page', () => {
     expect(mocked['resetUserPassword']).not.toHaveBeenCalled();
   });
 
-  it('shows the audit trail', async () => {
+  it('shows the audit trail with a human-readable action and the document’s name', async () => {
     mocked['listAudit'].mockResolvedValue({
       entries: [
         {
           id: 'a1',
           createdAt: '2026-01-02T10:00:00.000Z',
           actorEmail: 'admin@localhost',
+          actorName: 'Ada Admin',
           action: 'document.created',
           targetType: 'document',
           targetId: 'doc-1',
+          targetTitle: 'Quarterly Report',
+          targetDeleted: false,
           detail: null,
         },
       ],
     });
     await renderSignedIn(<AdminPage />, ADMIN);
-    expect(await screen.findByText('document.created')).toBeInTheDocument();
-    expect(screen.getByText('doc-1')).toBeInTheDocument();
+    await openAdminSection('Audit');
+    expect(await screen.findByText('Document created')).toBeInTheDocument();
+    expect(screen.getByText('Ada Admin')).toBeInTheDocument();
+    expect(screen.getByText('Quarterly Report')).toBeInTheDocument();
+    // The raw id is not shown once a name has been resolved for it.
+    expect(screen.queryByText('doc-1')).not.toBeInTheDocument();
+  });
+
+  it('marks a deleted document’s entry, and falls back to the raw id when nothing else names it', async () => {
+    mocked['listAudit'].mockResolvedValue({
+      entries: [
+        {
+          id: 'a1',
+          createdAt: '2026-01-02T10:00:00.000Z',
+          actorEmail: 'admin@localhost',
+          actorName: 'Ada Admin',
+          action: 'document.exported',
+          targetType: 'document',
+          targetId: 'doc-1',
+          targetTitle: 'Old Draft',
+          targetDeleted: true,
+          detail: null,
+        },
+        {
+          id: 'a2',
+          createdAt: '2026-01-02T10:05:00.000Z',
+          actorEmail: 'admin@localhost',
+          actorName: 'Ada Admin',
+          action: 'llm_endpoint.tested',
+          targetType: 'llm_endpoint',
+          targetId: 'e1',
+          targetTitle: null,
+          targetDeleted: false,
+          detail: null,
+        },
+      ],
+    });
+    await renderSignedIn(<AdminPage />, ADMIN);
+    await openAdminSection('Audit');
+    expect(await screen.findByText('Document exported')).toBeInTheDocument();
+    expect(screen.getByText('Old Draft')).toBeInTheDocument();
+    expect(screen.getByText('(deleted)')).toBeInTheDocument();
+    expect(screen.getByText('LLM endpoint tested')).toBeInTheDocument();
+    expect(screen.getByText('e1')).toBeInTheDocument();
   });
 
   it('labels an entry with no signed-in actor', async () => {
@@ -507,7 +838,409 @@ describe('administration page', () => {
       ],
     });
     await renderSignedIn(<AdminPage />, ADMIN);
+    await openAdminSection('Audit');
     expect(await screen.findByText('anonymous')).toBeInTheDocument();
+  });
+
+  it('says so when there are no workflow groups yet', async () => {
+    await renderSignedIn(<AdminPage />, ADMIN);
+    await openAdminSection('AI');
+    expect(await screen.findByText('No workflow groups yet.')).toBeInTheDocument();
+  });
+
+  const policyGroup = {
+    id: 'g1',
+    name: 'Policy prompts',
+    description: 'Checked against the template.',
+    docType: 'Policy',
+    isDefault: true,
+    endpointId: null,
+    prompts: [
+      { id: 'p-summary', role: 'summary', position: 0, text: 'Summarise the findings above.' },
+      { id: 'p1', role: 'analysis', position: 0, text: 'Does it name an owner?' },
+      { id: 'p2', role: 'analysis', position: 1, text: 'Is the review date within a year?' },
+    ],
+    createdAt: '2026-01-01T00:00:00.000Z',
+    updatedAt: '2026-01-01T00:00:00.000Z',
+    createdBy: 'u-admin',
+  };
+
+  it('lists a workflow group with its document type, default badge and prompt count', async () => {
+    mocked['listWorkflowGroups'].mockResolvedValue({ groups: [policyGroup] });
+    await renderSignedIn(<AdminPage />, ADMIN);
+    await openAdminSection('AI');
+    expect(await screen.findByText('Policy prompts')).toBeInTheDocument();
+    expect(screen.getByText('Checked against the template.')).toBeInTheDocument();
+    // "Policy" also names an option in the document-type select above the
+    // table, so the row itself is what everything else here is checked against.
+    const row = screen.getByText('Policy prompts').closest('tr');
+    expect(row).not.toBeNull();
+    const withinRow = within(row as HTMLElement);
+    expect(withinRow.getByText('Policy')).toBeInTheDocument();
+    expect(withinRow.getByText('Yes')).toBeInTheDocument();
+    // Two analysis prompts, shown as a count; the summary prompt is not counted here.
+    expect(withinRow.getByRole('cell', { name: '2' })).toBeInTheDocument();
+  });
+
+  it('shows a group’s prompts, summary pinned first, once "Manage prompts" is opened', async () => {
+    mocked['listWorkflowGroups'].mockResolvedValue({ groups: [policyGroup] });
+    const user = userEvent.setup();
+    await renderSignedIn(<AdminPage />, ADMIN);
+    await openAdminSection('AI');
+    await user.click(await screen.findByRole('button', { name: 'Manage prompts' }));
+    expect(screen.getByText('Summarise the findings above.')).toBeInTheDocument();
+    expect(screen.getByText('Does it name an owner?')).toBeInTheDocument();
+    expect(screen.getByText('Is the review date within a year?')).toBeInTheDocument();
+  });
+
+  it('creates a workflow group from one analysis prompt per line and a summary prompt', async () => {
+    mocked['createWorkflowGroup'].mockResolvedValue({
+      group: {
+        ...policyGroup,
+        id: 'g2',
+        name: 'Standard prompts',
+        description: '',
+        docType: 'Standard',
+        isDefault: false,
+      },
+    });
+    const user = userEvent.setup();
+    await renderSignedIn(<AdminPage />, ADMIN);
+    await openAdminSection('AI');
+
+    await user.type(await screen.findByLabelText('Group name'), 'Standard prompts');
+    await user.selectOptions(screen.getByLabelText('Document type'), 'Standard');
+    await user.type(screen.getByLabelText('Analysis prompts, one per line'), 'First prompt.\nSecond prompt.');
+    await user.type(screen.getByLabelText('Summary prompt'), 'A short list of gaps.');
+    await user.click(screen.getByRole('button', { name: 'Add group' }));
+
+    await waitFor(() =>
+      expect(mocked['createWorkflowGroup']).toHaveBeenCalledWith({
+        name: 'Standard prompts',
+        description: '',
+        docType: 'Standard',
+        isDefault: false,
+        endpointId: null,
+        analysisPrompts: ['First prompt.', 'Second prompt.'],
+        summaryPrompt: 'A short list of gaps.',
+      }),
+    );
+  });
+
+  it('adds, edits and deletes an analysis prompt on an existing group', async () => {
+    mocked['listWorkflowGroups'].mockResolvedValue({ groups: [policyGroup] });
+    mocked['addWorkflowGroupPrompt'].mockResolvedValue({ group: policyGroup });
+    mocked['updateWorkflowGroupPrompt'].mockResolvedValue({ group: policyGroup });
+    mocked['deleteWorkflowGroupPrompt'].mockResolvedValue({ group: policyGroup });
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    const user = userEvent.setup();
+    await renderSignedIn(<AdminPage />, ADMIN);
+    await openAdminSection('AI');
+    await user.click(await screen.findByRole('button', { name: 'Manage prompts' }));
+
+    await user.type(screen.getByLabelText('New analysis prompt'), 'A third prompt.');
+    await user.click(screen.getByRole('button', { name: 'Add prompt' }));
+    await waitFor(() =>
+      expect(mocked['addWorkflowGroupPrompt']).toHaveBeenCalledWith('g1', {
+        role: 'analysis',
+        text: 'A third prompt.',
+      }),
+    );
+
+    const firstPromptRow = screen.getByText('Does it name an owner?').closest('li') as HTMLElement;
+    await user.click(within(firstPromptRow).getByRole('button', { name: 'Edit' }));
+    const textarea = within(firstPromptRow).getByRole('textbox');
+    await user.clear(textarea);
+    await user.type(textarea, 'Edited prompt text.');
+    await user.click(within(firstPromptRow).getByRole('button', { name: 'Save' }));
+    await waitFor(() =>
+      expect(mocked['updateWorkflowGroupPrompt']).toHaveBeenCalledWith('g1', 'p1', 'Edited prompt text.'),
+    );
+
+    const secondPromptRow = screen.getByText('Is the review date within a year?').closest('li') as HTMLElement;
+    await user.click(within(secondPromptRow).getByRole('button', { name: 'Delete' }));
+    await waitFor(() => expect(mocked['deleteWorkflowGroupPrompt']).toHaveBeenCalledWith('g1', 'p2'));
+  });
+
+  it('deletes a workflow group once the question is confirmed', async () => {
+    mocked['listWorkflowGroups'].mockResolvedValue({
+      groups: [{ ...policyGroup, id: 'g1', name: 'Draft group', isDefault: false, prompts: [] }],
+    });
+    mocked['deleteWorkflowGroup'].mockResolvedValue({ ok: true });
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    const user = userEvent.setup();
+    await renderSignedIn(<AdminPage />, ADMIN);
+    await openAdminSection('AI');
+
+    await user.click(await screen.findByRole('button', { name: 'Delete' }));
+    await waitFor(() => expect(mocked['deleteWorkflowGroup']).toHaveBeenCalledWith('g1'));
+  });
+
+  it('says so when there are no LLM endpoints yet', async () => {
+    await renderSignedIn(<AdminPage />, ADMIN);
+    await openAdminSection('AI');
+    expect(await screen.findByText('No endpoints registered yet.')).toBeInTheDocument();
+  });
+
+  it('lists a registered endpoint with its authentication and whether a secret is stored', async () => {
+    mocked['listLlmEndpoints'].mockResolvedValue({
+      endpoints: [
+        {
+          id: 'e1',
+          name: 'Internal GPU box',
+          url: 'http://10.0.0.5:8000/v1/chat/completions',
+          authScheme: 'bearer',
+          authHeaderName: null,
+          hasSecret: true,
+          requestFormat: 'openai-chat',
+          createdAt: '2026-01-01T00:00:00.000Z',
+          updatedAt: '2026-01-01T00:00:00.000Z',
+          createdBy: 'u-admin',
+        },
+      ],
+    });
+    await renderSignedIn(<AdminPage />, ADMIN);
+    await openAdminSection('AI');
+    // "Internal GPU box" also names an option in the Chat-settings select
+    // below, so the row itself is found by its table cell, not just its text.
+    const row = (await screen.findByRole('cell', { name: 'Internal GPU box' })).closest('tr');
+    expect(row).not.toBeNull();
+    const withinRow = within(row as HTMLElement);
+    expect(withinRow.getByText('http://10.0.0.5:8000/v1/chat/completions')).toBeInTheDocument();
+    expect(withinRow.getByText('bearer')).toBeInTheDocument();
+    expect(withinRow.getByText('Set')).toBeInTheDocument();
+  });
+
+  it('registers an endpoint, sending the header name only when the scheme needs one', async () => {
+    mocked['createLlmEndpoint'].mockResolvedValue({
+      endpoint: {
+        id: 'e2',
+        name: 'Internal GPU box',
+        url: 'http://10.0.0.5:8000/v1/chat/completions',
+        authScheme: 'bearer',
+        authHeaderName: null,
+        hasSecret: true,
+        requestFormat: 'openai-chat',
+        createdAt: '2026-01-01T00:00:00.000Z',
+        updatedAt: '2026-01-01T00:00:00.000Z',
+        createdBy: 'u-admin',
+      },
+    });
+    const user = userEvent.setup();
+    await renderSignedIn(<AdminPage />, ADMIN);
+    await openAdminSection('AI');
+
+    await user.type(await screen.findByLabelText('Endpoint name'), 'Internal GPU box');
+    await user.type(screen.getByLabelText('URL'), 'http://10.0.0.5:8000/v1/chat/completions');
+    await user.selectOptions(screen.getByLabelText('Authentication'), 'bearer');
+    await user.type(screen.getByLabelText('Header name'), 'Should be ignored for bearer');
+    await user.type(screen.getByLabelText('Secret'), 'sk-my-secret');
+    await user.click(screen.getByRole('button', { name: 'Register' }));
+
+    await waitFor(() =>
+      expect(mocked['createLlmEndpoint']).toHaveBeenCalledWith({
+        name: 'Internal GPU box',
+        url: 'http://10.0.0.5:8000/v1/chat/completions',
+        authScheme: 'bearer',
+        authHeaderName: null,
+        authSecret: 'sk-my-secret',
+        isDefault: false,
+      }),
+    );
+  });
+
+  it('shows what a connection test reports', async () => {
+    mocked['listLlmEndpoints'].mockResolvedValue({
+      endpoints: [
+        {
+          id: 'e1',
+          name: 'Internal GPU box',
+          url: 'http://10.0.0.5:8000/v1/chat/completions',
+          authScheme: 'none',
+          authHeaderName: null,
+          hasSecret: false,
+          requestFormat: 'openai-chat',
+          createdAt: '2026-01-01T00:00:00.000Z',
+          updatedAt: '2026-01-01T00:00:00.000Z',
+          createdBy: 'u-admin',
+        },
+      ],
+    });
+    mocked['testLlmEndpoint'].mockResolvedValue({ ok: true, status: 200, message: 'Connected.' });
+    const user = userEvent.setup();
+    await renderSignedIn(<AdminPage />, ADMIN);
+    await openAdminSection('AI');
+
+    await user.click(await screen.findByRole('button', { name: 'Test connection' }));
+    expect(await screen.findByText('Connected.')).toBeInTheDocument();
+    expect(mocked['testLlmEndpoint']).toHaveBeenCalledWith('e1');
+  });
+
+  it('deletes an endpoint once the question is confirmed', async () => {
+    mocked['listLlmEndpoints'].mockResolvedValue({
+      endpoints: [
+        {
+          id: 'e1',
+          name: 'Draft endpoint',
+          url: 'http://10.0.0.5',
+          authScheme: 'none',
+          authHeaderName: null,
+          hasSecret: false,
+          requestFormat: 'openai-chat',
+          createdAt: '2026-01-01T00:00:00.000Z',
+          updatedAt: '2026-01-01T00:00:00.000Z',
+          createdBy: 'u-admin',
+        },
+      ],
+    });
+    mocked['deleteLlmEndpoint'].mockResolvedValue({ ok: true });
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    const user = userEvent.setup();
+    await renderSignedIn(<AdminPage />, ADMIN);
+    await openAdminSection('AI');
+
+    await user.click(await screen.findByRole('button', { name: 'Delete' }));
+    await waitFor(() => expect(mocked['deleteLlmEndpoint']).toHaveBeenCalledWith('e1'));
+  });
+
+  it('loads the export template with its default values', async () => {
+    await renderSignedIn(<AdminPage />, ADMIN);
+    await openAdminSection('Export');
+    expect(await screen.findByRole('heading', { name: 'Body text' })).toBeInTheDocument();
+    expect(screen.getByLabelText('Body font')).toHaveValue('Carlito');
+    expect(screen.getByLabelText('Body size')).toHaveValue(11);
+    expect(screen.getByLabelText('Heading 1 font')).toHaveValue('Carlito');
+  });
+
+  it('edits a heading and the body style, then saves the whole template in one call', async () => {
+    const saved = exportTemplateFixture();
+    mocked['updateExportTemplate'].mockResolvedValue({ template: saved });
+    const user = userEvent.setup();
+    await renderSignedIn(<AdminPage />, ADMIN);
+    await openAdminSection('Export');
+    await screen.findByRole('heading', { name: 'Body text' });
+
+    const bodyFont = screen.getByLabelText('Body font');
+    await user.clear(bodyFont);
+    await user.type(bodyFont, 'Georgia');
+    const heading1Size = screen.getByLabelText('Heading 1 size');
+    await user.clear(heading1Size);
+    await user.type(heading1Size, '22');
+
+    await user.click(screen.getByRole('button', { name: 'Save export template' }));
+
+    await waitFor(() => expect(mocked['updateExportTemplate']).toHaveBeenCalled());
+    const call = mocked['updateExportTemplate'].mock.calls[0]![0];
+    expect(call.body.fontFamily).toBe('Georgia');
+    expect(call.headings[0].fontSize).toBe(22);
+    // Untouched fields travel unchanged, since the save writes every section at once.
+    expect(call.footer.right.content).toBe('{{page}} of {{pageCount}}');
+  });
+
+  it('loads the table and table-of-contents styling with their default values', async () => {
+    await renderSignedIn(<AdminPage />, ADMIN);
+    await openAdminSection('Export');
+    expect(await screen.findByRole('heading', { name: 'Tables' })).toBeInTheDocument();
+    expect(screen.getByLabelText('Table border colour')).toHaveValue('#bfbfbf');
+    expect(screen.getByLabelText('Table banded rows')).toBeChecked();
+    expect(screen.getByLabelText('TOC 1 font')).toHaveValue('Carlito');
+    expect(screen.getByLabelText('TOC 2 indent')).toHaveValue(12);
+  });
+
+  it('edits the table style and a TOC level, then saves them with the rest of the template', async () => {
+    const saved = exportTemplateFixture();
+    mocked['updateExportTemplate'].mockResolvedValue({ template: saved });
+    const user = userEvent.setup();
+    await renderSignedIn(<AdminPage />, ADMIN);
+    await openAdminSection('Export');
+    await screen.findByRole('heading', { name: 'Tables' });
+
+    const borderWidth = screen.getByLabelText('Table border width');
+    await user.clear(borderWidth);
+    await user.type(borderWidth, '1.5');
+    await user.click(screen.getByLabelText('Table banded rows'));
+    const tocFont = screen.getByLabelText('TOC 1 font');
+    await user.clear(tocFont);
+    await user.type(tocFont, 'Georgia');
+
+    await user.click(screen.getByRole('button', { name: 'Save export template' }));
+
+    await waitFor(() => expect(mocked['updateExportTemplate']).toHaveBeenCalled());
+    const call = mocked['updateExportTemplate'].mock.calls[0]![0];
+    expect(call.table.borderWidthPt).toBe(1.5);
+    expect(call.table.bandedRows).toBe(false);
+    expect(call.toc[0].fontFamily).toBe('Georgia');
+    // The other TOC levels travel unchanged.
+    expect(call.toc[1].indentPt).toBe(12);
+  });
+
+  it('refuses an unknown token, surfacing the server’s message', async () => {
+    mocked['updateExportTemplate'].mockRejectedValue(new ApiError(400, 'BAD_REQUEST', 'Unknown token {{document.owner}}.'));
+    const user = userEvent.setup();
+    await renderSignedIn(<AdminPage />, ADMIN);
+    await openAdminSection('Export');
+    await screen.findByRole('heading', { name: 'Body text' });
+
+    await user.click(screen.getByRole('button', { name: 'Save export template' }));
+    expect(await screen.findByText('Unknown token {{document.owner}}.')).toBeInTheDocument();
+  });
+
+  it('says so when no logo is set', async () => {
+    await renderSignedIn(<AdminPage />, ADMIN);
+    await openAdminSection('Export');
+    expect(await screen.findByText('No logo set.')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Remove logo' })).not.toBeInTheDocument();
+  });
+
+  it('uploads a logo and shows the preview once one is set', async () => {
+    const withLogo = { ...exportTemplateFixture(), logo: { mediaType: 'image/png', dataUrl: 'data:image/png;base64,abc' } };
+    mocked['uploadExportLogo'].mockResolvedValue({ template: withLogo });
+    const user = userEvent.setup();
+    await renderSignedIn(<AdminPage />, ADMIN);
+    await openAdminSection('Export');
+    await screen.findByText('No logo set.');
+
+    const file = new File(['fake'], 'logo.png', { type: 'image/png' });
+    const input = screen.getByLabelText('Logo file');
+    await user.upload(input, file);
+    await user.click(screen.getByRole('button', { name: 'Upload' }));
+
+    expect(mocked['uploadExportLogo']).toHaveBeenCalledWith(file);
+    expect(await screen.findByAltText('Current footer logo')).toHaveAttribute('src', withLogo.logo.dataUrl);
+    expect(screen.getByRole('button', { name: 'Remove logo' })).toBeInTheDocument();
+  });
+
+  it('removes the logo', async () => {
+    mocked['getExportTemplate'].mockResolvedValue({
+      template: { ...exportTemplateFixture(), logo: { mediaType: 'image/png', dataUrl: 'data:image/png;base64,abc' } },
+    });
+    mocked['removeExportLogo'].mockResolvedValue({ template: exportTemplateFixture() });
+    const user = userEvent.setup();
+    await renderSignedIn(<AdminPage />, ADMIN);
+    await openAdminSection('Export');
+    await screen.findByAltText('Current footer logo');
+
+    await user.click(screen.getByRole('button', { name: 'Remove logo' }));
+    expect(mocked['removeExportLogo']).toHaveBeenCalled();
+    expect(await screen.findByText('No logo set.')).toBeInTheDocument();
+  });
+
+  it('reports a logo the server refused', async () => {
+    // A browser only checks the file's declared type, not its real bytes; an
+    // SVG (or anything else) can arrive claiming to be a PNG. The server's
+    // own magic-byte check is what actually refuses it, so this test uses a
+    // file that would pass the input's own `accept` filter, the same as the
+    // real case this message exists for.
+    mocked['uploadExportLogo'].mockRejectedValue(new ApiError(415, 'UNSUPPORTED_MEDIA_TYPE', 'The logo must be a PNG or JPEG image.'));
+    const user = userEvent.setup();
+    await renderSignedIn(<AdminPage />, ADMIN);
+    await openAdminSection('Export');
+    await screen.findByText('No logo set.');
+
+    const file = new File(['<svg xmlns="http://www.w3.org/2000/svg"></svg>'], 'logo.png', { type: 'image/png' });
+    await user.upload(screen.getByLabelText('Logo file'), file);
+    await user.click(screen.getByRole('button', { name: 'Upload' }));
+    expect(await screen.findByText('The logo must be a PNG or JPEG image.')).toBeInTheDocument();
   });
 });
 
@@ -800,6 +1533,7 @@ describe('editor page', () => {
     await user.tab();
     expect(await screen.findByRole('alert')).toHaveTextContent('Something went wrong.');
 
+    await openRibbonTab(user, 'Export');
     await user.click(screen.getByRole('button', { name: 'Export .docx' }));
     // The save still failed; downloading says nothing about that.
     expect(screen.getByRole('alert')).toHaveTextContent('Something went wrong.');
@@ -812,7 +1546,8 @@ describe('editor page', () => {
     );
     const user = userEvent.setup();
     await renderSignedIn(<EditorPage documentId="doc-1" onBack={() => {}} />);
-    await user.click(await screen.findByRole('button', { name: 'Export .docx' }));
+    await openRibbonTab(user, 'Export');
+    await user.click(screen.getByRole('button', { name: 'Export .docx' }));
     expect(await screen.findByRole('alert')).toHaveTextContent('The export failed.');
   });
 
@@ -827,10 +1562,11 @@ describe('editor page', () => {
     mocked['getDocument'].mockResolvedValue({ document: detail() });
     const user = userEvent.setup();
     await renderSignedIn(<EditorPage documentId="doc-1" onBack={() => {}} />);
+    await openRibbonTab(user, 'Export');
     await user.click(await screen.findByRole('button', { name: 'Export .docx' }));
     expect(downloadExport).toHaveBeenCalledWith('doc-1', 'docx');
-    await user.click(screen.getByRole('button', { name: 'Export .txt' }));
-    expect(downloadExport).toHaveBeenCalledWith('doc-1', 'txt');
+    await user.click(screen.getByRole('button', { name: 'Export standardized' }));
+    expect(downloadExport).toHaveBeenCalledWith('doc-1', 'standard');
   });
 
   it('opens and closes the version history', async () => {
@@ -938,6 +1674,7 @@ describe('editor page', () => {
     mocked['listUsers'].mockResolvedValue({ users: [] });
     const user = userEvent.setup();
     await renderSignedIn(<EditorPage documentId="doc-1" onBack={() => {}} />);
+    await openRibbonTab(user, 'Access');
     await user.click(await screen.findByRole('button', { name: 'Share' }));
     expect(await screen.findByRole('alert')).toHaveTextContent('Something went wrong.');
   });
@@ -949,6 +1686,7 @@ describe('editor page', () => {
     const user = userEvent.setup();
     await renderSignedIn(<EditorPage documentId="doc-1" onBack={() => {}} />);
 
+    await openRibbonTab(user, 'Access');
     await user.click(await screen.findByRole('button', { name: 'Share' }));
     expect(await screen.findByText('Not shared with anyone yet.')).toBeInTheDocument();
     await user.click(screen.getAllByRole('button', { name: 'Share' })[0] as HTMLElement);
@@ -961,6 +1699,7 @@ describe('editor page', () => {
     mocked['listUsers'].mockResolvedValue({ users: [ADMIN] });
     const user = userEvent.setup();
     await renderSignedIn(<EditorPage documentId="doc-1" onBack={() => {}} />);
+    await openRibbonTab(user, 'Access');
     await user.click(await screen.findByRole('button', { name: 'Share' }));
     const form = document.querySelector('form.share-form') as HTMLFormElement;
     form.requestSubmit();
@@ -976,6 +1715,7 @@ describe('editor page', () => {
     const user = userEvent.setup();
     await renderSignedIn(<EditorPage documentId="doc-1" onBack={() => {}} />);
 
+    await openRibbonTab(user, 'Access');
     await user.click(await screen.findByRole('button', { name: 'Share' }));
     expect(await screen.findByText('Sharing')).toBeInTheDocument();
     expect(screen.getByText(/Otto Other can view/u)).toBeInTheDocument();
@@ -991,6 +1731,7 @@ describe('editor page', () => {
     const user = userEvent.setup();
     await renderSignedIn(<EditorPage documentId="doc-1" onBack={() => {}} />);
 
+    await openRibbonTab(user, 'Access');
     await user.click(await screen.findByRole('button', { name: 'Share' }));
     await user.selectOptions(await screen.findByLabelText('Person'), 'u-admin');
     await user.selectOptions(screen.getByLabelText('Permission'), 'edit');
@@ -1010,6 +1751,7 @@ describe('editor page', () => {
     const user = userEvent.setup();
     await renderSignedIn(<EditorPage documentId="doc-1" onBack={() => {}} />);
 
+    await openRibbonTab(user, 'Access');
     await user.click(await screen.findByRole('button', { name: 'Share' }));
     await user.click(await screen.findByRole('button', { name: 'Remove' }));
     await waitFor(() => expect(mocked['unshare']).toHaveBeenCalledWith('doc-1', 'u-other'));
@@ -1017,8 +1759,9 @@ describe('editor page', () => {
 
   it('hides sharing from someone who is not the owner', async () => {
     mocked['getDocument'].mockResolvedValue({ document: detail({ access: 'edit' }) });
+    const user = userEvent.setup();
     await renderSignedIn(<EditorPage documentId="doc-1" onBack={() => {}} />);
-    await screen.findByRole('button', { name: 'History' });
+    await openRibbonTab(user, 'Access');
     expect(screen.queryByRole('button', { name: 'Share' })).not.toBeInTheDocument();
   });
 
@@ -1034,8 +1777,107 @@ describe('editor page', () => {
     const onBack = vi.fn();
     const user = userEvent.setup();
     await renderSignedIn(<EditorPage documentId="doc-1" onBack={onBack} />);
-    await user.click(await screen.findByRole('button', { name: '← Documents' }));
+    // A real arrow icon replaced the literal arrow character in the label.
+    await user.click(await screen.findByRole('button', { name: 'Documents' }));
     expect(onBack).toHaveBeenCalled();
+  });
+
+  it('shows nothing under the ribbon until a tab is clicked, unlike the old default Home tab', async () => {
+    mocked['getDocument'].mockResolvedValue({ document: detail() });
+    await renderSignedIn(<EditorPage documentId="doc-1" onBack={() => {}} />);
+    await screen.findByRole('button', { name: 'Review' });
+    expect(screen.queryByRole('button', { name: 'Export .docx' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Track changes' })).not.toBeInTheDocument();
+  });
+
+  it('shows only the clicked tab’s own actions, hiding another tab’s when switched', async () => {
+    mocked['getDocument'].mockResolvedValue({ document: detail() });
+    const user = userEvent.setup();
+    await renderSignedIn(<EditorPage documentId="doc-1" onBack={() => {}} />);
+
+    await openRibbonTab(user, 'Review');
+    expect(screen.getByRole('button', { name: 'Track changes' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Export .docx' })).not.toBeInTheDocument();
+
+    await openRibbonTab(user, 'Export');
+    expect(screen.getByRole('button', { name: 'Export .docx' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Track changes' })).not.toBeInTheDocument();
+  });
+
+  it('opens version history directly from the History tab, with no second click', async () => {
+    mocked['getDocument'].mockResolvedValue({ document: detail() });
+    mocked['listVersions'].mockResolvedValue({
+      versions: [{ revision: 3, title: 'Q', authorName: 'E', createdAt: '2026-01-02T10:30:00.000Z' }],
+    });
+    const user = userEvent.setup();
+    await renderSignedIn(<EditorPage documentId="doc-1" onBack={() => {}} />);
+    await user.click(await screen.findByRole('button', { name: 'History' }));
+    expect(await screen.findByText('Version history')).toBeInTheDocument();
+  });
+
+  it('opens Chat, sends a message and shows the reply, carrying the document as context', async () => {
+    mocked['getDocument'].mockResolvedValue({ document: detail() });
+    mocked['sendChatMessage'].mockResolvedValue({ ok: true, reply: 'It is about the quarter.', truncated: false });
+    const user = userEvent.setup();
+    await renderSignedIn(<EditorPage documentId="doc-1" onBack={() => {}} />);
+
+    // Chat is the AI panel's default sub-tab.
+    await user.click(await screen.findByRole('button', { name: 'AI' }));
+    expect(await screen.findByText('Ask a question about this document.')).toBeInTheDocument();
+
+    await user.type(screen.getByLabelText('Message'), 'What is this about?');
+    await user.click(screen.getByRole('button', { name: 'Send' }));
+    expect(await screen.findByText('It is about the quarter.')).toBeInTheDocument();
+    expect(mocked['sendChatMessage']).toHaveBeenCalledWith('doc-1', 'What is this about?', []);
+  });
+
+  it('says so when Chat has no AI endpoint configured', async () => {
+    mocked['getDocument'].mockResolvedValue({ document: detail() });
+    mocked['sendChatMessage'].mockResolvedValue({ ok: false, message: 'No AI endpoint is configured.' });
+    const user = userEvent.setup();
+    await renderSignedIn(<EditorPage documentId="doc-1" onBack={() => {}} />);
+
+    await user.click(await screen.findByRole('button', { name: 'AI' }));
+    await user.type(screen.getByLabelText('Message'), 'Hello?');
+    await user.click(screen.getByRole('button', { name: 'Send' }));
+    expect(await screen.findByText('No AI endpoint is configured.')).toBeInTheDocument();
+  });
+
+  it('opens Analysis, runs the workflow group set up for this document, and shows both outputs and the summary', async () => {
+    mocked['getDocument'].mockResolvedValue({ document: detail() });
+    mocked['listWorkflowGroupsForDocument'].mockResolvedValue({
+      groups: [{ id: 'g1', name: 'Policy prompts', description: '' }],
+    });
+    mocked['runAnalysis'].mockResolvedValue({
+      ok: true,
+      message: 'Complete.',
+      groupId: 'g1',
+      groupName: 'Policy prompts',
+      analysis: [{ promptId: 'p1', text: 'Does it name an owner?', output: 'Yes, Jane Doe.' }],
+      summary: 'The document names an owner.',
+    });
+    const user = userEvent.setup();
+    await renderSignedIn(<EditorPage documentId="doc-1" onBack={() => {}} />);
+
+    await user.click(await screen.findByRole('button', { name: 'AI' }));
+    await user.click(await screen.findByRole('tab', { name: 'Analysis' }));
+    await screen.findByRole('option', { name: 'Policy prompts' });
+    await user.click(screen.getByRole('button', { name: 'Run analysis' }));
+
+    expect(await screen.findByText('Does it name an owner?')).toBeInTheDocument();
+    expect(screen.getByText('Yes, Jane Doe.')).toBeInTheDocument();
+    expect(screen.getByText('The document names an owner.')).toBeInTheDocument();
+    expect(mocked['runAnalysis']).toHaveBeenCalledWith('doc-1', 'g1');
+  });
+
+  it('says so when no workflow group is set up for this kind of document', async () => {
+    mocked['getDocument'].mockResolvedValue({ document: detail() });
+    const user = userEvent.setup();
+    await renderSignedIn(<EditorPage documentId="doc-1" onBack={() => {}} />);
+
+    await user.click(await screen.findByRole('button', { name: 'AI' }));
+    await user.click(await screen.findByRole('tab', { name: 'Analysis' }));
+    expect(await screen.findByText(/no workflow group is set up/i)).toBeInTheDocument();
   });
 });
 
@@ -1057,6 +1899,7 @@ describe('page setup', () => {
     );
     expect(screen.getByLabelText('Page footer')).toHaveTextContent('Confidential');
 
+    await openRibbonTab(user, 'Export');
     await user.click(screen.getByRole('button', { name: 'Page setup' }));
     const header = screen.getByLabelText('Header');
     expect(header).toHaveValue('Company handbook');
@@ -1077,6 +1920,7 @@ describe('page setup', () => {
     });
     const user = userEvent.setup();
     await renderSignedIn(<EditorPage documentId="doc-1" onBack={() => {}} />);
+    await openRibbonTab(user, 'Export');
     await user.click(await screen.findByRole('button', { name: 'Page setup' }));
     expect(screen.getByLabelText('Orientation')).toHaveValue('landscape');
   });

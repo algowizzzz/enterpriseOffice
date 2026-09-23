@@ -4,6 +4,72 @@ import { SignInPage } from './pages/SignInPage';
 import { DocumentsPage } from './pages/DocumentsPage';
 import { EditorPage } from './pages/EditorPage';
 import { AdminPage } from './pages/AdminPage';
+import { getTheme, getUiScale, setTheme, setUiScale, type Theme } from './lib/preferences';
+import { ALargeSmall, FileEdit, Moon, Sun } from 'lucide-react';
+
+const TEXT_SIZES = [90, 100, 110, 125, 140] as const;
+
+/** Dark mode and text size: on every page, never only the editor's own zoom. */
+function DisplayPreferences(): JSX.Element {
+  const [theme, setThemeState] = useState<Theme>(getTheme);
+  const [scale, setScaleState] = useState<number>(getUiScale);
+
+  // `main.tsx` applies the stored choice before the first render, so the
+  // interface never flashes the wrong theme. This is the safety net for
+  // anywhere that does not go through that entry point (a test rendering
+  // `<App />` directly, primarily), so the attribute on the page always
+  // agrees with what this control shows.
+  useEffect(() => {
+    setTheme(theme);
+    setUiScale(scale);
+    // Applied once, from whatever was already current on mount. Reacting to
+    // `theme`/`scale` here too would just re-run the same idempotent write
+    // on every change, which the button and the select already do themselves.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  return (
+    <>
+      <label className="visually-hidden" htmlFor="ui-text-size">
+        Text size
+      </label>
+      <span className="text-size-control" title="Text size, everywhere but the document itself">
+        <ALargeSmall size={15} aria-hidden="true" />
+        <select
+          id="ui-text-size"
+          value={scale}
+          onChange={(event) => {
+            const next = Number(event.target.value);
+            setUiScale(next);
+            setScaleState(next);
+          }}
+        >
+          {TEXT_SIZES.map((value) => (
+            <option key={value} value={value}>
+              {value}%
+            </option>
+          ))}
+        </select>
+      </span>
+      <button
+        type="button"
+        title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+        // The name stays constant; aria-pressed says which state it is in
+        // now, the way a toggle button should, rather than the name itself
+        // changing to describe the current state.
+        aria-pressed={theme === 'dark'}
+        onClick={() => {
+          const next: Theme = theme === 'dark' ? 'light' : 'dark';
+          setTheme(next);
+          setThemeState(next);
+        }}
+      >
+        {theme === 'dark' ? <Moon size={15} aria-hidden="true" /> : <Sun size={15} aria-hidden="true" />}
+        <span className="visually-hidden">Dark mode</span>
+      </button>
+    </>
+  );
+}
 
 type View = { name: 'documents' } | { name: 'editor'; id: string } | { name: 'admin' };
 
@@ -56,6 +122,9 @@ function Shell(): JSX.Element {
     <div className="app">
       <nav className="app-nav">
         <button type="button" className="brand" onClick={() => navigate({ name: 'documents' })}>
+          <span className="brand-mark" aria-hidden="true">
+            <FileEdit size={15} />
+          </span>
           DocForge
         </button>
         <div className="nav-links">
@@ -77,6 +146,7 @@ function Shell(): JSX.Element {
           ) : null}
         </div>
         <div className="nav-user">
+          <DisplayPreferences />
           <span title={user.email}>{user.name}</span>
           <button type="button" onClick={() => void signOut()}>
             Sign out

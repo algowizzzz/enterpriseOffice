@@ -243,4 +243,35 @@ describe('user management', () => {
     });
     expect(entries.body).not.toMatch(/scrypt\$/u);
   });
+
+  it('resolves the actor’s name and the document’s title, not just their raw ids', async () => {
+    const created = await app.inject({
+      method: 'POST',
+      url: '/api/documents',
+      headers: authHeader(admin),
+      payload: { title: 'Quarterly Report' },
+    });
+    const documentId = created.json().document.id as string;
+
+    const entries = (
+      await app.inject({ method: 'GET', url: '/api/audit', headers: authHeader(admin) })
+    ).json().entries as {
+      action: string;
+      actorName: string | null;
+      targetTitle: string | null;
+      targetDeleted: boolean;
+    }[];
+    const entry = entries.find((e) => e.action === 'document.created' && e.targetTitle === 'Quarterly Report');
+    expect(entry).toBeDefined();
+    expect(entry?.actorName).toBe('Ada Admin');
+    expect(entry?.targetDeleted).toBe(false);
+
+    // A soft-deleted document still names itself in the trail -- the row is never actually gone.
+    await app.inject({ method: 'DELETE', url: `/api/documents/${documentId}`, headers: authHeader(admin) });
+    const afterDelete = (
+      await app.inject({ method: 'GET', url: '/api/audit', headers: authHeader(admin) })
+    ).json().entries as { action: string; targetTitle: string | null; targetDeleted: boolean }[];
+    const stillNamed = afterDelete.find((e) => e.action === 'document.created' && e.targetTitle === 'Quarterly Report');
+    expect(stillNamed?.targetDeleted).toBe(true);
+  });
 });

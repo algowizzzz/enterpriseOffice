@@ -3,6 +3,12 @@
 Everything a new session needs to pick this up. Written for an agent working on
 a Mac with Claude Code, and for the person reading over its shoulder.
 
+**Taking this over as an enterprise team deploying it, rather than continuing
+development with an AI agent? Read [`TEAM-HANDOFF.md`](TEAM-HANDOFF.md)
+first** — it covers air-gapped Windows and Linux deployment with no Docker,
+the full documentation index, and a cleanup checklist. This file remains the
+right one for a development agent picking the code back up.
+
 ## What this is
 
 DocForge is a browser-based word processor for air-gapped deployment: a Linux
@@ -41,12 +47,21 @@ everything below assumes it passes.
 
 | | |
 |---|---|
-| Commits | 38, all on `main` |
-| Server tests | 380 |
-| Client tests | 187 |
-| End-to-end checks | 29 |
-| Word round-trip fidelity | 1260 of 1260 measured items, across 50 documents |
-| Verify runs clean | Five consecutive, repeatedly |
+| Commits | 38 on `main`, 46 more on `enterprise-deploy-kit` |
+| Server tests | 643 |
+| Client tests | 293 |
+| End-to-end checks | 35 |
+| Word round-trip fidelity | Measured against a 40-document corpus checked into `data/` (`data/test-docs/`, `data/wide-corpus/`) |
+| Verify runs clean | Repeatedly, most recently 2026-09-22, after Standardized export (all four phases), the ribbon and Administration reorganisation, and audit-trail readability work |
+
+This section used to say 38 commits and describe comments, track changes and
+real-time co-editing as not built. Nineteen commits did exactly that in
+between, and this file was not updated to match: **`docs/11-status.md` is the
+current source of truth for what exists**, not this section or
+`docs/07-roadmap.md`'s "what to do next". Read it first. (That correction is
+itself now historical -- treat every number in this section as of the date at
+its end, not as permanently current, and re-verify with `npm run verify`
+and `npm test`'s own summary line before trusting any of it further.)
 
 Six adversarial review rounds have been run against the code, each one reading
 the previous round's fix. The defect table in `docs/05-testing.md` lists what
@@ -78,20 +93,61 @@ refuse it, which is worse: a refusal is visible, silent loss is not. Hence the
 4. `docs/06-fidelity.md` for what survives a Word round trip, and what does not.
 5. `docs/04-security.md` before touching authentication, sessions or uploads.
 6. `docs/03-api-reference.md` when adding or changing an endpoint.
-7. `docs/07-roadmap.md` for the open work, ranked, with the reasoning.
+7. `docs/07-roadmap.md` for the reasoning behind the original build order. Its
+   ranked list itself is superseded twice over by items 9 and 10 below, and
+   most of it has since been built regardless (see item 11): read it for
+   context, not for what to do next.
+8. `docs/08-enterprise-deployment.md` for installing on an air-gapped Linux server,
+   or `docs/13-windows-quickstart.md` for a Windows laptop. Neither needs anything
+   installed on the target first: the release archive already carries Node.
+9. `docs/09-requirements-fit.md` for where the build stands against an enterprise
+   policy workflow. Its build order replaces the roadmap's where they differ.
+10. `docs/10-product-requirements.md` for what the product has to be, its scope and
+    its build order. It replaces the order in 07 and 09.
+11. `docs/11-status.md` for where the build stands against it: done, partial, not
+    built, and what to expect of PDF. **Read this one first.**
+12. `docs/12-requirements-and-bom.md` for the plain-language requirements list and
+    full bill of materials to hand to a security or infrastructure review.
+13. `docs/14-word-like-shell.md` for what "make it look like Word" breaks down
+    into, what of that was already built before anyone asked, and the plan for
+    the one large piece left: a genuine tabbed ribbon.
+14. `docs/15-enterprise-redesign.md` for the plan to take the interface from
+    "functional" to enterprise-grade: a design-token system, the documents
+    home and administration console reconsidered, the rename to DocAI, and
+    the house-style/branding system, planned in technical detail but not yet
+    built. Read this before doing any further UI work: it sets the order.
+15. `docs/16-ai-integration.md`, decided 2026-09-22: **AI is now in scope**,
+    superseding the "out of scope by decision" framing in `docs/11-status.md`
+    and the "no model behind this yet" framing in `docs/14`'s "A document
+    assistant" section and in `docs/15`. This is a build spec, not a plan
+    only, and it is the first feature in this product's history that makes
+    an outbound network call by design — read its §7 before touching
+    anything that calls out to a model. §12's two open questions are
+    answered (private-address-only endpoints, no per-document opt-out) and
+    all five phases are built (§15): registered endpoints, workflow-group
+    prompts with their own CRUD, Chat and AI Analysis wired to a real
+    endpoint, and the Home/AI ribbon restructuring.
+16. `docs/17-standardized-export.md` for the administrator-configurable house
+    style: an export that overrides a document's own header, footer, heading
+    and body formatting, plus a logo, table borders and shading, and
+    table-of-contents styling. All four phases are built.
 
 ## What to do next
 
-`docs/07-roadmap.md` has the detail. In short, ranked by value against effort:
+Ignore `docs/07-roadmap.md`'s ranked list: every item on it except named styles
+and numbering is now built (see `docs/11-status.md`). The editor's own look
+(item 1 in this section as of earlier versions of this file) is also done as
+of 2026-09-22: a five-tab ribbon (Review/Access/Export/AI/History) with the
+Document/Original/Redline view switcher in the same single row, a Navigation
+pane and a zoom control, and Administration split into a tabbed console
+(Users/AI/Export/Audit) rather than one long page. What is actually left, in
+order of value against effort:
 
-1. **Real-time co-editing.** The one headline feature designed but not built.
-   The model and storage were chosen so a CRDT layer drops in. Two to three
-   weeks.
-2. **Named styles and numbering definitions.** The largest remaining fidelity
+1. **Named styles and numbering definitions.** The largest remaining fidelity
    gap: a document's own styles are flattened into direct formatting.
-3. **Print and PDF export.** The print stylesheet exists; pagination does not.
-4. **Find and replace**, which every word processor has and this does not.
-5. **Footnotes, comments and tracked changes**, in that order.
+2. Two things nobody has asked for yet, noted in `docs/11-status.md`: editing
+   the text inside a text box, and controls for margins, columns and section
+   breaks.
 
 Do not start any of them by widening the model without reading
 `CLAUDE.md`'s invariants. Each one needs the editor, the reader, the writer and
@@ -101,23 +157,33 @@ the validator moved together.
 
 Start Claude Code in the clone and give it something like this:
 
-> Read `HANDOVER.md` and `CLAUDE.md`, then `docs/07-roadmap.md`. Run
+> Read `HANDOVER.md` and `CLAUDE.md`, then `docs/11-status.md`. Run
 > `npm run verify` to confirm the tree is green before you change anything.
-> Then take on the first roadmap item. Keep `npm run verify` passing, add a
-> regression test with every fix, and run the fidelity harness before and after
-> anything that touches the Word reader or writer.
+> Then take on the first item in this file's "What to do next" section. Keep
+> `npm run verify` passing, add a regression test with every fix, and run the
+> fidelity harness before and after anything that touches the Word reader or
+> writer.
 
-Point it at one roadmap item at a time. The work that went badly in this
-project's history was always the work that changed a rule in one place and
-nothing else.
+Point it at one item at a time. The work that went badly in this project's
+history was always the work that changed a rule in one place and nothing
+else.
 
 ## What is deliberately not here
 
-- No real-time collaboration yet, only single-writer editing with optimistic
-  concurrency and version history.
-- No pagination: the editor shows one continuous page.
-- Named styles, numbering definitions, fields, footnotes, comments, tracked
-  changes, text boxes, shapes, charts and sections after the first are dropped
-  on import. `docs/06-fidelity.md` says so plainly and measures the rest.
+- No pagination: the editor shows one continuous page. Print and PDF export
+  paginate; the screen does not.
+- Named styles and numbering definitions are flattened into direct formatting
+  on import, along with text boxes, shapes, charts, SmartArt, embedded objects
+  and equations, which arrive, display and leave untouched but are not
+  editable here. `docs/11-status.md` lists exactly what is kept but not
+  editable, and `docs/06-fidelity.md` measures it.
 - No email. Password reset is an administrator action, by design: an air-gapped
   server has nowhere to send mail.
+- OCR of scanned PDFs, macros, mail merge and single sign-on: out of scope by
+  decision, not by omission.
+- Real-time co-editing, comments and tracked changes **are** here (see
+  `docs/11-status.md`); this file said otherwise until 2026-09-22.
+- AI (Chat and a configurable Analysis workflow) **is** here too, decided and
+  built 2026-09-22 (`docs/16-ai-integration.md`), opt-in per installation and
+  restricted to private-network endpoints only. This file's "No AI features"
+  line was accurate when first written and is not any more.

@@ -1,22 +1,66 @@
 /*
  * All styling is local. No web fonts are fetched, so the font stack names the
  * families bundled with the application and falls back to the system UI font.
+ *
+ * Colour is tokens, not values, everywhere in this file except one place on
+ * purpose: `.page` and everything inside it, which is the document itself.
+ * A document stays paper-coloured in light mode and in dark, because that is
+ * what it will be when it is printed or exported, and a screen that stopped
+ * matching what Word opens would defeat the reason this project exists.
+ * Everything else -- the navigation bar, every panel, every table, every
+ * menu -- is interface, and re-themes with these tokens.
  */
 
 :root {
   --bg: #f4f5f7;
   --surface: #ffffff;
-  --border: #d6d9de;
+  --surface-subtle: #fafbfc;    /* a side panel's own background: one step off the page */
+  --surface-raised: #ffffff;    /* a menu or a popover, lifted above the surface below it */
+  --border: #d9dee5;
+  --border-subtle: #eef0f3;     /* a divider or a table header that should recede */
   --text: #1c1f23;
   --muted: #6a7078;
   --accent: #2d5bd7;
   --accent-text: #ffffff;
-  --danger: #b4232c;
+  --accent-subtle: rgba(45, 91, 215, 0.1);
+  --danger: #b3261e;
+  --danger-subtle: #fdecec;
   --ok: #1f7a41;
+  --ok-subtle: #e8f5ed;
+  --warning: #8a5a00;
+  --warning-subtle: #fdf3e2;
   --shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+  --shadow-raised: 0 4px 16px rgba(0, 0, 0, 0.12);
   --radius: 6px;
   --font-ui: system-ui, "Segoe UI", "Liberation Sans", Arial, sans-serif;
   --font-doc: "Liberation Serif", "Times New Roman", Georgia, serif;
+  /* A person's own text-size preference, scaling everything but the document
+     itself (the editor has its own zoom for that). Set from App.tsx. */
+  --ui-scale: 1;
+}
+
+/* A generic, professional "enterprise blue": the register of colour common
+   to enterprise software in this sector, not any one company's brand. */
+:root[data-theme="dark"] {
+  --bg: #0f1720;
+  --surface: #17212e;
+  --surface-subtle: #1b2733;
+  --surface-raised: #22303f;
+  --border: #2c3a4a;
+  --border-subtle: #24313f;
+  --text: #e6e9ee;
+  --muted: #93a1b0;
+  --accent: #5b8dfa;
+  --accent-text: #0f1720;
+  --accent-subtle: rgba(91, 141, 250, 0.16);
+  --danger: #e5766d;
+  --danger-subtle: rgba(229, 118, 109, 0.16);
+  --ok: #5cc98d;
+  --ok-subtle: rgba(92, 201, 141, 0.16);
+  --warning: #e0a94c;
+  --warning-subtle: rgba(224, 169, 76, 0.16);
+  --shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+  --shadow-raised: 0 4px 16px rgba(0, 0, 0, 0.5);
 }
 
 * {
@@ -34,11 +78,15 @@ body {
   background: var(--bg);
   color: var(--text);
   font-family: var(--font-ui);
-  font-size: 14px;
+  font-size: calc(14px * var(--ui-scale));
   line-height: 1.5;
 }
 
 button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
   font: inherit;
   padding: 6px 12px;
   border: 1px solid var(--border);
@@ -46,6 +94,13 @@ button {
   background: var(--surface);
   color: var(--text);
   cursor: pointer;
+}
+
+/* Icon buttons throughout: an SVG from lucide-react, sized by the component
+   itself, that should never squash when its label wraps or its button is
+   narrow. */
+button svg {
+  flex-shrink: 0;
 }
 
 button:hover:not(:disabled) {
@@ -112,27 +167,81 @@ h2 {
   font-size: 13px;
 }
 
+/* The upload dialog: choosing a file and its options belongs to the act of
+   uploading, not a settings row sitting above the document list whether or
+   not anyone is about to upload anything. */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  background: rgba(0, 0, 0, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+.modal {
+  width: 100%;
+  max-width: 440px;
+  max-height: calc(100vh - 48px);
+  overflow-y: auto;
+  background: var(--surface);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-raised);
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.modal h2 {
+  margin: 0;
+}
+.modal .actions {
+  justify-content: flex-end;
+}
+
+/* A registered endpoint's own configuration, read-only, beside a picker
+   that only shows its name (Chat's endpoint choice, in Administration). */
+.endpoint-detail {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 4px 12px;
+  margin: 12px 0 0;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-subtle);
+  max-width: 480px;
+}
+.endpoint-detail dt {
+  color: var(--muted);
+  font-size: 0.85em;
+}
+.endpoint-detail dd {
+  margin: 0;
+}
+
 .error {
   color: var(--danger);
-  background: #fdecec;
-  border: 1px solid #f3c2c2;
+  background: var(--danger-subtle);
+  border: 1px solid var(--danger);
   border-radius: var(--radius);
   padding: 8px 12px;
 }
 
 .notice {
   color: var(--ok);
-  background: #e8f5ed;
-  border: 1px solid #b9dfc8;
+  background: var(--ok-subtle);
+  border: 1px solid var(--ok);
   border-radius: var(--radius);
   padding: 8px 12px;
 }
 
 /* Something was removed from the document: not an error, but not good news. */
 .notice-warning {
-  color: #8a5a00;
-  background: #fdf3e2;
-  border-color: #efd7a6;
+  color: var(--warning);
+  background: var(--warning-subtle);
+  border-color: var(--warning);
   display: flex;
   gap: 12px;
   align-items: baseline;
@@ -195,21 +304,54 @@ main {
   flex-direction: column;
 }
 
+/* The one place colour is chrome rather than a token that follows the
+   theme: a solid brand-coloured bar, the way most enterprise products keep
+   their top-level navigation a fixed colour whether the content beneath it
+   is light or dark. Defined once, in :root only -- deliberately not
+   redefined under :root[data-theme="dark"], so the bar never changes. The
+   value is the same blue as --accent's light-mode value, not a different
+   hue: one brand colour, used here at full strength instead of only on
+   links and buttons. */
+:root {
+  --chrome-bg: #2d5bd7;
+  --chrome-text: #ffffff;
+  --chrome-text-muted: rgba(255, 255, 255, 0.75);
+  --chrome-active-bg: rgba(255, 255, 255, 0.18);
+  --chrome-control-bg: rgba(255, 255, 255, 0.12);
+  --chrome-control-border: rgba(255, 255, 255, 0.32);
+}
+
 .app-nav {
   display: flex;
   align-items: center;
   gap: 16px;
   padding: 8px 16px;
-  background: var(--surface);
-  border-bottom: 1px solid var(--border);
+  background: var(--chrome-bg);
+  color: var(--chrome-text);
   flex-shrink: 0;
 }
 
 .brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
   font-weight: 700;
   border: none;
   background: none;
   font-size: 16px;
+  color: var(--chrome-text);
+}
+
+/* A small filled tile behind the wordmark's icon, the way most SaaS logos
+   pair a mark with a name rather than using the name alone. */
+.brand-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.18);
 }
 
 .nav-links {
@@ -218,15 +360,55 @@ main {
   flex: 1;
 }
 
+.nav-links button {
+  color: var(--chrome-text-muted);
+  background: none;
+  border: 1px solid transparent;
+}
+
+.nav-links button:hover:not(:disabled) {
+  border-color: var(--chrome-control-border);
+  color: var(--chrome-text);
+}
+
 .nav-links button.active {
-  border-color: var(--accent);
-  color: var(--accent);
+  background: var(--chrome-active-bg);
+  border-color: transparent;
+  color: var(--chrome-text);
+  font-weight: 600;
 }
 
 .nav-user {
   display: flex;
   align-items: center;
   gap: 12px;
+  color: var(--chrome-text);
+}
+
+.nav-user button {
+  background: var(--chrome-control-bg);
+  border-color: var(--chrome-control-border);
+  color: var(--chrome-text);
+}
+.nav-user button:hover:not(:disabled) {
+  border-color: var(--chrome-text);
+}
+
+/* Text size, everywhere but the document itself: see DisplayPreferences in
+   App.tsx. Same shape as .zoom-control, which is the editor's own version
+   of the same idea, scoped to the page. */
+.text-size-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--chrome-text-muted);
+}
+.text-size-control select {
+  font-size: 13px;
+  padding: 2px 4px;
+  background: var(--chrome-control-bg);
+  border-color: var(--chrome-control-border);
+  color: var(--chrome-text);
 }
 
 .page-wrap {
@@ -237,6 +419,45 @@ main {
   max-width: 1100px;
   margin: 0 auto;
   width: 100%;
+}
+
+/* Administration: a vertical section nav beside the content, so each
+   section (Users, AI, Export, Audit) is its own pane instead of one
+   long scrolling page. */
+.admin-layout {
+  display: flex;
+  align-items: flex-start;
+  gap: 24px;
+}
+.admin-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: none;
+  width: 160px;
+  position: sticky;
+  top: 0;
+}
+.admin-nav-item {
+  text-align: left;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  padding: 8px 12px;
+  font-size: 0.95em;
+  color: var(--muted);
+}
+.admin-nav-item:hover {
+  background: var(--accent-subtle);
+}
+.admin-nav-item.is-active {
+  background: var(--accent-subtle);
+  color: var(--text);
+  font-weight: 600;
+}
+.admin-content {
+  flex: 1;
+  min-width: 0;
 }
 
 .page-header {
@@ -262,6 +483,61 @@ main {
   border-radius: var(--radius);
 }
 
+/* A slice of the list by access, and a search by title, above the table. */
+.list-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+.filter-tabs {
+  display: flex;
+  gap: 4px;
+}
+.filter-tab {
+  border: 1px solid transparent;
+  background: none;
+  padding: 6px 12px;
+  border-radius: var(--radius);
+  color: var(--muted);
+}
+.filter-tab.is-active {
+  background: var(--accent-subtle);
+  color: var(--accent);
+  font-weight: 600;
+}
+.search-field {
+  display: inline-flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--muted);
+  min-width: 220px;
+  font-weight: 400;
+}
+.search-field input {
+  border: none;
+  background: none;
+  padding: 6px 0;
+  flex: 1;
+  color: var(--text);
+  min-width: 0;
+}
+.search-field input:focus {
+  outline: none;
+}
+/* A native search input draws its own decoration (a clear "×" in Chrome)
+   that fights this control's own border and icon otherwise. */
+.search-field input[type='search'] {
+  appearance: none;
+}
+
 /* Tables */
 
 .grid {
@@ -282,7 +558,7 @@ main {
 }
 
 .grid th {
-  background: #eef0f3;
+  background: var(--border-subtle);
   font-size: 12px;
   text-transform: uppercase;
   letter-spacing: 0.04em;
@@ -299,14 +575,157 @@ main {
   justify-content: flex-end;
 }
 
+/* The overflow "⋯" menu behind a row: see RowMenu.tsx. */
+.row-menu {
+  position: relative;
+  display: inline-block;
+}
+.row-menu-trigger {
+  padding: 4px 8px;
+}
+.row-menu-list {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 4px);
+  right: 0;
+  min-width: 190px;
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-raised);
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.row-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 10px;
+  border: none;
+  background: none;
+  border-radius: 4px;
+  justify-content: flex-start;
+  font-size: 13px;
+  text-align: left;
+}
+.row-menu-item:hover:not(:disabled) {
+  background: var(--bg);
+}
+.row-menu-item.danger {
+  color: var(--danger);
+}
+
+/* AnalysisPanel is written for the editor's side rail (fixed width, sticky,
+   a border on one side only). Reused inline, in a table row, it should just
+   fill the row instead. */
+.panel-embed .comments-panel {
+  width: auto;
+  position: static;
+  max-height: none;
+  border-left: none;
+  align-self: stretch;
+}
+
 .badge {
   display: inline-block;
   margin-left: 8px;
   padding: 1px 6px;
   font-size: 11px;
   border-radius: 10px;
-  background: #eef0f3;
+  background: var(--border-subtle);
   color: var(--muted);
+}
+
+/* The Standardized-export house style form: several small tables in a row. */
+.export-template-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.export-template-editor h3 {
+  margin: 12px 0 0;
+  font-size: 0.95em;
+}
+.export-template-editor table input[type='text'],
+.export-template-editor table input:not([type]) {
+  width: 100%;
+  min-width: 90px;
+}
+.export-template-editor table input[type='number'] {
+  width: 64px;
+}
+.logo-editor {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.logo-preview {
+  max-height: 40px;
+  max-width: 160px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 4px;
+  background: var(--surface);
+}
+
+/* A workflow group's prompt editor, expanded inline under its row. */
+.prompt-manager {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  background: var(--surface-subtle);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius);
+}
+.prompt-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.prompt-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.prompt-row span:not(.badge) {
+  flex: 1;
+}
+.prompt-row textarea {
+  flex: 1;
+}
+.prompt-row[draggable='true'] {
+  cursor: grab;
+}
+.prompt-row.is-dragging {
+  opacity: 0.5;
+}
+.prompt-row-summary {
+  background: var(--accent-subtle);
+  border-color: var(--accent);
+}
+.prompt-move {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+.prompt-move button {
+  padding: 0 4px;
+  line-height: 1.2;
+}
+.prompt-move button:disabled {
+  opacity: 0.3;
 }
 
 .inline-form {
@@ -318,6 +737,28 @@ main {
   padding: 16px;
   border: 1px solid var(--border);
   border-radius: var(--radius);
+}
+
+/* A checkbox reads better beside its label than stacked under it, which is
+   what the plain flex-column `label` rule above would otherwise do. */
+.inline-form .checkbox-field {
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  padding-bottom: 6px;
+}
+
+/* A textarea in an otherwise single-line form: give it the whole row rather
+   than the width `label`'s flex-column would otherwise leave it. */
+.inline-form .full-width {
+  flex-basis: 100%;
+}
+.inline-form textarea {
+  font: inherit;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  resize: vertical;
 }
 
 /* Editor */
@@ -431,9 +872,27 @@ main {
 }
 
 .tool {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
   min-width: 30px;
-  padding: 4px 8px;
+  height: 30px;
+  padding: 4px 7px;
   font-size: 13px;
+  line-height: 1;
+}
+
+/* An icon button stays square; one with a word beside the icon (the table
+   commands, mainly, where the icon alone would be ambiguous) is free to
+   widen instead of squeezing the word. */
+.tool:has(.tool-word) {
+  min-width: auto;
+}
+
+.tool-word {
+  font-size: 12px;
+  white-space: nowrap;
 }
 
 .tool.is-active {
@@ -443,12 +902,23 @@ main {
 }
 
 .tool-select {
+  height: 30px;
   padding: 4px 6px;
   font-size: 13px;
+  border-radius: var(--radius);
 }
 
 .tool-select-narrow {
   width: 72px;
+}
+
+/* A small glyph in front of a plain <select>, so it reads as one family with
+   the icon buttons either side of it instead of a stray native control. */
+.tool-select-icon {
+  display: inline-flex;
+  align-items: center;
+  color: var(--muted);
+  margin-right: -2px;
 }
 
 .tool-color input {
@@ -470,14 +940,25 @@ main {
   align-items: flex-start;
 }
 
-/* A4 width at 96 dpi with Word's default one-inch margins. */
+/* A4 width at 96 dpi with Word's default one-inch margins.
+ *
+ * Everything from here to the end of this rule's block, and everything
+ * describing what is drawn inside `.page` further down this file (headings,
+ * tables, tracked changes, comment highlights, footnotes, kept objects,
+ * spelling), uses fixed colours on purpose, not tokens: the document is
+ * paper, the same paper whichever theme is switched on around it, because
+ * that is what it is when it is printed or exported.
+ */
 .page {
   width: 794px;
   max-width: 100%;
   min-height: 1123px;
   padding: 96px;
-  background: var(--surface);
-  border: 1px solid var(--border);
+  /* Fixed, not tokened: paper is white in both themes. The shadow that
+     grounds it against whatever is behind it is allowed to follow the
+     theme, since that background is the interface, not the document. */
+  background: #ffffff;
+  border: 1px solid #d9dee5;
   box-shadow: var(--shadow);
   font-family: var(--font-doc);
   font-size: 12pt;
@@ -513,7 +994,7 @@ main {
 .page blockquote {
   margin: 0 0 10pt 24pt;
   padding-left: 12px;
-  border-left: 3px solid var(--border);
+  border-left: 3px solid #d9dee5;
   color: #333;
 }
 
@@ -549,7 +1030,7 @@ main {
 
 .page hr {
   border: none;
-  border-top: 1px solid var(--border);
+  border-top: 1px solid #d9dee5;
   margin: 12pt 0;
 }
 
@@ -568,12 +1049,23 @@ main {
 .status-bar {
   display: flex;
   flex-shrink: 0;
+  align-items: center;
   gap: 16px;
   padding: 6px 16px;
   background: var(--surface);
   border-top: 1px solid var(--border);
   font-size: 12px;
   color: var(--muted);
+}
+.zoom-control {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+}
+.zoom-control select {
+  font-size: 12px;
+  padding: 1px 2px;
 }
 
 .editor-loading {
@@ -626,10 +1118,11 @@ main {
 }
 
 /* A page break: the exporter turns this into a real break in the Word file. */
+/* Fixed, like `.page`: a marker drawn on paper that stays white either way. */
 .page-break {
   position: relative;
   margin: 24px 0;
-  border-top: 2px dashed var(--border);
+  border-top: 2px dashed #d9dee5;
   text-align: center;
 }
 
@@ -638,7 +1131,7 @@ main {
   top: -10px;
   background: #fff;
   padding: 0 8px;
-  color: var(--muted);
+  color: #6a7078;
   font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 0.08em;
@@ -678,10 +1171,12 @@ main {
   width: 100%;
   box-sizing: border-box;
   padding: 8px 96px;
-  color: var(--muted);
+  /* Fixed, like `.page` itself: this band is the document's own header or
+     footer text, drawn on paper that stays white in both themes. */
+  color: #6a7078;
   font-size: 13px;
   background: #fff;
-  border: 1px solid var(--border);
+  border: 1px solid #d9dee5;
   white-space: pre-wrap;
   word-break: break-word;
 }
@@ -701,4 +1196,710 @@ main {
     border: none;
     padding: 0 0 12px;
   }
+}
+
+/* Things kept from the Word file that the editor carries and does not edit. */
+.word-inline {
+  background: #eef1f5;
+  border-radius: 2px;
+  padding: 0 2px;
+  white-space: pre-wrap;
+  cursor: default;
+}
+.word-inline-hidden {
+  display: inline-block;
+  width: 0;
+  padding: 0;
+  overflow: hidden;
+}
+.word-inline-footnote,
+.word-inline-endnote {
+  vertical-align: super;
+  font-size: 0.75em;
+  background: none;
+  color: #1f4e79;
+}
+.word-inline-symbol,
+.word-inline-tab {
+  background: none;
+  padding: 0;
+}
+.word-inline-textbox,
+.word-inline-shape,
+.word-inline-chart,
+.word-inline-diagram,
+.word-inline-object,
+.word-inline-picture,
+.word-inline-equation {
+  display: inline-block;
+  border: 1px dashed #8a97a8;
+  background: #f6f8fb;
+  padding: 2px 6px;
+  font-size: 0.85em;
+  color: #3b4757;
+  max-width: 100%;
+}
+.word-block {
+  border: 1px dashed #8a97a8;
+  background: #f6f8fb;
+  padding: 8px 12px;
+  margin: 8px 0;
+  color: #3b4757;
+}
+.word-block-title {
+  font-size: 0.75em;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #6b7785;
+  margin-bottom: 4px;
+}
+.word-block-line {
+  white-space: pre-wrap;
+}
+.ProseMirror-selectednode.word-inline,
+.ProseMirror-selectednode.word-block {
+  outline: 2px solid #2e75b6;
+}
+
+/* The page, the view tabs and whichever side panel is open, side by side. */
+.editor-body {
+  display: flex;
+  align-items: stretch;
+  min-height: 0;
+  flex: 1;
+}
+.editor-main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  /* Without this, a flex item's default min-height is auto, meaning it will
+     not shrink below its own content's natural size. For an ordinary
+     document that is invisible; for a long one (a table of hundreds of
+     rows) it silently breaks the whole chain of "flex: 1; min-height: 0"
+     this file otherwise uses throughout, from .app down to .page-surface,
+     to make one inner region scroll instead of the whole window growing to
+     the document's full height. */
+  min-height: 0;
+  flex: 1;
+}
+
+/* Navigation: the document's own headings, as a jump list on the left. */
+.nav-pane {
+  width: 240px;
+  flex: none;
+  align-self: stretch;
+  overflow-y: auto;
+  max-height: calc(100vh - 110px);
+  position: sticky;
+  top: 0;
+  border-right: 1px solid var(--border);
+  background: var(--surface-subtle);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.nav-pane-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+.nav-pane-head h2 {
+  margin: 0;
+  font-size: 1rem;
+}
+.nav-pane-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.nav-pane-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: none;
+  background: none;
+  padding: 6px 8px;
+  border-radius: 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.nav-pane-item:hover {
+  background: var(--accent-subtle);
+}
+@media print {
+  .nav-pane {
+    display: none;
+  }
+}
+
+/* Comments: a column beside the page, and highlights on the words. */
+.editor-with-side {
+  display: flex;
+  /* Stretch, not flex-start: the side panels already set their own
+     align-self: stretch, so this only ever changed .editor. flex-start told
+     the flex algorithm not to size .editor to the row's height at all, so it
+     sized to its own content instead and grew to match it -- 48,000px for a
+     document with a 600-row table -- which is what "min-height: 0" further
+     down this file exists to prevent, and could not, because align-items
+     decided .editor's size before min-height was ever consulted. That
+     silently broke the one thing every flex: 1; min-height: 0; in this file
+     is for: an inner region scrolling instead of the window growing to the
+     whole document's height, which only became visible on a document long
+     enough to notice: the toolbar and ribbon scrolled away with it. */
+  align-items: stretch;
+  min-height: 0;
+  flex: 1;
+}
+.editor-with-side > .editor {
+  flex: 1;
+  min-width: 0;
+}
+.comments-panel {
+  width: 320px;
+  flex: none;
+  align-self: stretch;
+  overflow-y: auto;
+  max-height: calc(100vh - 110px);
+  position: sticky;
+  top: 0;
+  border-left: 1px solid var(--border);
+  background: var(--surface-subtle);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.comments-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+.comments-head h2 {
+  margin: 0;
+  font-size: 1rem;
+}
+.comment-thread {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.comment-thread-active {
+  border-color: #e0a800;
+  box-shadow: 0 0 0 2px rgba(224, 168, 0, 0.2);
+}
+.comment-thread-resolved {
+  opacity: 0.7;
+}
+.comment-quote {
+  margin: 0;
+  font-size: 0.85em;
+  color: #5b6673;
+  border-left: 3px solid #f2c94c;
+  padding-left: 8px;
+}
+.comment-meta {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  font-size: 0.85em;
+}
+.comment-body {
+  margin: 2px 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.comment-reply {
+  border-top: 1px solid var(--border-subtle);
+  padding-top: 6px;
+  margin-left: 10px;
+}
+.comment-actions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+.comments-panel textarea {
+  width: 100%;
+  min-height: 64px;
+  resize: vertical;
+  font: inherit;
+  padding: 6px;
+  box-sizing: border-box;
+}
+.danger-link {
+  color: var(--danger);
+}
+.comment-mark {
+  background: rgba(242, 201, 76, 0.45);
+  border-bottom: 2px solid #e0a800;
+  cursor: pointer;
+}
+.comment-mark-resolved {
+  background: rgba(160, 170, 180, 0.25);
+  border-bottom-color: #a0aab4;
+}
+.comment-mark-active {
+  background: rgba(242, 153, 74, 0.55);
+}
+@media print {
+  .comments-panel {
+    display: none;
+  }
+  .comment-mark {
+    background: none;
+    border: none;
+  }
+}
+
+/* AI-generated content: a chat reply, or an analysis run's output. Shown
+   above the content it describes, the same "say so first" placement as the
+   editor's own working-copy reminder. */
+.ai-disclaimer {
+  margin: 0;
+  padding: 6px 10px;
+  font-size: 0.85em;
+  color: var(--muted);
+  background: var(--border-subtle);
+  border-radius: var(--radius);
+}
+
+/* Chat: carries the open document as context (docs/16-ai-integration.md §6). */
+.chat-panel {
+  padding: 0;
+}
+.chat-panel .comments-head,
+.chat-panel .hint {
+  padding: 12px 12px 0;
+}
+.chat-messages {
+  flex: 1;
+  min-height: 120px;
+  overflow-y: auto;
+  padding: 8px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.chat-message {
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: 10px;
+  max-width: 90%;
+  overflow-wrap: anywhere;
+}
+.chat-message-assistant {
+  align-self: flex-start;
+  background: var(--border-subtle);
+}
+.chat-message-me {
+  align-self: flex-end;
+  background: var(--accent-subtle);
+}
+.chat-form {
+  display: flex;
+  gap: 8px;
+  padding: 10px 12px;
+  border-top: 1px solid var(--border);
+}
+.chat-form input {
+  flex: 1;
+}
+
+/* Analysis: runs a workflow group's prompts against the document
+   (docs/16-ai-integration.md §5). The same statement every time there is no
+   group set up for this kind of document, rather than an empty dropdown. */
+.analysis-empty {
+  padding: 4px 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: flex-start;
+}
+.analysis-controls {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.analysis-controls select {
+  flex: 1;
+}
+.analysis-results {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.analysis-results details {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 6px 10px;
+  background: var(--surface);
+}
+.analysis-results summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+.analysis-summary {
+  border: 1px solid var(--accent);
+  background: var(--accent-subtle);
+  border-radius: var(--radius);
+  padding: 8px 10px;
+}
+.analysis-summary h3 {
+  margin: 0 0 4px;
+  font-size: 0.95em;
+}
+
+/* Tracked changes, drawn as Word draws them. */
+.tracked-insertion {
+  color: #b3261e;
+  text-decoration: underline;
+  text-decoration-color: #b3261e;
+  background: none;
+}
+.tracked-deletion {
+  color: #b3261e;
+  text-decoration: line-through;
+}
+/* The redline view: what is unchanged steps back so the changes stand out. */
+.view-redline .page {
+  color: #7a8490;
+}
+.view-redline .page .tracked {
+  color: #b3261e;
+}
+/* Ribbon tabs: Home (the default; the formatting ribbon it names lives in
+   Toolbar.tsx, further down, and is not gated by this) and File (export,
+   history, sharing, locking), the same split Word draws between its ribbon
+   and its File/Backstage view. */
+.ribbon-tabs {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  padding: 6px 16px 0;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+}
+.ribbon-tab {
+  border: 1px solid transparent;
+  border-bottom: none;
+  border-radius: 6px 6px 0 0;
+  background: none;
+  padding: 6px 14px;
+  margin-bottom: -1px;
+}
+.ribbon-tab.is-active {
+  border-color: var(--border);
+  background: var(--surface);
+  font-weight: 600;
+}
+.ribbon-file {
+  padding: 8px 16px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+
+/* What is shown (Document/Original/Redline): orthogonal to which ribbon
+   tab is open, so it sits apart from the tabs (first, with its own
+   divider) rather than claiming a permanent row of its own. */
+.view-switcher {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+.ribbon-tabs-divider {
+  width: 1px;
+  align-self: stretch;
+  margin: 4px 8px 0;
+  background: var(--border);
+}
+
+/* The AI panel's own docked entry point (docs/16-ai-integration.md §2): a
+   floating launcher, independent of which ribbon tab is active. */
+.ai-launcher {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  z-index: 15;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  box-shadow: var(--shadow-raised);
+}
+.ai-launcher[aria-pressed='true'] {
+  background: var(--chrome-bg, var(--accent));
+}
+
+/* Chat and Analysis as sub-tabs of one panel, the same shape `.ribbon-tab`
+   already uses for the tabs and the view switcher. */
+.ai-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--border);
+}
+.ai-tab {
+  border: 1px solid transparent;
+  border-bottom: none;
+  border-radius: 6px 6px 0 0;
+  background: none;
+  padding: 6px 10px;
+  margin-bottom: -1px;
+}
+.ai-tab.is-active {
+  border-color: var(--border);
+  background: var(--surface);
+  font-weight: 600;
+}
+.ai-tabpanel {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.ai-panel .ai-disclaimer,
+.ai-panel .hint,
+.ai-panel .error,
+.ai-panel .analysis-empty,
+.ai-panel .analysis-controls,
+.ai-panel .analysis-results {
+  margin-left: 12px;
+  margin-right: 12px;
+}
+.ai-panel .ai-disclaimer {
+  margin-top: 8px;
+}
+.track-toggle {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-weight: 600;
+}
+.change-kind {
+  font-size: 0.75em;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 1px 5px;
+  border-radius: 3px;
+}
+.change-kind-insertion {
+  background: var(--ok-subtle);
+  color: var(--ok);
+}
+.change-kind-deletion {
+  background: var(--danger-subtle);
+  color: var(--danger);
+}
+
+/* Who else has the document open, and their cursors in the text. */
+.presence {
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+}
+.presence-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  color: #fff;
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+.save-offline {
+  color: var(--danger);
+}
+.collaboration-carets__caret,
+.collaboration-cursor__caret {
+  position: relative;
+  margin-left: -1px;
+  margin-right: -1px;
+  border-left: 1px solid;
+  border-right: 1px solid;
+  word-break: normal;
+  pointer-events: none;
+}
+.collaboration-carets__label,
+.collaboration-cursor__label {
+  position: absolute;
+  top: -1.4em;
+  left: -1px;
+  padding: 1px 5px;
+  border-radius: 3px 3px 3px 0;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: normal;
+  white-space: nowrap;
+  user-select: none;
+}
+
+/* Find and replace. */
+.find-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-subtle);
+}
+.find-bar input[type='text'],
+.find-bar input:not([type]) {
+  padding: 4px 8px;
+  min-width: 180px;
+}
+.find-count {
+  min-width: 64px;
+}
+.search-hit {
+  background: #fff3a3;
+}
+.search-hit-current {
+  background: #ffb74d;
+}
+@media print {
+  .find-bar,
+  .ribbon-tabs,
+  .editor-header,
+  .toolbar,
+  .status-bar {
+    display: none !important;
+  }
+}
+
+.upload-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  align-items: center;
+  margin: 8px 0 12px;
+  font-size: 0.9rem;
+}
+.upload-options select {
+  margin-left: 8px;
+}
+.badge-type {
+  background: var(--accent-subtle);
+  color: var(--accent);
+  margin-left: 8px;
+}
+.guide ol {
+  padding-left: 20px;
+  display: grid;
+  gap: 8px;
+}
+
+.page-notes {
+  border-top: 1px solid #b8c0cc;
+  margin: 24px 72px 0;
+  padding-top: 8px;
+  font-size: 0.85em;
+  color: #3b4757;
+}
+.page-notes p {
+  margin: 2px 0;
+}
+.word-inline-control {
+  border: 1px solid #8a97a8;
+  border-radius: 3px;
+  background: #fff;
+  padding: 0 4px;
+}
+
+/* Clause numbers, worked out as Word works them out, not typed. */
+.heading-number {
+  user-select: none;
+  color: inherit;
+}
+
+/* Spelling. */
+.spell-error {
+  text-decoration: underline wavy #d93025;
+  text-decoration-skip-ink: none;
+  text-underline-offset: 2px;
+}
+.spell-menu {
+  position: fixed;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  min-width: 200px;
+  padding: 4px;
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: var(--shadow-raised);
+}
+.spell-menu button {
+  border: none;
+  background: none;
+  text-align: left;
+  padding: 6px 10px;
+  border-radius: 4px;
+}
+.spell-menu button:hover {
+  background: var(--border-subtle);
+}
+.spell-menu-add {
+  border-top: 1px solid var(--border) !important;
+  color: var(--muted);
+}
+@media print {
+  .spell-error {
+    text-decoration: none;
+  }
+}
+
+/* Footnote and endnote marks number themselves by where they are in the text,
+   so a note added in the middle renumbers the ones after it, as Word does. */
+.page {
+  counter-reset: footnote endnote;
+}
+.word-inline-footnote::before {
+  counter-increment: footnote;
+  content: counter(footnote);
+}
+.word-inline-endnote::before {
+  counter-increment: endnote;
+  content: counter(endnote, lower-roman);
+}
+.word-inline-control select,
+.word-inline-control input {
+  font: inherit;
+  border: none;
+  background: transparent;
+}
+.page-notes .link {
+  margin-left: 8px;
+}
+
+/* A tracked change to the paragraph mark: Enter pressed, or a join. */
+.page [data-pm-change]::after {
+  content: '\00b6';
+  color: #b3261e;
+  margin-left: 2px;
+  user-select: none;
+}
+.page [data-pm-change='insertion']::after {
+  text-decoration: underline;
+}
+.page [data-pm-change='deletion']::after {
+  text-decoration: line-through;
 }

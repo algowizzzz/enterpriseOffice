@@ -195,6 +195,26 @@ describe('DocumentEditor', () => {
     expect(screen.getByRole('textbox')).toHaveAttribute('contenteditable', 'false');
   });
 
+  it('remembers zoom per person, in local storage, and offers zoom in and out', async () => {
+    window.localStorage.removeItem('docforge-zoom');
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    render(
+      <DocumentEditor initialContent={startingDoc} readOnly={false} onChange={() => {}} onDirty={() => {}} />,
+    );
+    await waitFor(() => expect(screen.getByRole('textbox')).toBeInTheDocument());
+
+    const zoomSelect = screen.getByTitle<HTMLSelectElement>('Zoom');
+    expect(zoomSelect.value).toBe('100');
+
+    await user.selectOptions(zoomSelect, '150');
+    expect(zoomSelect.value).toBe('150');
+    expect(window.localStorage.getItem('docforge-zoom')).toBe('150');
+
+    await user.click(screen.getByTitle('Zoom out'));
+    expect(zoomSelect.value).toBe('140');
+    expect(window.localStorage.getItem('docforge-zoom')).toBe('140');
+  });
+
   it('shows the formatting toolbar with the expected controls', async () => {
     render(
       <DocumentEditor
@@ -432,5 +452,102 @@ describe('a document the editor has to repair before it can show it', () => {
     expect(repairs).toEqual([]);
     expect(saved).toHaveLength(1);
     expect(validateDoc(saved[0] as PMNode).ok).toBe(true);
+  });
+});
+
+describe('what a Word file carries that the editor does not edit', () => {
+  // Everything the reader keeps by reference. Tiptap drops whatever its schema
+  // does not declare, without a word, on the first transaction: if any of this
+  // goes missing here, the export puts the document back together without it
+  // and the letterhead, the numbering or the chart is gone.
+  const carried: PMNode = {
+    type: 'doc',
+    content: [
+      {
+        type: 'heading',
+        attrs: { level: 1, styleId: 'Heading1', pprRef: 'aaaa000000000001', numLevel: 0 },
+        content: [{ type: 'text', text: 'Purpose' }],
+      },
+      {
+        type: 'paragraph',
+        attrs: {
+          styleId: 'PolicyClause',
+          pprRef: 'aaaa000000000002',
+          textAlign: 'justify',
+          indentLeft: 850,
+          indentRight: 120,
+          indentFirstLine: -425,
+          spacingBefore: 120,
+          spacingAfter: 240,
+          lineHeight: 1.15,
+        },
+        content: [
+          { type: 'text', text: 'Kept ' },
+          {
+            type: 'text',
+            text: 'Record Owner',
+            marks: [{ type: 'wordRun', attrs: { ref: 'bbbb000000000001', styleId: 'Defined', font: 'Georgia' } }],
+          },
+          { type: 'wordInline', attrs: { ref: 'cccc000000000001', kind: 'footnote', label: '1' } },
+          { type: 'wordInline', attrs: { ref: 'cccc000000000002', kind: 'bookmark', label: '' } },
+          { type: 'wordInline', attrs: { ref: 'cccc000000000003', kind: 'field', label: '18 September 2026' } },
+        ],
+      },
+      { type: 'paragraph', attrs: { lineExact: 360 }, content: [{ type: 'text', text: 'Exact' }] },
+      { type: 'wordBlock', attrs: { ref: 'dddd000000000001', kind: 'toc', label: 'Purpose 1\nSchedule 2' } },
+      {
+        type: 'orderedList',
+        attrs: { start: 1, numId: '7', numLevel: 0, listFormat: 'lowerLetter' },
+        content: [
+          { type: 'listItem', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'First' }] }] },
+        ],
+      },
+      {
+        type: 'table',
+        attrs: { tblRef: 'eeee000000000001', gridRef: 'eeee000000000002', gridColumns: 1 },
+        content: [
+          {
+            type: 'tableRow',
+            attrs: { trRef: 'eeee000000000003' },
+            content: [
+              {
+                type: 'tableCell',
+                attrs: { colspan: 1, rowspan: 1, tcRef: 'eeee000000000004', background: '#ffc000' },
+                content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Cell' }] }],
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  };
+
+  it('comes back out of the editor with all of it', async () => {
+    const { Editor } = await import('@tiptap/core');
+    const { withoutDefaults } = await import('../src/components/DocumentEditor');
+    const editor = new Editor({ extensions: editorExtensions, content: carried });
+    // A keystroke, so this is the document after a transaction and not only
+    // the one that was handed in.
+    editor.commands.insertContentAt(1, 'x');
+    editor.commands.deleteRange({ from: 1, to: 2 });
+    expect(withoutDefaults(editor.getJSON() as PMNode)).toEqual(carried);
+    editor.destroy();
+  });
+
+  it('is accepted by the rules every save is checked against', () => {
+    expect(validateDoc(carried)).toEqual({ ok: true, errors: [] });
+  });
+
+  it('draws what the paragraph states about itself', async () => {
+    const { Editor } = await import('@tiptap/core');
+    const editor = new Editor({ extensions: editorExtensions, content: carried });
+    const html = editor.getHTML();
+    expect(html).toContain('data-style="PolicyClause"');
+    // The serialiser folds the four margins into one declaration.
+    expect(html).toMatch(/margin: 8px 8px 16px 56\.67px/u);
+    expect(html).toMatch(/text-indent: -28\.33px/u);
+    expect(html).toContain('list-style-type: lower-alpha');
+    expect(html).toContain('data-run-style="Defined"');
+    editor.destroy();
   });
 });

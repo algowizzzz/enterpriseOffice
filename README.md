@@ -30,9 +30,12 @@ upload a Word file, edit it with a formatting ribbon, and export it again.
 | Export | `.docx` and plain text, as a browser download |
 | Safety | Optimistic concurrency, structural validation of every save, audit trail, rate-limited sign-in, content security policy |
 
-Real-time co-editing is designed but not built. The document model and the
-storage layer were chosen so that a CRDT layer drops in without reshaping them.
-See the architecture document.
+Real-time co-editing, comments, tracked changes, an optional AI assistant
+(chat and a configurable analysis workflow, opt-in per installation) and an
+administrator-configurable "Standardized export" house style are also built;
+see `HANDOVER.md` and `docs/11-status.md` for the current, maintained list —
+the table above and the rest of this file describe the original release and
+are not kept in step with everything since.
 
 ## Screenshots
 
@@ -59,9 +62,11 @@ DOCFORGE_ADMIN_PASSWORD='Choose-A-Strong-One-1' npm start
 
 Open `http://127.0.0.1:8080` and sign in as `admin@localhost`.
 
-Picking the work up from here: `HANDOVER.md` for the state of it and how to get
-running, `CLAUDE.md` for how to work in this repository, `docs/07-roadmap.md`
-for what to build next.
+Picking the work up from here: `TEAM-HANDOFF.md` if you are taking this over
+to deploy or operate it, `HANDOVER.md` for the state of it and how to get
+running with an AI coding agent, `CLAUDE.md` for how to work in this
+repository. `docs/07-roadmap.md` is the original build order and is
+historical; `docs/11-status.md` is current.
 
 For development with hot reload, run the two sides separately:
 
@@ -90,13 +95,14 @@ Install it where you want it with `npm install --no-save playwright`.
 
 Three layers, all runnable offline.
 
-**Server suite.** 380 tests. Fastify in-process injection over a fresh in-memory
+**Server suite.** 643 tests (as of this writing -- run `npm test` for the
+current count). Fastify in-process injection over a fresh in-memory
 database per test. Covers authentication, session revocation, role enforcement,
 the last administrator rule, document access control, optimistic concurrency,
 version history, the audit trail, migrations, configuration, and the `.docx`
 codec in both directions including hostile input.
 
-**Client suite.** 187 tests in jsdom, with the server module replaced. Covers the
+**Client suite.** 293 tests (as of this writing) in jsdom, with the server module replaced. Covers the
 request wrapper, the session provider, the router, all four pages and every
 ribbon control. Several tests assert that what the editor produces passes the
 same validator the server applies on save, so the two cannot drift apart.
@@ -142,6 +148,7 @@ an extension cannot be added to the editor without the server learning about it.
 | [`deploy/README.md`](deploy/README.md) | Building release artifacts and installing on Linux, Docker and Windows |
 | [`CONTRIBUTING.md`](CONTRIBUTING.md) | Setting up, the rules that are not negotiable, and where things live |
 | [`CHANGELOG.md`](CHANGELOG.md) | What has landed so far |
+| [`TEAM-HANDOFF.md`](TEAM-HANDOFF.md) | Taking this over as an enterprise team: air-gapped Windows and Linux deployment with no Docker, the full documentation index, and a cleanup checklist |
 
 ## Technology
 

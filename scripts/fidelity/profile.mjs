@@ -7,8 +7,18 @@
  */
 import { unzipSync, strFromU8 } from 'fflate';
 
-const textOf = (xml) =>
-  [...xml.matchAll(/<w:t(?:\s[^>]*)?>([\s\S]*?)<\/w:t>/gu)]
+/**
+ * Word writes a soft hyphen and a non-breaking hyphen as elements; other
+ * producers write them as the characters. They are the same thing, and a file
+ * that swaps one for the other has lost nothing.
+ */
+const withHyphensAsText = (xml) =>
+  xml
+    .replace(/<w:softHyphen\/>/gu, `<w:t>${String.fromCodePoint(0xad)}</w:t>`)
+    .replace(/<w:noBreakHyphen\/>/gu, `<w:t>${String.fromCodePoint(0x2011)}</w:t>`);
+
+const textOf = (source) =>
+  [...withHyphensAsText(source).matchAll(/<w:t(?:\s[^>]*)?>([\s\S]*?)<\/w:t>/gu)]
     .map((m) => decode(m[1]))
     .join('')
     .replace(/\s+/gu, ' ')

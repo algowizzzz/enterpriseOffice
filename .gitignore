@@ -20,4 +20,22 @@ packages/assets/dictionaries/
 # Build and test artifacts
 apps/server/dist/
 apps/web/dist/
-data/
+release/
+THIRD-PARTY-NOTICES.txt
+sbom.cdx.json
+.cache/
+
+# data/ holds the fidelity test corpus (data/test-docs/, data/wide-corpus/),
+# which is checked in. A local server's own runtime state is not, wherever it
+# happens to run from (repo root, or apps/server/ during `npm run dev:server`):
+# its database, secrets and log. **/ makes these match at any depth, not just
+# the repo root, since a second copy of them under apps/server/data/ is what
+# this rule missed the first time it was written.
+**/.admin-password
+**/.llm-secret-key
+**/docforge.db
+**/docforge.db-*
+data/*/roundtrip/
+data/*/rt2/
+data/*/out/
+data/wide-corpus/report.txt

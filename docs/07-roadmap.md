@@ -8,6 +8,11 @@ Read `CLAUDE.md` before starting any of them. Every item below moves the
 document model, and the model is shared by four things that must move together:
 the editor's schema, the Word reader, the Word writer and the validator.
 
+> **Read `09-requirements-fit.md` first.** Measured against a real set of
+> enterprise requirements, real-time co-editing is out of scope and comments,
+> a redline comparison and PDF export come first. The items below are still
+> right about approach and hard parts; the order in that document wins.
+
 ## 1. Real-time co-editing
 
 **Why.** It is the one headline capability designed for and not built. Today two

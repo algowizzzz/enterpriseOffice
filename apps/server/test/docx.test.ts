@@ -236,11 +236,12 @@ describe('upload and export through the portal', () => {
     expect(JSON.stringify(document.content)).toContain('First finding');
   });
 
-  it('rejects an upload that is not a .docx', async () => {
+  it('rejects an upload that is neither a Word file nor a PDF', async () => {
+    // A PDF was the example here until PDFs could be uploaded.
     const { payload, headers } = multipart(
-      Buffer.from('%PDF-1.7 not really a document'),
-      'notes.pdf',
-      'application/pdf',
+      Buffer.from('a,b,c\n1,2,3\n'),
+      'figures.csv',
+      'text/csv',
     );
     const response = await app.inject({
       method: 'POST',

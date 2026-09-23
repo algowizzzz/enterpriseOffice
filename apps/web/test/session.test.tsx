@@ -18,6 +18,22 @@ vi.mock('../src/lib/api', async () => {
       listDocuments: vi.fn().mockResolvedValue({ documents: [] }),
       listUsers: vi.fn().mockResolvedValue({ users: [] }),
       listAudit: vi.fn().mockResolvedValue({ entries: [] }),
+      listWorkflowGroups: vi.fn().mockResolvedValue({ groups: [] }),
+      listLlmEndpoints: vi.fn().mockResolvedValue({ endpoints: [] }),
+      getChatSettings: vi.fn().mockResolvedValue({ endpointId: null }),
+      getExportTemplate: vi.fn().mockResolvedValue({
+        template: {
+          header: { left: { content: '', fontFamily: 'Carlito', fontSize: 10, color: '#000000', bold: false, italic: false }, right: { content: '', fontFamily: 'Carlito', fontSize: 10, color: '#000000', bold: false, italic: false } },
+          footer: { left: { content: '', fontFamily: 'Carlito', fontSize: 10, color: '#000000', bold: false, italic: false }, right: { content: '', fontFamily: 'Carlito', fontSize: 10, color: '#000000', bold: false, italic: false } },
+          headings: Array.from({ length: 6 }, () => ({ fontFamily: 'Carlito', fontSize: 12, color: '#4472C4', bold: true, italic: false, spacingBeforePt: 12, spacingAfterPt: 6 })),
+          body: { fontFamily: 'Carlito', fontSize: 11, color: '#000000' },
+          logo: null,
+          table: { borderColor: '#BFBFBF', borderWidthPt: 0.5, headerRowBackground: '#D9E2F3', bandedRows: true, bandedRowBackground: '#F2F2F2' },
+          toc: [0, 12, 24].map((indentPt) => ({ fontFamily: 'Carlito', fontSize: 11, color: '#000000', indentPt })),
+          updatedAt: '2026-01-01T00:00:00.000Z',
+          updatedBy: null,
+        },
+      }),
       createDocument: vi.fn(),
       getDocument: vi.fn(),
       exportUrl: actual.api.exportUrl,
@@ -228,6 +244,26 @@ describe('application shell', () => {
     render(<App />);
     expect(await screen.findByRole('heading', { name: 'Documents' })).toBeInTheDocument();
     expect(screen.getByText('Eddie Editor')).toBeInTheDocument();
+  });
+
+  it('offers dark mode and a text size on every page, not only the editor', async () => {
+    window.localStorage.removeItem('docforge-theme');
+    mocked['me'].mockResolvedValue({ user: EDITOR });
+    const user = userEvent.setup();
+    render(<App />);
+    await screen.findByRole('heading', { name: 'Documents' });
+
+    expect(document.documentElement.dataset.theme).toBe('light');
+    const themeToggle = screen.getByRole('button', { name: 'Dark mode' });
+    expect(themeToggle).toHaveAttribute('aria-pressed', 'false');
+    await user.click(themeToggle);
+    expect(document.documentElement.dataset.theme).toBe('dark');
+    expect(window.localStorage.getItem('docforge-theme')).toBe('dark');
+    expect(themeToggle).toHaveAttribute('aria-pressed', 'true');
+
+    await user.selectOptions(screen.getByLabelText('Text size'), '125');
+    expect(document.documentElement.style.getPropertyValue('--ui-scale')).toBe('1.25');
+    expect(window.localStorage.getItem('docforge-ui-scale')).toBe('125');
   });
 
   it('offers administration only to an administrator', async () => {

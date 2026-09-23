@@ -10,6 +10,16 @@
       "url": "https://prosemirror.net/docs/guide/#generatable",
       "reason": "ProseMirror puts this address in the message of the error it throws when a schema cannot generate a required node. It is developer guidance in a string, never requested.",
       "source": "prosemirror-model, ContentMatch"
+    },
+    {
+      "url": "https://github.com/yjs/yjs/issues/438",
+      "reason": "Yjs prints this address in a console error if the library has been loaded twice. It is a literal inside that one message and nothing requests it.",
+      "source": "yjs, src/index.js"
+    },
+    {
+      "url": "https://tiptap.dev/api/extensions/collaboration-caret",
+      "reason": "Tiptap's collaboration caret puts this address in two console deprecation warnings, for an option and a command this project does not use. Text in a warning, never requested.",
+      "source": "@tiptap/extension-collaboration-caret, collaboration-caret.ts"
     }
   ]
 }
