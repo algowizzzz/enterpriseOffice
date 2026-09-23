@@ -343,13 +343,14 @@ describe('documents page', () => {
     const onOpen = vi.fn();
     const user = userEvent.setup();
     const { container } = await renderSignedIn(<DocumentsPage onOpen={onOpen} />);
-    await screen.findByRole('button', { name: 'Upload Word or PDF' });
+    await user.click(await screen.findByRole('button', { name: 'Upload Word or PDF' }));
 
     const input = container.querySelector('input[type="file"]') as HTMLInputElement;
     const file = new File(['bytes'], 'Report.docx', {
       type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
     });
     await user.upload(input, file);
+    await user.click(screen.getByRole('button', { name: 'Upload' }));
 
     await waitFor(() => expect(mocked['importDocx']).toHaveBeenCalledWith(file));
     await waitFor(() => expect(onOpen).toHaveBeenCalledWith('doc-up'));
@@ -361,7 +362,7 @@ describe('documents page', () => {
     );
     const user = userEvent.setup();
     const { container } = await renderSignedIn(<DocumentsPage onOpen={() => {}} />);
-    await screen.findByRole('button', { name: 'Upload Word or PDF' });
+    await user.click(await screen.findByRole('button', { name: 'Upload Word or PDF' }));
     const input = container.querySelector('input[type="file"]') as HTMLInputElement;
     await user.upload(
       input,
@@ -369,6 +370,7 @@ describe('documents page', () => {
         type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
       }),
     );
+    await user.click(screen.getByRole('button', { name: 'Upload' }));
     expect(await screen.findByRole('alert')).toHaveTextContent('Only .docx files can be uploaded.');
   });
 
@@ -379,9 +381,10 @@ describe('documents page', () => {
     });
     const user = userEvent.setup();
     const { container } = await renderSignedIn(<DocumentsPage onOpen={() => {}} />);
-    await screen.findByRole('button', { name: 'Upload Word or PDF' });
+    await user.click(await screen.findByRole('button', { name: 'Upload Word or PDF' }));
     const input = container.querySelector('input[type="file"]') as HTMLInputElement;
     await user.upload(input, new File(['x'], 'r.docx'));
+    await user.click(screen.getByRole('button', { name: 'Upload' }));
     expect(await screen.findByText(/larger than 2 MB/u)).toBeInTheDocument();
   });
 

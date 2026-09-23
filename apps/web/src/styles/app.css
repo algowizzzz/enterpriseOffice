@@ -167,6 +167,60 @@ h2 {
   font-size: 13px;
 }
 
+/* The upload dialog: choosing a file and its options belongs to the act of
+   uploading, not a settings row sitting above the document list whether or
+   not anyone is about to upload anything. */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  background: rgba(0, 0, 0, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+.modal {
+  width: 100%;
+  max-width: 440px;
+  max-height: calc(100vh - 48px);
+  overflow-y: auto;
+  background: var(--surface);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-raised);
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.modal h2 {
+  margin: 0;
+}
+.modal .actions {
+  justify-content: flex-end;
+}
+
+/* A registered endpoint's own configuration, read-only, beside a picker
+   that only shows its name (Chat's endpoint choice, in Administration). */
+.endpoint-detail {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 4px 12px;
+  margin: 12px 0 0;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-subtle);
+  max-width: 480px;
+}
+.endpoint-detail dt {
+  color: var(--muted);
+  font-size: 0.85em;
+}
+.endpoint-detail dd {
+  margin: 0;
+}
+
 .error {
   color: var(--danger);
   background: var(--danger-subtle);
@@ -645,7 +699,7 @@ main {
   border: 1px solid var(--border);
   border-radius: var(--radius);
 }
-.prompt-row span {
+.prompt-row span:not(.badge) {
   flex: 1;
 }
 .prompt-row textarea {
@@ -660,6 +714,18 @@ main {
 .prompt-row-summary {
   background: var(--accent-subtle);
   border-color: var(--accent);
+}
+.prompt-move {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+.prompt-move button {
+  padding: 0 4px;
+  line-height: 1.2;
+}
+.prompt-move button:disabled {
+  opacity: 0.3;
 }
 
 .inline-form {

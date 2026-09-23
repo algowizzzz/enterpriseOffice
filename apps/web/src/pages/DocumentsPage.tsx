@@ -91,6 +91,30 @@ export function DocumentsPage({ onOpen }: DocumentsPageProps): JSX.Element {
   const [docType, setDocType] = useState<DocumentType | ''>('');
   const [stripRunning, setStripRunning] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
+  const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
+  const [pendingFile, setPendingFile] = useState<File | null>(null);
+
+  const closeUploadDialog = (): void => {
+    setUploadDialogOpen(false);
+    setPendingFile(null);
+    setDocType('');
+    setStripRunning(false);
+    if (fileInput.current) fileInput.current.value = '';
+  };
+
+  useEffect(() => {
+    if (!uploadDialogOpen) return undefined;
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') {
+        setUploadDialogOpen(false);
+        setPendingFile(null);
+        setDocType('');
+        setStripRunning(false);
+      }
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [uploadDialogOpen]);
 
   const upload = async (file: File): Promise<void> => {
     setBusy(true);
@@ -102,12 +126,12 @@ export function DocumentsPage({ onOpen }: DocumentsPageProps): JSX.Element {
         ? api.importDocx(file, options)
         : api.importDocx(file));
       if (messages.length > 0) setNotice(messages.join(' '));
+      closeUploadDialog();
       onOpen(document.id);
     } catch (caught) {
       setError(caught instanceof ApiError ? caught.message : 'The upload failed.');
     } finally {
       setBusy(false);
-      if (fileInput.current) fileInput.current.value = '';
     }
   };
 
@@ -292,6 +316,11 @@ export function DocumentsPage({ onOpen }: DocumentsPageProps): JSX.Element {
         <div>
           <h1>Documents</h1>
           <p className="muted">Create a document, or upload a Word file or a PDF to keep working on it.</p>
+          {canCreate ? (
+            <button type="button" className="link" aria-expanded={helpOpen} onClick={() => setHelpOpen((open) => !open)}>
+              {helpOpen ? 'Hide the guide' : 'How this works'}
+            </button>
+          ) : null}
         </div>
         <div className="actions">
           <button
@@ -306,46 +335,72 @@ export function DocumentsPage({ onOpen }: DocumentsPageProps): JSX.Element {
           </button>
           <button
             type="button"
-            onClick={() => fileInput.current?.click()}
+            onClick={() => setUploadDialogOpen(true)}
             disabled={busy || !canCreate}
           >
             Upload Word or PDF
           </button>
-          <input
-            ref={fileInput}
-            type="file"
-            accept=".docx,.pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/pdf"
-            hidden
-            onChange={(event) => {
-              const file = event.target.files?.[0];
-              if (file) void upload(file);
-            }}
-          />
         </div>
       </header>
 
-      {canCreate ? (
-        <div className="upload-options">
-          <label title="Recorded with the document and shown beside its name">
-            Type of document for the next upload
-            <select value={docType} onChange={(event) => setDocType(event.target.value as DocumentType | '')}>
-              <option value="">Not stated</option>
-              {DOCUMENT_TYPES.map((type) => (
-                <option key={type} value={type}>
-                  {type}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label title="Leave the uploaded file's own header and footer out, so that the approved ones can be applied. The original file is kept either way">
-            <input type="checkbox" checked={stripRunning} onChange={(event) => setStripRunning(event.target.checked)} />{' '}
-            Remove the file&rsquo;s header and footer
-          </label>
-          <button type="button" className="link" aria-expanded={helpOpen} onClick={() => setHelpOpen((open) => !open)}>
-            {helpOpen ? 'Hide the guide' : 'How this works'}
-          </button>
+      {uploadDialogOpen ? (
+        <div className="modal-overlay" onClick={() => closeUploadDialog()}>
+          <div
+            className="modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="upload-dialog-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <h2 id="upload-dialog-title">Upload a Word file or a PDF</h2>
+            {error ? (
+              <p className="error" role="alert">
+                {error}
+              </p>
+            ) : null}
+            <label title="Recorded with the document and shown beside its name">
+              Type of document
+              <select value={docType} onChange={(event) => setDocType(event.target.value as DocumentType | '')}>
+                <option value="">Not stated</option>
+                {DOCUMENT_TYPES.map((type) => (
+                  <option key={type} value={type}>
+                    {type}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label title="Leave the uploaded file's own header and footer out, so that the approved ones can be applied. The original file is kept either way">
+              <input type="checkbox" checked={stripRunning} onChange={(event) => setStripRunning(event.target.checked)} />{' '}
+              Remove the file&rsquo;s header and footer
+            </label>
+            <label>
+              File
+              <input
+                ref={fileInput}
+                type="file"
+                accept=".docx,.pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/pdf"
+                onChange={(event) => setPendingFile(event.target.files?.[0] ?? null)}
+              />
+            </label>
+            <div className="actions">
+              <button type="button" className="link" onClick={() => closeUploadDialog()}>
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="primary"
+                disabled={!pendingFile || busy}
+                onClick={() => {
+                  if (pendingFile) void upload(pendingFile);
+                }}
+              >
+                {busy ? 'Uploading…' : 'Upload'}
+              </button>
+            </div>
+          </div>
         </div>
       ) : null}
+
       {helpOpen ? (
         <section className="panel guide" aria-label="How this works">
           <h2>How this works</h2>
@@ -380,7 +435,7 @@ export function DocumentsPage({ onOpen }: DocumentsPageProps): JSX.Element {
         <p className="hint">Your account can read documents shared with you, but not create them.</p>
       ) : null}
       {notice ? <p className="notice">{notice}</p> : null}
-      {error ? (
+      {error && !uploadDialogOpen ? (
         <p className="error" role="alert">
           {error}
         </p>

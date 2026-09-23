@@ -224,6 +224,16 @@ export function AdminPage(): JSX.Element {
     }
   };
 
+  const reorderAnalysisPrompts = async (group: WorkflowGroup, reordered: string[]): Promise<void> => {
+    setError(null);
+    try {
+      await api.reorderWorkflowGroupPrompts(group.id, reordered);
+      await load();
+    } catch (caught) {
+      setError(caught instanceof ApiError ? caught.message : 'Could not reorder those prompts.');
+    }
+  };
+
   /** Drag-and-drop reorder of the analysis prompts only; the summary prompt is pinned and never moves. */
   const dropPromptOn = async (group: WorkflowGroup, targetId: string): Promise<void> => {
     const draggedId = dragPromptId;
@@ -236,13 +246,19 @@ export function AdminPage(): JSX.Element {
     const reordered = [...analysisIds];
     reordered.splice(from, 1);
     reordered.splice(to, 0, draggedId);
-    setError(null);
-    try {
-      await api.reorderWorkflowGroupPrompts(group.id, reordered);
-      await load();
-    } catch (caught) {
-      setError(caught instanceof ApiError ? caught.message : 'Could not reorder those prompts.');
-    }
+    await reorderAnalysisPrompts(group, reordered);
+  };
+
+  /** The same reorder, one step at a time, for a keyboard- and screen-reader-reachable alternative to drag. */
+  const movePrompt = async (group: WorkflowGroup, promptId: string, direction: -1 | 1): Promise<void> => {
+    const analysisIds = group.prompts.filter((p) => p.role === 'analysis').map((p) => p.id);
+    const from = analysisIds.indexOf(promptId);
+    const to = from + direction;
+    if (from === -1 || to < 0 || to >= analysisIds.length) return;
+    const reordered = [...analysisIds];
+    const [moved] = reordered.splice(from, 1);
+    reordered.splice(to, 0, moved as string);
+    await reorderAnalysisPrompts(group, reordered);
   };
 
   /**
@@ -311,6 +327,9 @@ export function AdminPage(): JSX.Element {
       setError(caught instanceof ApiError ? caught.message : 'Could not update that endpoint.');
     }
   };
+
+  /** The endpoint Chat is explicitly set to, if any -- for showing its configuration alongside the picker. */
+  const chatEndpoint = llmEndpoints.find((endpoint) => endpoint.id === chatSettings.endpointId) ?? null;
 
   /** Which endpoint Chat itself uses; null falls back to the installation default. */
   const changeChatEndpoint = async (endpointId: string): Promise<void> => {
@@ -720,10 +739,10 @@ export function AdminPage(): JSX.Element {
                               </div>
                             ) : null}
                             <p className="hint">
-                              Analysis prompts run first, in this order; drag a row to reorder it.
+                              Analysis prompts run first, in this order: drag a row, or use its ↑ / ↓ buttons, to reorder it.
                             </p>
                             <ul className="prompt-list">
-                              {analysisPrompts.map((prompt) => (
+                              {analysisPrompts.map((prompt, index) => (
                                 <li
                                   key={prompt.id}
                                   className={`prompt-row${dragPromptId === prompt.id ? ' is-dragging' : ''}`}
@@ -732,6 +751,29 @@ export function AdminPage(): JSX.Element {
                                   onDragOver={(event) => event.preventDefault()}
                                   onDrop={() => void dropPromptOn(group, prompt.id)}
                                 >
+                                  <span className="badge">Step {index + 1}</span>
+                                  <div className="prompt-move">
+                                    <button
+                                      type="button"
+                                      className="link"
+                                      title="Move up"
+                                      aria-label={`Move step ${index + 1} up`}
+                                      disabled={index === 0}
+                                      onClick={() => void movePrompt(group, prompt.id, -1)}
+                                    >
+                                      ↑
+                                    </button>
+                                    <button
+                                      type="button"
+                                      className="link"
+                                      title="Move down"
+                                      aria-label={`Move step ${index + 1} down`}
+                                      disabled={index === analysisPrompts.length - 1}
+                                      onClick={() => void movePrompt(group, prompt.id, 1)}
+                                    >
+                                      ↓
+                                    </button>
+                                  </div>
                                   {editingPromptId === prompt.id ? (
                                     <>
                                       <textarea
@@ -920,6 +962,22 @@ export function AdminPage(): JSX.Element {
             ))}
           </select>
         </label>
+        {chatEndpoint ? (
+          <dl className="endpoint-detail">
+            <dt>URL</dt>
+            <dd className="mono">{chatEndpoint.url}</dd>
+            <dt>Authentication</dt>
+            <dd>{chatEndpoint.authScheme}</dd>
+            <dt>Secret</dt>
+            <dd>{chatEndpoint.hasSecret ? 'Set' : <span className="muted">None</span>}</dd>
+            <dt>Request format</dt>
+            <dd>{chatEndpoint.requestFormat}</dd>
+          </dl>
+        ) : (
+          <p className="hint">
+            The installation default is {llmEndpoints.find((endpoint) => endpoint.isDefault)?.name ?? 'not set'}.
+          </p>
+        )}
       </section>
       </>
       ) : null}
