@@ -40,6 +40,7 @@ export function AdminPage(): JSX.Element {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [activeSection, setActiveSection] = useState<'users' | 'ai' | 'export' | 'audit'>('users');
 
   const load = useCallback(async () => {
     try {
@@ -429,6 +430,30 @@ export function AdminPage(): JSX.Element {
       ) : null}
       {notice ? <p className="notice">{notice}</p> : null}
 
+      <div className="admin-layout">
+        <nav className="admin-nav" aria-label="Administration sections">
+          {(
+            [
+              ['users', 'Users'],
+              ['ai', 'AI'],
+              ['export', 'Export'],
+              ['audit', 'Audit'],
+            ] as const
+          ).map(([key, label]) => (
+            <button
+              key={key}
+              type="button"
+              className={`admin-nav-item${activeSection === key ? ' is-active' : ''}`}
+              aria-pressed={activeSection === key}
+              onClick={() => setActiveSection(key)}
+            >
+              {label}
+            </button>
+          ))}
+        </nav>
+        <div className="admin-content">
+      {activeSection === 'users' ? (
+      <>
       <section>
         <h2>Add an account</h2>
         <form
@@ -529,7 +554,11 @@ export function AdminPage(): JSX.Element {
           </tbody>
         </table>
       </section>
+      </>
+      ) : null}
 
+      {activeSection === 'ai' ? (
+      <>
       <section>
         <h2>Workflow groups</h2>
         <p className="hint">
@@ -892,7 +921,10 @@ export function AdminPage(): JSX.Element {
           </select>
         </label>
       </section>
+      </>
+      ) : null}
 
+      {activeSection === 'export' ? (
       <section>
         <h2>Export template</h2>
         <p className="hint">
@@ -1320,7 +1352,9 @@ export function AdminPage(): JSX.Element {
           </div>
         ) : null}
       </section>
+      ) : null}
 
+      {activeSection === 'audit' ? (
       <section>
         <h2>Audit trail</h2>
         <table className="grid">
@@ -1344,6 +1378,9 @@ export function AdminPage(): JSX.Element {
           </tbody>
         </table>
       </section>
+      ) : null}
+        </div>
+      </div>
     </div>
   );
 }

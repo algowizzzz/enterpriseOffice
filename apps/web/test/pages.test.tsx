@@ -109,6 +109,12 @@ const exportTemplateFixture = () => {
   };
 };
 
+/** AdminPage's sections are docked behind a vertical nav; a test for anything but Users switches to it first. */
+async function openAdminSection(name: 'Users' | 'AI' | 'Export' | 'Audit'): Promise<void> {
+  const user = userEvent.setup();
+  await user.click(await screen.findByRole('button', { name }));
+}
+
 const summary = (over: Partial<DocumentSummary> = {}): DocumentSummary => ({
   id: 'doc-1',
   title: 'Quarterly Report',
@@ -765,6 +771,7 @@ describe('administration page', () => {
       ],
     });
     await renderSignedIn(<AdminPage />, ADMIN);
+    await openAdminSection('Audit');
     expect(await screen.findByText('document.created')).toBeInTheDocument();
     expect(screen.getByText('doc-1')).toBeInTheDocument();
   });
@@ -784,11 +791,13 @@ describe('administration page', () => {
       ],
     });
     await renderSignedIn(<AdminPage />, ADMIN);
+    await openAdminSection('Audit');
     expect(await screen.findByText('anonymous')).toBeInTheDocument();
   });
 
   it('says so when there are no workflow groups yet', async () => {
     await renderSignedIn(<AdminPage />, ADMIN);
+    await openAdminSection('AI');
     expect(await screen.findByText('No workflow groups yet.')).toBeInTheDocument();
   });
 
@@ -812,6 +821,7 @@ describe('administration page', () => {
   it('lists a workflow group with its document type, default badge and prompt count', async () => {
     mocked['listWorkflowGroups'].mockResolvedValue({ groups: [policyGroup] });
     await renderSignedIn(<AdminPage />, ADMIN);
+    await openAdminSection('AI');
     expect(await screen.findByText('Policy prompts')).toBeInTheDocument();
     expect(screen.getByText('Checked against the template.')).toBeInTheDocument();
     // "Policy" also names an option in the document-type select above the
@@ -829,6 +839,7 @@ describe('administration page', () => {
     mocked['listWorkflowGroups'].mockResolvedValue({ groups: [policyGroup] });
     const user = userEvent.setup();
     await renderSignedIn(<AdminPage />, ADMIN);
+    await openAdminSection('AI');
     await user.click(await screen.findByRole('button', { name: 'Manage prompts' }));
     expect(screen.getByText('Summarise the findings above.')).toBeInTheDocument();
     expect(screen.getByText('Does it name an owner?')).toBeInTheDocument();
@@ -848,6 +859,7 @@ describe('administration page', () => {
     });
     const user = userEvent.setup();
     await renderSignedIn(<AdminPage />, ADMIN);
+    await openAdminSection('AI');
 
     await user.type(await screen.findByLabelText('Group name'), 'Standard prompts');
     await user.selectOptions(screen.getByLabelText('Document type'), 'Standard');
@@ -876,6 +888,7 @@ describe('administration page', () => {
     vi.spyOn(window, 'confirm').mockReturnValue(true);
     const user = userEvent.setup();
     await renderSignedIn(<AdminPage />, ADMIN);
+    await openAdminSection('AI');
     await user.click(await screen.findByRole('button', { name: 'Manage prompts' }));
 
     await user.type(screen.getByLabelText('New analysis prompt'), 'A third prompt.');
@@ -910,6 +923,7 @@ describe('administration page', () => {
     vi.spyOn(window, 'confirm').mockReturnValue(true);
     const user = userEvent.setup();
     await renderSignedIn(<AdminPage />, ADMIN);
+    await openAdminSection('AI');
 
     await user.click(await screen.findByRole('button', { name: 'Delete' }));
     await waitFor(() => expect(mocked['deleteWorkflowGroup']).toHaveBeenCalledWith('g1'));
@@ -917,6 +931,7 @@ describe('administration page', () => {
 
   it('says so when there are no LLM endpoints yet', async () => {
     await renderSignedIn(<AdminPage />, ADMIN);
+    await openAdminSection('AI');
     expect(await screen.findByText('No endpoints registered yet.')).toBeInTheDocument();
   });
 
@@ -938,6 +953,7 @@ describe('administration page', () => {
       ],
     });
     await renderSignedIn(<AdminPage />, ADMIN);
+    await openAdminSection('AI');
     // "Internal GPU box" also names an option in the Chat-settings select
     // below, so the row itself is found by its table cell, not just its text.
     const row = (await screen.findByRole('cell', { name: 'Internal GPU box' })).closest('tr');
@@ -965,6 +981,7 @@ describe('administration page', () => {
     });
     const user = userEvent.setup();
     await renderSignedIn(<AdminPage />, ADMIN);
+    await openAdminSection('AI');
 
     await user.type(await screen.findByLabelText('Endpoint name'), 'Internal GPU box');
     await user.type(screen.getByLabelText('URL'), 'http://10.0.0.5:8000/v1/chat/completions');
@@ -1005,6 +1022,7 @@ describe('administration page', () => {
     mocked['testLlmEndpoint'].mockResolvedValue({ ok: true, status: 200, message: 'Connected.' });
     const user = userEvent.setup();
     await renderSignedIn(<AdminPage />, ADMIN);
+    await openAdminSection('AI');
 
     await user.click(await screen.findByRole('button', { name: 'Test connection' }));
     expect(await screen.findByText('Connected.')).toBeInTheDocument();
@@ -1032,6 +1050,7 @@ describe('administration page', () => {
     vi.spyOn(window, 'confirm').mockReturnValue(true);
     const user = userEvent.setup();
     await renderSignedIn(<AdminPage />, ADMIN);
+    await openAdminSection('AI');
 
     await user.click(await screen.findByRole('button', { name: 'Delete' }));
     await waitFor(() => expect(mocked['deleteLlmEndpoint']).toHaveBeenCalledWith('e1'));
@@ -1039,6 +1058,7 @@ describe('administration page', () => {
 
   it('loads the export template with its default values', async () => {
     await renderSignedIn(<AdminPage />, ADMIN);
+    await openAdminSection('Export');
     expect(await screen.findByRole('heading', { name: 'Body text' })).toBeInTheDocument();
     expect(screen.getByLabelText('Body font')).toHaveValue('Carlito');
     expect(screen.getByLabelText('Body size')).toHaveValue(11);
@@ -1050,6 +1070,7 @@ describe('administration page', () => {
     mocked['updateExportTemplate'].mockResolvedValue({ template: saved });
     const user = userEvent.setup();
     await renderSignedIn(<AdminPage />, ADMIN);
+    await openAdminSection('Export');
     await screen.findByRole('heading', { name: 'Body text' });
 
     const bodyFont = screen.getByLabelText('Body font');
@@ -1071,6 +1092,7 @@ describe('administration page', () => {
 
   it('loads the table and table-of-contents styling with their default values', async () => {
     await renderSignedIn(<AdminPage />, ADMIN);
+    await openAdminSection('Export');
     expect(await screen.findByRole('heading', { name: 'Tables' })).toBeInTheDocument();
     expect(screen.getByLabelText('Table border colour')).toHaveValue('#bfbfbf');
     expect(screen.getByLabelText('Table banded rows')).toBeChecked();
@@ -1083,6 +1105,7 @@ describe('administration page', () => {
     mocked['updateExportTemplate'].mockResolvedValue({ template: saved });
     const user = userEvent.setup();
     await renderSignedIn(<AdminPage />, ADMIN);
+    await openAdminSection('Export');
     await screen.findByRole('heading', { name: 'Tables' });
 
     const borderWidth = screen.getByLabelText('Table border width');
@@ -1108,6 +1131,7 @@ describe('administration page', () => {
     mocked['updateExportTemplate'].mockRejectedValue(new ApiError(400, 'BAD_REQUEST', 'Unknown token {{document.owner}}.'));
     const user = userEvent.setup();
     await renderSignedIn(<AdminPage />, ADMIN);
+    await openAdminSection('Export');
     await screen.findByRole('heading', { name: 'Body text' });
 
     await user.click(screen.getByRole('button', { name: 'Save export template' }));
@@ -1116,6 +1140,7 @@ describe('administration page', () => {
 
   it('says so when no logo is set', async () => {
     await renderSignedIn(<AdminPage />, ADMIN);
+    await openAdminSection('Export');
     expect(await screen.findByText('No logo set.')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Remove logo' })).not.toBeInTheDocument();
   });
@@ -1125,6 +1150,7 @@ describe('administration page', () => {
     mocked['uploadExportLogo'].mockResolvedValue({ template: withLogo });
     const user = userEvent.setup();
     await renderSignedIn(<AdminPage />, ADMIN);
+    await openAdminSection('Export');
     await screen.findByText('No logo set.');
 
     const file = new File(['fake'], 'logo.png', { type: 'image/png' });
@@ -1144,6 +1170,7 @@ describe('administration page', () => {
     mocked['removeExportLogo'].mockResolvedValue({ template: exportTemplateFixture() });
     const user = userEvent.setup();
     await renderSignedIn(<AdminPage />, ADMIN);
+    await openAdminSection('Export');
     await screen.findByAltText('Current footer logo');
 
     await user.click(screen.getByRole('button', { name: 'Remove logo' }));
@@ -1160,6 +1187,7 @@ describe('administration page', () => {
     mocked['uploadExportLogo'].mockRejectedValue(new ApiError(415, 'UNSUPPORTED_MEDIA_TYPE', 'The logo must be a PNG or JPEG image.'));
     const user = userEvent.setup();
     await renderSignedIn(<AdminPage />, ADMIN);
+    await openAdminSection('Export');
     await screen.findByText('No logo set.');
 
     const file = new File(['<svg xmlns="http://www.w3.org/2000/svg"></svg>'], 'logo.png', { type: 'image/png' });

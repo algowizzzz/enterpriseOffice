@@ -367,6 +367,45 @@ main {
   width: 100%;
 }
 
+/* Administration: a vertical section nav beside the content, so each
+   section (Users, AI, Export, Audit) is its own pane instead of one
+   long scrolling page. */
+.admin-layout {
+  display: flex;
+  align-items: flex-start;
+  gap: 24px;
+}
+.admin-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: none;
+  width: 160px;
+  position: sticky;
+  top: 0;
+}
+.admin-nav-item {
+  text-align: left;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  padding: 8px 12px;
+  font-size: 0.95em;
+  color: var(--muted);
+}
+.admin-nav-item:hover {
+  background: var(--accent-subtle);
+}
+.admin-nav-item.is-active {
+  background: var(--accent-subtle);
+  color: var(--text);
+  font-weight: 600;
+}
+.admin-content {
+  flex: 1;
+  min-width: 0;
+}
+
 .page-header {
   display: flex;
   justify-content: space-between;
