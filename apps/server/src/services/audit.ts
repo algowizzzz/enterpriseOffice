@@ -76,9 +76,14 @@ export interface AuditRow {
   createdAt: string;
   actorId: string | null;
   actorEmail: string | null;
+  actorName: string | null;
   action: string;
   targetType: string | null;
   targetId: string | null;
+  /** The document's current title, when `targetType` is `document` -- a raw id means nothing to a person reading the trail. */
+  targetTitle: string | null;
+  /** The document named by `targetTitle` has since been deleted (soft-deleted rows keep their title forever). */
+  targetDeleted: boolean;
   detail: unknown;
   ip: string | null;
 }
@@ -86,10 +91,18 @@ export interface AuditRow {
 export function listAudit(db: Database, limit = 100, offset = 0): AuditRow[] {
   const rows = db
     .prepare(
-      `SELECT a.id, a.created_at, a.actor_id, u.email AS actor_email, a.action,
-              a.target_type, a.target_id, a.detail, a.ip
+      `SELECT a.id, a.created_at, a.actor_id, u.email AS actor_email, u.name AS actor_name, a.action,
+              a.target_type, a.target_id, a.detail, a.ip,
+              CASE
+                WHEN a.target_type = 'document' THEN d.title
+                WHEN a.target_type IN ('user', 'account') THEN tu.name
+                ELSE NULL
+              END AS target_title,
+              d.deleted_at AS target_deleted_at
          FROM audit_log a
          LEFT JOIN users u ON u.id = a.actor_id
+         LEFT JOIN documents d ON a.target_type = 'document' AND d.id = a.target_id
+         LEFT JOIN users tu ON a.target_type IN ('user', 'account') AND tu.id = a.target_id
         ORDER BY a.created_at DESC, a.id DESC
         LIMIT ? OFFSET ?`,
     )
@@ -99,9 +112,12 @@ export function listAudit(db: Database, limit = 100, offset = 0): AuditRow[] {
     createdAt: r['created_at'] as string,
     actorId: r['actor_id'] ?? null,
     actorEmail: r['actor_email'] ?? null,
+    actorName: r['actor_name'] ?? null,
     action: r['action'] as string,
     targetType: r['target_type'] ?? null,
     targetId: r['target_id'] ?? null,
+    targetTitle: r['target_title'] ?? null,
+    targetDeleted: Boolean(r['target_deleted_at']),
     detail: r['detail'] ? JSON.parse(r['detail']) : null,
     ip: r['ip'] ?? null,
   }));

@@ -759,24 +759,68 @@ describe('administration page', () => {
     expect(mocked['resetUserPassword']).not.toHaveBeenCalled();
   });
 
-  it('shows the audit trail', async () => {
+  it('shows the audit trail with a human-readable action and the document’s name', async () => {
     mocked['listAudit'].mockResolvedValue({
       entries: [
         {
           id: 'a1',
           createdAt: '2026-01-02T10:00:00.000Z',
           actorEmail: 'admin@localhost',
+          actorName: 'Ada Admin',
           action: 'document.created',
           targetType: 'document',
           targetId: 'doc-1',
+          targetTitle: 'Quarterly Report',
+          targetDeleted: false,
           detail: null,
         },
       ],
     });
     await renderSignedIn(<AdminPage />, ADMIN);
     await openAdminSection('Audit');
-    expect(await screen.findByText('document.created')).toBeInTheDocument();
-    expect(screen.getByText('doc-1')).toBeInTheDocument();
+    expect(await screen.findByText('Document created')).toBeInTheDocument();
+    expect(screen.getByText('Ada Admin')).toBeInTheDocument();
+    expect(screen.getByText('Quarterly Report')).toBeInTheDocument();
+    // The raw id is not shown once a name has been resolved for it.
+    expect(screen.queryByText('doc-1')).not.toBeInTheDocument();
+  });
+
+  it('marks a deleted document’s entry, and falls back to the raw id when nothing else names it', async () => {
+    mocked['listAudit'].mockResolvedValue({
+      entries: [
+        {
+          id: 'a1',
+          createdAt: '2026-01-02T10:00:00.000Z',
+          actorEmail: 'admin@localhost',
+          actorName: 'Ada Admin',
+          action: 'document.exported',
+          targetType: 'document',
+          targetId: 'doc-1',
+          targetTitle: 'Old Draft',
+          targetDeleted: true,
+          detail: null,
+        },
+        {
+          id: 'a2',
+          createdAt: '2026-01-02T10:05:00.000Z',
+          actorEmail: 'admin@localhost',
+          actorName: 'Ada Admin',
+          action: 'llm_endpoint.tested',
+          targetType: 'llm_endpoint',
+          targetId: 'e1',
+          targetTitle: null,
+          targetDeleted: false,
+          detail: null,
+        },
+      ],
+    });
+    await renderSignedIn(<AdminPage />, ADMIN);
+    await openAdminSection('Audit');
+    expect(await screen.findByText('Document exported')).toBeInTheDocument();
+    expect(screen.getByText('Old Draft')).toBeInTheDocument();
+    expect(screen.getByText('(deleted)')).toBeInTheDocument();
+    expect(screen.getByText('LLM endpoint tested')).toBeInTheDocument();
+    expect(screen.getByText('e1')).toBeInTheDocument();
   });
 
   it('labels an entry with no signed-in actor', async () => {

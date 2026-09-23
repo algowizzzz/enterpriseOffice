@@ -23,6 +23,16 @@ import {
 import { useSession } from '../lib/session';
 import { textField } from '../lib/forms';
 
+/** 'document.exported' -> 'Document exported'; 'llm_endpoint.tested' -> 'LLM endpoint tested'. */
+function humanizeAuditAction(action: string): string {
+  const label = action
+    .replace(/[._]/gu, ' ')
+    .split(' ')
+    .map((word) => (word === 'llm' ? 'LLM' : word))
+    .join(' ');
+  return label.charAt(0).toUpperCase() + label.slice(1);
+}
+
 export function AdminPage(): JSX.Element {
   const { user: currentUser } = useSession();
   const [users, setUsers] = useState<User[]>([]);
@@ -1421,16 +1431,35 @@ export function AdminPage(): JSX.Element {
               <th scope="col">When</th>
               <th scope="col">Who</th>
               <th scope="col">Action</th>
-              <th scope="col">Target</th>
+              <th scope="col">Document</th>
             </tr>
           </thead>
           <tbody>
             {audit.map((entry) => (
               <tr key={entry.id}>
                 <td>{new Date(entry.createdAt).toLocaleString()}</td>
-                <td>{entry.actorEmail ?? 'anonymous'}</td>
-                <td>{entry.action}</td>
-                <td className="mono">{entry.targetId ?? ''}</td>
+                <td>
+                  {entry.actorName ? (
+                    <>
+                      <span>{entry.actorName}</span> <span className="muted">({entry.actorEmail})</span>
+                    </>
+                  ) : (
+                    (entry.actorEmail ?? 'anonymous')
+                  )}
+                </td>
+                <td>{humanizeAuditAction(entry.action)}</td>
+                <td>
+                  {entry.targetTitle ? (
+                    <>
+                      <span>{entry.targetTitle}</span>
+                      {entry.targetDeleted ? <span className="muted"> (deleted)</span> : null}
+                    </>
+                  ) : entry.targetId ? (
+                    <span className="mono">{entry.targetId}</span>
+                  ) : (
+                    ''
+                  )}
+                </td>
               </tr>
             ))}
           </tbody>

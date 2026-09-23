@@ -242,9 +242,14 @@ export interface AuditEntry {
   id: string;
   createdAt: string;
   actorEmail: string | null;
+  actorName: string | null;
   action: string;
   targetType: string | null;
   targetId: string | null;
+  /** The document's (or user's) current name, when the target is one of those -- null for a raw id with nothing to resolve. */
+  targetTitle: string | null;
+  /** The document named by `targetTitle` has since been deleted. */
+  targetDeleted: boolean;
   detail: unknown;
 }
 
