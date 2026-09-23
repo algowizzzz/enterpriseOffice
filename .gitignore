@@ -20,8 +20,21 @@ packages/assets/dictionaries/
 # Build and test artifacts
 apps/server/dist/
 apps/web/dist/
-data/
 release/
 THIRD-PARTY-NOTICES.txt
 sbom.cdx.json
 .cache/
+
+# data/ holds the fidelity test corpus (data/test-docs/, data/wide-corpus/),
+# which is checked in, alongside a local server's own runtime state, which is
+# not: its database, secrets and log, and the corpus's own regenerated
+# roundtrip output.
+data/.admin-password
+data/.llm-secret-key
+data/docforge.db
+data/docforge.db-*
+data/server.log
+data/*/roundtrip/
+data/*/rt2/
+data/*/out/
+data/wide-corpus/report.txt
