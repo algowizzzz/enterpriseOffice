@@ -63,7 +63,6 @@ export function EditorPage({ documentId, onBack }: EditorPageProps): JSX.Element
   const [notice, setNotice] = useState<string | null>(null);
   const [versions, setVersions] = useState<VersionSummary[] | null>(null);
   const [shares, setShares] = useState<ShareEntry[] | null>(null);
-  const [setupOpen, setSetupOpen] = useState(false);
   const [navOpen, setNavOpen] = useState(false);
   // Five single-purpose ribbon tabs, grouped by what somebody is trying to
   // do rather than by when the button was added -- no "Home": the
@@ -77,7 +76,7 @@ export function EditorPage({ documentId, onBack }: EditorPageProps): JSX.Element
   const [ribbonTab, setRibbonTab] = useState<'review' | 'access' | 'export' | 'ai' | null>(null);
   const toggleRibbonTab = (name: NonNullable<typeof ribbonTab>): void =>
     setRibbonTab((current) => (current === name ? null : name));
-  const [side, setSide] = useState<'comments' | 'review' | 'ai' | null>(null);
+  const [side, setSide] = useState<'comments' | 'review' | 'ai' | 'setup' | 'versions' | 'shares' | null>(null);
   const commentsOpen = side === 'comments';
   const setCommentsOpen = (next: boolean | ((open: boolean) => boolean)): void =>
     setSide((current) => {
@@ -85,7 +84,7 @@ export function EditorPage({ documentId, onBack }: EditorPageProps): JSX.Element
       return open ? 'comments' : current === 'comments' ? null : current;
     });
   /** One slot on the right; opening one of these closes whichever else was open. */
-  const toggleSide = (name: 'review' | 'ai'): void =>
+  const toggleSide = (name: 'review' | 'ai' | 'setup'): void =>
     setSide((current) => (current === name ? null : name));
   // Which text is on the page: the document, the file as it was first
   // uploaded, or what has changed between the two.
@@ -311,13 +310,14 @@ export function EditorPage({ documentId, onBack }: EditorPageProps): JSX.Element
   };
 
   const openVersions = async (): Promise<void> => {
-    if (versions) {
-      setVersions(null);
+    if (side === 'versions') {
+      setSide(null);
       return;
     }
     try {
       const { versions: list } = await api.listVersions(documentId);
       setVersions(list);
+      setSide('versions');
     } catch (caught) {
       setError(caught instanceof ApiError ? caught.message : 'Could not load the version history.');
     }
@@ -339,6 +339,7 @@ export function EditorPage({ documentId, onBack }: EditorPageProps): JSX.Element
       setDocument(restored);
       setTitle(restored.title);
       setVersions(null);
+      setSide(null);
       setSaveState('saved');
       setError(null);
       // The message belonged to the content that has just been replaced.
@@ -354,8 +355,8 @@ export function EditorPage({ documentId, onBack }: EditorPageProps): JSX.Element
   };
 
   const openSharing = async (): Promise<void> => {
-    if (shares) {
-      setShares(null);
+    if (side === 'shares') {
+      setSide(null);
       return;
     }
     try {
@@ -365,6 +366,7 @@ export function EditorPage({ documentId, onBack }: EditorPageProps): JSX.Element
       ]);
       setShares(list);
       setDirectory(users.filter((candidate) => candidate.id !== user?.id));
+      setSide('shares');
     } catch (caught) {
       setError(caught instanceof ApiError ? caught.message : 'Could not load the sharing list.');
     }
@@ -567,8 +569,8 @@ export function EditorPage({ documentId, onBack }: EditorPageProps): JSX.Element
         {/* One action, so the tab performs it directly rather than revealing a row with a single, redundant button. */}
         <button
           type="button"
-          className={`ribbon-tab${versions !== null ? ' is-active' : ''}`}
-          aria-pressed={versions !== null}
+          className={`ribbon-tab${side === 'versions' ? ' is-active' : ''}`}
+          aria-pressed={side === 'versions'}
           onClick={() => void openVersions()}
         >
           <IconLabel icon={HistoryIcon} size={14}>
@@ -677,7 +679,7 @@ export function EditorPage({ documentId, onBack }: EditorPageProps): JSX.Element
               <IconLabel icon={FileText}>Original</IconLabel>
             </button>
           ) : null}
-          <button type="button" onClick={() => setSetupOpen((open) => !open)}>
+          <button type="button" aria-pressed={side === 'setup'} onClick={() => toggleSide('setup')}>
             <IconLabel icon={Settings2}>Page setup</IconLabel>
           </button>
           {view === 'redline' ? (
@@ -730,167 +732,6 @@ export function EditorPage({ documentId, onBack }: EditorPageProps): JSX.Element
             Dismiss
           </button>
         </p>
-      ) : null}
-
-      {setupOpen ? (
-        <aside className="panel">
-          <h2>Page setup</h2>
-          <p className="hint">
-            The header and footer are printed on every page and are written into the Word file.
-          </p>
-          <div className="page-setup">
-            <label>
-              Header
-              <input
-                value={document.pageSetup?.header ?? ''}
-                readOnly={readOnly}
-                maxLength={300}
-                placeholder="Nothing at the top of the page"
-                onChange={(event) => changeSetup({ header: event.target.value })}
-              />
-            </label>
-            <label>
-              Footer
-              <input
-                value={document.pageSetup?.footer ?? ''}
-                readOnly={readOnly}
-                maxLength={300}
-                placeholder="Nothing at the bottom of the page"
-                onChange={(event) => changeSetup({ footer: event.target.value })}
-              />
-            </label>
-            <label>
-              Orientation
-              <select
-                value={document.pageSetup?.orientation ?? 'portrait'}
-                disabled={readOnly}
-                onChange={(event) =>
-                  changeSetup({ orientation: event.target.value as PageSetup['orientation'] })
-                }
-              >
-                <option value="portrait">Portrait</option>
-                <option value="landscape">Landscape</option>
-              </select>
-            </label>
-          </div>
-        </aside>
-      ) : null}
-
-      {versions ? (
-        <aside className="panel">
-          <h2>Version history</h2>
-          <ul className="version-list">
-            {versions.map((version) => (
-              <li key={version.revision}>
-                <span>
-                  Revision {version.revision} by {version.authorName} on{' '}
-                  {new Date(version.createdAt).toLocaleString()}
-                </span>
-                {!readOnly && version.revision !== document.revision ? (
-                  <button type="button" onClick={() => void restore(version.revision)}>
-                    Restore
-                  </button>
-                ) : null}
-              </li>
-            ))}
-          </ul>
-        </aside>
-      ) : null}
-
-      {shares ? (
-        <aside className="panel">
-          <h2>Sharing</h2>
-          <AccessRequests documentId={documentId} onChanged={() => void api.listShares(documentId).then(({ shares: updated }) => setShares(updated))} />
-          {shares.length === 0 ? <p className="muted">Not shared with anyone yet.</p> : null}
-          <ul className="version-list">
-            {shares.map((share) => (
-              <li key={share.userId}>
-                <span>
-                  {share.name} can {share.permission}
-                </span>
-                <button
-                  type="button"
-                  title="Hand this document over. You keep edit access"
-                  onClick={() => {
-                    if (!window.confirm(`Make ${share.name} the owner of this document? You will keep edit access.`)) return;
-                    void (async () => {
-                      try {
-                        const { document: handed } = await api.transferOwnership(documentId, share.userId);
-                        setDocument((current) => (current ? { ...current, ...handed } : handed));
-                        setShares(null);
-                      } catch (caught) {
-                        setError(caught instanceof ApiError ? caught.message : 'Could not hand the document over.');
-                      }
-                    })();
-                  }}
-                >
-                  Make owner
-                </button>
-                <button
-                  type="button"
-                  className="danger"
-                  onClick={() => {
-                    void (async () => {
-                      try {
-                        const { shares: updated } = await api.unshare(documentId, share.userId);
-                        setShares(updated);
-                      } catch (caught) {
-                        setError(
-                          caught instanceof ApiError ? caught.message : 'Could not remove that share.',
-                        );
-                      }
-                    })();
-                  }}
-                >
-                  Remove
-                </button>
-              </li>
-            ))}
-          </ul>
-          <form
-            className="share-form"
-            onSubmit={(event) => {
-              event.preventDefault();
-              // Read the form before yielding: React clears currentTarget.
-              const form = new FormData(event.currentTarget);
-              const userId = textField(form, 'userId');
-              const permission = textField(form, 'permission', 'view') as 'view' | 'edit';
-              if (!userId) return;
-              void (async () => {
-                try {
-                  const { shares: updated } = await api.share(documentId, userId, permission);
-                  setShares(updated);
-                } catch (caught) {
-                  setError(
-                    caught instanceof ApiError ? caught.message : 'Could not share that document.',
-                  );
-                }
-              })();
-            }}
-          >
-            <label>
-              Person
-              <select name="userId" required>
-                <option value="">Choose a person</option>
-                {directory.map((candidate) => (
-                  <option key={candidate.id} value={candidate.id}>
-                    {candidate.name} ({candidate.email})
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              Permission
-              <select name="permission" defaultValue="view">
-                <option value="view">Can view</option>
-                <option value="edit">Can edit</option>
-              </select>
-            </label>
-            <button type="submit" className="primary">
-              Share
-            </button>
-          </form>
-        </aside>
       ) : null}
 
       <div className={`editor-body${navOpen ? ' has-nav' : ''}`}>
@@ -955,6 +796,180 @@ export function EditorPage({ documentId, onBack }: EditorPageProps): JSX.Element
             />
           ) : null}
           {side === 'ai' ? <AiPanel documentId={documentId} onClose={() => setSide(null)} /> : null}
+          {side === 'setup' ? (
+            <aside className="comments-panel" aria-label="Page setup">
+              <div className="comments-head">
+                <h2>Page setup</h2>
+                <button type="button" className="link" onClick={() => setSide(null)}>
+                  Close
+                </button>
+              </div>
+              <p className="hint">
+                The header and footer are printed on every page and are written into the Word file.
+              </p>
+              <div className="page-setup">
+                <label>
+                  Header
+                  <input
+                    value={document.pageSetup?.header ?? ''}
+                    readOnly={readOnly}
+                    maxLength={300}
+                    placeholder="Nothing at the top of the page"
+                    onChange={(event) => changeSetup({ header: event.target.value })}
+                  />
+                </label>
+                <label>
+                  Footer
+                  <input
+                    value={document.pageSetup?.footer ?? ''}
+                    readOnly={readOnly}
+                    maxLength={300}
+                    placeholder="Nothing at the bottom of the page"
+                    onChange={(event) => changeSetup({ footer: event.target.value })}
+                  />
+                </label>
+                <label>
+                  Orientation
+                  <select
+                    value={document.pageSetup?.orientation ?? 'portrait'}
+                    disabled={readOnly}
+                    onChange={(event) =>
+                      changeSetup({ orientation: event.target.value as PageSetup['orientation'] })
+                    }
+                  >
+                    <option value="portrait">Portrait</option>
+                    <option value="landscape">Landscape</option>
+                  </select>
+                </label>
+              </div>
+            </aside>
+          ) : null}
+          {side === 'versions' && versions ? (
+            <aside className="comments-panel" aria-label="Version history">
+              <div className="comments-head">
+                <h2>Version history</h2>
+                <button type="button" className="link" onClick={() => setSide(null)}>
+                  Close
+                </button>
+              </div>
+              <ul className="version-list">
+                {versions.map((version) => (
+                  <li key={version.revision}>
+                    <span>
+                      Revision {version.revision} by {version.authorName} on{' '}
+                      {new Date(version.createdAt).toLocaleString()}
+                    </span>
+                    {!readOnly && version.revision !== document.revision ? (
+                      <button type="button" onClick={() => void restore(version.revision)}>
+                        Restore
+                      </button>
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
+            </aside>
+          ) : null}
+          {side === 'shares' && shares ? (
+            <aside className="comments-panel" aria-label="Sharing">
+              <div className="comments-head">
+                <h2>Sharing</h2>
+                <button type="button" className="link" onClick={() => setSide(null)}>
+                  Close
+                </button>
+              </div>
+              <AccessRequests documentId={documentId} onChanged={() => void api.listShares(documentId).then(({ shares: updated }) => setShares(updated))} />
+              {shares.length === 0 ? <p className="muted">Not shared with anyone yet.</p> : null}
+              <ul className="version-list">
+                {shares.map((share) => (
+                  <li key={share.userId}>
+                    <span>
+                      {share.name} can {share.permission}
+                    </span>
+                    <button
+                      type="button"
+                      title="Hand this document over. You keep edit access"
+                      onClick={() => {
+                        if (!window.confirm(`Make ${share.name} the owner of this document? You will keep edit access.`)) return;
+                        void (async () => {
+                          try {
+                            const { document: handed } = await api.transferOwnership(documentId, share.userId);
+                            setDocument((current) => (current ? { ...current, ...handed } : handed));
+                            setShares(null);
+                            setSide(null);
+                          } catch (caught) {
+                            setError(caught instanceof ApiError ? caught.message : 'Could not hand the document over.');
+                          }
+                        })();
+                      }}
+                    >
+                      Make owner
+                    </button>
+                    <button
+                      type="button"
+                      className="danger"
+                      onClick={() => {
+                        void (async () => {
+                          try {
+                            const { shares: updated } = await api.unshare(documentId, share.userId);
+                            setShares(updated);
+                          } catch (caught) {
+                            setError(
+                              caught instanceof ApiError ? caught.message : 'Could not remove that share.',
+                            );
+                          }
+                        })();
+                      }}
+                    >
+                      Remove
+                    </button>
+                  </li>
+                ))}
+              </ul>
+              <form
+                className="share-form"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  // Read the form before yielding: React clears currentTarget.
+                  const form = new FormData(event.currentTarget);
+                  const userId = textField(form, 'userId');
+                  const permission = textField(form, 'permission', 'view') as 'view' | 'edit';
+                  if (!userId) return;
+                  void (async () => {
+                    try {
+                      const { shares: updated } = await api.share(documentId, userId, permission);
+                      setShares(updated);
+                    } catch (caught) {
+                      setError(
+                        caught instanceof ApiError ? caught.message : 'Could not share that document.',
+                      );
+                    }
+                  })();
+                }}
+              >
+                <label>
+                  Person
+                  <select name="userId" required>
+                    <option value="">Choose a person</option>
+                    {directory.map((candidate) => (
+                      <option key={candidate.id} value={candidate.id}>
+                        {candidate.name} ({candidate.email})
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  Permission
+                  <select name="permission" defaultValue="view">
+                    <option value="view">Can view</option>
+                    <option value="edit">Can edit</option>
+                  </select>
+                </label>
+                <button type="submit" className="primary">
+                  Share
+                </button>
+              </form>
+            </aside>
+          ) : null}
           </div>
         </div>
       </div>
