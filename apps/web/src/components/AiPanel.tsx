@@ -11,9 +11,9 @@ interface AiPanelProps {
 
 /**
  * Chat and Analysis as two sub-tabs of one panel (docs/16-ai-integration.md
- * §2), matching the `view-tabs` pattern `EditorPage.tsx` already uses for
- * Document/Original/Redline: one in-place switch, not two separate toggles
- * opening the same side slot. Comments and Review stay their own toggles
+ * §2), matching the `view-switcher` pattern `EditorPage.tsx` already uses
+ * for Document/Original/Redline: one in-place switch, not two separate
+ * toggles opening the same side slot. Comments and Review stay their own toggles
  * (§11): a person reviewing a document and a model reviewing it are
  * different trust relationships, and this tab strip is for the second one.
  */

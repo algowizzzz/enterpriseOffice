@@ -505,6 +505,42 @@ export function EditorPage({ documentId, onBack }: EditorPageProps): JSX.Element
        * so it is reachable without first switching tabs.
        */}
       <nav className="ribbon-tabs" aria-label="Ribbon">
+        {/*
+         * What is shown (Document/Original/Redline) comes first: it is
+         * orthogonal to what somebody is trying to do (the tabs after it),
+         * and needs to stay visible and reachable regardless of which of
+         * those is open. Redline is a comparison view of original vs. now;
+         * Track changes (in the Review tab's row) is what records new
+         * edits as they happen. Different questions, both worth keeping.
+         */}
+        <div className="view-switcher" role="group" aria-label="What is shown">
+          {(
+            [
+              ['document', 'Document', 'The document as it stands, for editing', FileText],
+              ['original', 'Original', 'The document as it was first created or uploaded', HistoryIcon],
+              [
+                'redline',
+                'Redline',
+                'Everything that has changed since the original: removed text struck out, new text underlined',
+                GitCompareArrows,
+              ],
+            ] as const
+          ).map(([name, label, hint, Icon]) => (
+            <button
+              key={name}
+              type="button"
+              title={hint}
+              className={`ribbon-tab view-tab${view === name ? ' is-active' : ''}`}
+              aria-pressed={view === name}
+              onClick={() => void show(name)}
+            >
+              <IconLabel icon={Icon} size={14}>
+                {label}
+              </IconLabel>
+            </button>
+          ))}
+        </div>
+        <div className="ribbon-tabs-divider" aria-hidden="true" />
         {(
           [
             ['review', 'Review', GitCompareArrows],
@@ -644,6 +680,23 @@ export function EditorPage({ documentId, onBack }: EditorPageProps): JSX.Element
           <button type="button" onClick={() => setSetupOpen((open) => !open)}>
             <IconLabel icon={Settings2}>Page setup</IconLabel>
           </button>
+          {view === 'redline' ? (
+            <button
+              type="button"
+              title="Download this comparison as a Word file with revision marks that can be accepted or rejected in Word"
+              onClick={() => void download('docx', { compare: '1' })}
+            >
+              <IconLabel icon={FileDown}>Export redline to Word</IconLabel>
+            </button>
+          ) : (
+            <button
+              type="button"
+              title="Download the document with every tracked change accepted"
+              onClick={() => void download('docx', { changes: 'accepted' })}
+            >
+              <IconLabel icon={FileDown}>Export with changes accepted</IconLabel>
+            </button>
+          )}
         </div>
       ) : null}
 
@@ -843,57 +896,6 @@ export function EditorPage({ documentId, onBack }: EditorPageProps): JSX.Element
       <div className={`editor-body${navOpen ? ' has-nav' : ''}`}>
         {navOpen ? <NavigationPane editor={view === 'document' ? editor : null} onClose={() => setNavOpen(false)} /> : null}
         <div className="editor-main">
-          <nav className="view-tabs" aria-label="What is shown">
-            {(
-              [
-                ['document', 'Document', 'The document as it stands, for editing', FileText],
-                ['original', 'Original', 'The document as it was first created or uploaded', HistoryIcon],
-                [
-                  'redline',
-                  'Redline',
-                  'Everything that has changed since the original: removed text struck out, new text underlined',
-                  GitCompareArrows,
-                ],
-              ] as const
-            ).map(([name, label, hint, Icon]) => (
-              <button
-                key={name}
-                type="button"
-                title={hint}
-                className={`view-tab${view === name ? ' is-active' : ''}`}
-                aria-pressed={view === name}
-                onClick={() => void show(name)}
-              >
-                <IconLabel icon={Icon} size={14}>
-                  {label}
-                </IconLabel>
-              </button>
-            ))}
-            {view === 'redline' ? (
-              <button
-                type="button"
-                className="link"
-                title="Download this comparison as a Word file with revision marks that can be accepted or rejected in Word"
-                onClick={() => void download('docx', { compare: '1' })}
-              >
-                <IconLabel icon={FileDown} size={14}>
-                  Export redline to Word
-                </IconLabel>
-              </button>
-            ) : null}
-            {view === 'document' ? (
-              <button
-                type="button"
-                className="link"
-                title="Download the document with every tracked change accepted"
-                onClick={() => void download('docx', { changes: 'accepted' })}
-              >
-                <IconLabel icon={FileDown} size={14}>
-                  Export with changes accepted
-                </IconLabel>
-              </button>
-            ) : null}
-          </nav>
           <div className={`editor-with-side${side ? ' has-side' : ''} view-${view}`}>
           {epoch !== undefined && !sharedFailed && !live && view === 'document' ? (
             <p className="muted page-wrap">Joining the document…</p>
